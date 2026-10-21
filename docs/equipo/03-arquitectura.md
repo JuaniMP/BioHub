@@ -58,12 +58,41 @@ En servicio-cientifico: `cientifico.registro.{controller,service,domain,infrastr
 | D8 | El gateway lee el cuerpo con límite (10MB) y no lee cuerpo en GET/HEAD/OPTIONS/DELETE | Evita DoS por memoria (SEC-03) |
 | D9 | BUG-01 de QA vs SEC-06 de seguridad (contradicción sobre path traversal): **decide Tech Lead** → era un falso positivo de curl; se añade igualmente validación de rutas en el proxy (400) | Defensa en profundidad |
 | D10 | Pendientes de seguridad asignados a historias: usuarios RabbitMQ por servicio (SEC-04), API Key como ROLE_API_CLIENT (SEC-05), usuario Flyway vs aplicación (SEC-11), reglas por rol + `denyAll` por defecto (SEC-02) | Requieren modelo/endpoints que aún no existen |
-| D11 | **Despliegue:** webs (web-interna y web-publica) en **Vercel** (plan Hobby, gratis); backend completo (gateway, servicios, MySQL, Redis, RabbitMQ, Keycloak) **on-premise** con Docker Compose en una sola máquina, expuesto a internet con un **túnel** (sin abrir puertos del router) | Costo cero; mismo compose que en desarrollo; la separación entre servicios es lógica (esquema + usuario por servicio), no requiere varias máquinas |
+| D11 | **Despliegue:** webs (web-interna y web-publica) en **Vercel** (plan Hobby, gratis); backend completo (gateway, servicios, MySQL, Redis, RabbitMQ, Keycloak) **on-premise en UNA sola máquina virtual**, cada componente como contenedor Docker (Docker Compose). **Tailscale** para la conectividad segura: acceso privado del equipo a la VM y publicación HTTPS del gateway y Keycloak con Tailscale Funnel | Costo cero; mismo compose que en desarrollo; la separación entre servicios es lógica (esquema + usuario por servicio) y por contenedores, no requiere varias VMs; Tailscale evita abrir puertos en el router y cifra todo el tráfico |
 
 ### Notas de despliegue (D11) – para devops
-- Solo se expone por el túnel un **reverse proxy** (Caddy/Nginx) que enruta `/api/**` → api-gateway y `/realms/**`, `/resources/**` → Keycloak. MySQL, Redis, RabbitMQ y los servicios **nunca** se exponen.
-- Túnel sugerido: **Tailscale Funnel** (gratis, hostname estable `https://<maquina>.<tailnet>.ts.net`). Alternativa: Cloudflare Tunnel *con nombre* (requiere un dominio propio en Cloudflare, ~10 USD/año). **No** usar los "quick tunnels" de Cloudflare: la URL cambia en cada reinicio y rompe Keycloak y la config de Vercel.
-- Keycloak en modo producción (`start`, BD propia, `KC_HOSTNAME` = URL pública, `KC_PROXY_HEADERS=xforwarded`); eliminar el cliente `biohub-pruebas` y los usuarios de prueba.
+
+**Topología**
+```
+                      Internet
+                         │ HTTPS
+          ┌──────────────┴──────────────┐
+   Vercel (gratis)              Tailscale Funnel (https://<vm>.<tailnet>.ts.net)
+   web-interna, web-publica              │  solo /api/** y /realms/**, /resources/**
+                                         ▼
+ ┌──────────── UNA máquina virtual on-premise (Ubuntu Server) ─────────────┐
+ │  Tailscale (cliente)   ── red privada del equipo (tailnet, cifrada)     │
+ │  Caddy/Nginx (reverse proxy, único punto de entrada)                    │
+ │    ├► api-gateway ─► servicio-cientifico / equipos / consulta-publica / reportes
+ │    └► keycloak                                                          │
+ │  mysql-transaccional, mysql-lectura, mysql-analitica, mysql-gateway,    │
+ │  redis, rabbitmq  (red Docker interna, SIN puertos publicados)          │
+ └─────────────────────────────────────────────────────────────────────────┘
+        ▲ Tailscale (solo miembros del equipo)
+  SSH, consola admin de Keycloak, panel RabbitMQ, clientes MySQL
+```
+
+**Tailscale: dos usos**
+1. **Acceso privado del equipo (tailnet).** Cada integrante instala Tailscale e ingresa a la misma tailnet. Desde ahí entra a la VM por SSH (Tailscale SSH), a la consola de Keycloak, al panel de RabbitMQ y a los MySQL **sin que nada de eso esté en internet**. El router de la casa/universidad no abre ningún puerto.
+2. **Publicación (Tailscale Funnel).** Solo el reverse proxy se publica por Funnel con HTTPS y certificado automático en una URL fija `https://<vm>.<tailnet>.ts.net`. Funnel solo admite los puertos 443, 8443 y 10000, por eso todo pasa por un único proxy que enruta por ruta.
+
+**Reglas de seguridad**
+- ACLs de Tailscale: solo los 4 integrantes (y la VM) en la tailnet; SSH solo para el equipo. Activar autenticación en dos pasos en las cuentas que inician sesión en Tailscale.
+- Firewall de la VM (`ufw`): denegar todo lo entrante salvo la interfaz `tailscale0`.
+- En el compose de producción: **ningún** `ports:` para MySQL, Redis, RabbitMQ ni los servicios; solo el reverse proxy, y solo en `127.0.0.1` (Funnel se conecta localmente).
+- Servicios con `SERVER_ADDRESS=0.0.0.0` solo dentro de la red Docker interna.
+- Keycloak en modo producción (`start`, BD propia, `KC_HOSTNAME` = URL de Funnel, `KC_PROXY_HEADERS=xforwarded`); consola admin accesible solo por la tailnet, no por Funnel. Eliminar el cliente `biohub-pruebas` y los usuarios de prueba.
 - Agregar los dominios de Vercel a `CORS_ORIGENES` del gateway y a `redirectUris`/`webOrigins` del cliente `web-interna`.
-- En Vercel: variables `VITE_API_URL` y `VITE_KEYCLOAK_URL` con la URL pública del túnel (HTTPS obligatorio: el navegador bloquea llamadas http desde una página https).
-- Limitación aceptada: la app solo está en línea cuando la máquina on-premise está encendida.
+- En Vercel: `VITE_API_URL` y `VITE_KEYCLOAK_URL` = URL de Funnel (HTTPS obligatorio).
+- Recursos sugeridos de la VM: 4 vCPU, 8 GB RAM, 40 GB disco. Copias de seguridad de los volúmenes MySQL.
+- Limitación aceptada: la app solo está en línea cuando la VM está encendida.

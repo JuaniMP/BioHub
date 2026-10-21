@@ -281,8 +281,11 @@ cd web-publica && npm test
 ## 10b. Despliegue (decidido, pendiente de implementar)
 
 - **Webs** (web-interna y web-publica): **Vercel**, plan gratuito.
-- **Backend** (gateway, servicios, MySQL, Redis, RabbitMQ, Keycloak): **on-premise** en una sola máquina con Docker Compose, publicado con un **túnel** HTTPS (sin abrir puertos). Solo se expone el gateway y Keycloak; las bases de datos nunca.
-- Detalles y lo que hay que cambiar para producción: [docs/equipo/03-arquitectura.md](docs/equipo/03-arquitectura.md) (decisión D11).
+- **Backend:** **una sola máquina virtual on-premise** (Ubuntu Server). Dentro, cada componente (gateway, servicios, los 4 MySQL, Redis, RabbitMQ, Keycloak) corre como **contenedor Docker** con Docker Compose.
+- **Tailscale** para la conectividad y la seguridad:
+  - **Red privada del equipo:** cada integrante instala Tailscale y entra a la VM (SSH, consola de Keycloak, panel de RabbitMQ, MySQL) por la red cifrada de Tailscale, sin abrir puertos en el router.
+  - **Tailscale Funnel:** publica en internet, con HTTPS y URL fija, **solo** el gateway y el login de Keycloak. Las bases de datos y los paneles de administración nunca quedan expuestos.
+- Topología, reglas de seguridad y cambios para producción: [docs/equipo/03-arquitectura.md](docs/equipo/03-arquitectura.md) (decisión D11).
 
 ## 11. Solución de problemas
 
