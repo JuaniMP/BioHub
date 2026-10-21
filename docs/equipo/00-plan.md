@@ -44,6 +44,10 @@ Arquitectura basada en servicios + API Gateway propio (Spring Boot, sin Spring C
 | 8c | Revisión de seguridad de la configuración | ciberseguridad | Hecho – Aprobado con observaciones |
 | 8d | Corrección de hallazgos QA/seguridad + re-verificación desde cero | Tech Lead | Hecho |
 | 9 | Git: main, develop, ramas feature, push | Tech Lead | Hecho |
+| 10 | Protección de main/develop: solo por pull request, sin aprobación obligatoria, sin force push ni borrado | Tech Lead | Hecho |
+| 11 | Decisión de despliegue: webs en Vercel, backend on-premise + túnel (D11) | Equipo | Decidido |
+| 12 | Reparto de ramas por persona en el README | Tech Lead | Pendiente (falta reparto) |
+| 13 | Preparar despliegue (Dockerfiles, compose prod, reverse proxy, túnel, Keycloak prod, Vercel) | devops | Pendiente (antes de la primera entrega en línea) |
 
 ## Agentes no usados y por qué
 product-owner, ux-ui-designer, dba, arquitecto-software, devops (compose lo hizo el Tech Lead; CI/CD y dockerizar servicios quedan pendientes): no hay requisitos ni modelo de datos todavía y la arquitectura ya está decidida.
@@ -58,4 +62,4 @@ Entrarán con cada historia de usuario.
 
 ## Pendientes (asignados a historias)
 - SEC-02 reglas por rol y `denyAll` por defecto · SEC-04 usuarios RabbitMQ por servicio · SEC-05 API Keys + rate limit · SEC-11 usuario Flyway separado · SEC-12 variables por servicio en despliegue.
-- CI/CD (GitHub Actions) y Dockerfiles de los servicios (devops) – no pedidos en el esqueleto.
+- CI/CD (GitHub Actions) y Dockerfiles de los servicios (devops) – no pedidos en el esqueleto; ver tarea 13 y D11.

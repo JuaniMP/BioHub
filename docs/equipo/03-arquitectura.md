@@ -58,3 +58,12 @@ En servicio-cientifico: `cientifico.registro.{controller,service,domain,infrastr
 | D8 | El gateway lee el cuerpo con límite (10MB) y no lee cuerpo en GET/HEAD/OPTIONS/DELETE | Evita DoS por memoria (SEC-03) |
 | D9 | BUG-01 de QA vs SEC-06 de seguridad (contradicción sobre path traversal): **decide Tech Lead** → era un falso positivo de curl; se añade igualmente validación de rutas en el proxy (400) | Defensa en profundidad |
 | D10 | Pendientes de seguridad asignados a historias: usuarios RabbitMQ por servicio (SEC-04), API Key como ROLE_API_CLIENT (SEC-05), usuario Flyway vs aplicación (SEC-11), reglas por rol + `denyAll` por defecto (SEC-02) | Requieren modelo/endpoints que aún no existen |
+| D11 | **Despliegue:** webs (web-interna y web-publica) en **Vercel** (plan Hobby, gratis); backend completo (gateway, servicios, MySQL, Redis, RabbitMQ, Keycloak) **on-premise** con Docker Compose en una sola máquina, expuesto a internet con un **túnel** (sin abrir puertos del router) | Costo cero; mismo compose que en desarrollo; la separación entre servicios es lógica (esquema + usuario por servicio), no requiere varias máquinas |
+
+### Notas de despliegue (D11) – para devops
+- Solo se expone por el túnel un **reverse proxy** (Caddy/Nginx) que enruta `/api/**` → api-gateway y `/realms/**`, `/resources/**` → Keycloak. MySQL, Redis, RabbitMQ y los servicios **nunca** se exponen.
+- Túnel sugerido: **Tailscale Funnel** (gratis, hostname estable `https://<maquina>.<tailnet>.ts.net`). Alternativa: Cloudflare Tunnel *con nombre* (requiere un dominio propio en Cloudflare, ~10 USD/año). **No** usar los "quick tunnels" de Cloudflare: la URL cambia en cada reinicio y rompe Keycloak y la config de Vercel.
+- Keycloak en modo producción (`start`, BD propia, `KC_HOSTNAME` = URL pública, `KC_PROXY_HEADERS=xforwarded`); eliminar el cliente `biohub-pruebas` y los usuarios de prueba.
+- Agregar los dominios de Vercel a `CORS_ORIGENES` del gateway y a `redirectUris`/`webOrigins` del cliente `web-interna`.
+- En Vercel: variables `VITE_API_URL` y `VITE_KEYCLOAK_URL` con la URL pública del túnel (HTTPS obligatorio: el navegador bloquea llamadas http desde una página https).
+- Limitación aceptada: la app solo está en línea cuando la máquina on-premise está encendida.

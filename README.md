@@ -242,7 +242,14 @@ Cualquier cambio en estas zonas se **avisa al equipo** antes de abrir el PR.
 - `develop`: integración.
 - `feature/*`: una por persona.
 
-Cada uno trabaja en su rama y abre un pull request hacia `develop`. **Otra persona** lo revisa y aprueba antes del merge. `develop` pasa a `main` solo en las entregas (PR `develop` → `main`).
+Cada uno trabaja en su rama `feature/*` (ahí puede hacer push libremente) y, cuando algo está listo, abre un **pull request hacia `develop`** y lo fusiona. `develop` pasa a `main` solo en las entregas (PR `develop` → `main`).
+
+`main` y `develop` están **protegidas** en GitHub:
+- No se permite push directo (ni siquiera a la dueña del repo): todo entra por pull request.
+- No se exige aprobación de otra persona: cada uno puede fusionar su propio PR. Aun así, se recomienda pedirle a alguien que le eche un ojo a los cambios en zonas compartidas.
+- No se permite force push ni borrar estas ramas.
+
+Antes de abrir el PR, actualiza tu rama con `develop` y comprueba que `mvn test` (y `npm test` si tocaste una web) pasen.
 
 ```bash
 git checkout feature/registro-cientifico     # tu rama
@@ -257,7 +264,8 @@ Commits sugeridos (Conventional Commits en español): `feat:`, `fix:`, `chore:`,
 
 ## 9. Convenciones
 
-- **Migraciones Flyway:** `src/main/resources/db/migration/V<n>__descripcion.sql`. Nunca edites una migración ya aplicada: crea una nueva. `V1__base.sql` está vacía. Hibernate usa `ddl-auto: validate`.
+- **Migraciones Flyway:** `src/main/resources/db/migration/V<fecha_hora>__descripcion.sql`, con la versión en formato **`AAAAMMDD_HHMM`**, por ejemplo `V20261022_1430__crear_tabla_hallazgo.sql`. Así dos personas que trabajan en el mismo esquema (registro y ubicación comparten `cientifico`) nunca crean la misma versión. Nunca edites una migración ya aplicada: crea una nueva. `V1__base.sql` está vacía. Hibernate usa `ddl-auto: validate`.
+- **Bases de datos:** no hay una persona "de la base de datos": cada quien escribe las tablas de su servicio como migraciones en su propio módulo. Los servidores MySQL son los del `docker-compose.yml` y los comparte todo el equipo.
 - **Eventos:** exchange de tipo topic `biohub.eventos` en RabbitMQ.
 - **Endpoints:** bajo `/api/<prefijo>/` (`gateway`, `cientifico`, `equipos`, `publica`, `reportes`).
 - **Seguridad:** cada servicio valida el JWT (firma, `iss`, `exp` y `aud=biohub-api`); los roles llegan como authorities `ROLE_<rol>`.
@@ -269,6 +277,12 @@ mvn test            # desde la raíz: todos los servicios
 cd web-interna && npm test
 cd web-publica && npm test
 ```
+
+## 10b. Despliegue (decidido, pendiente de implementar)
+
+- **Webs** (web-interna y web-publica): **Vercel**, plan gratuito.
+- **Backend** (gateway, servicios, MySQL, Redis, RabbitMQ, Keycloak): **on-premise** en una sola máquina con Docker Compose, publicado con un **túnel** HTTPS (sin abrir puertos). Solo se expone el gateway y Keycloak; las bases de datos nunca.
+- Detalles y lo que hay que cambiar para producción: [docs/equipo/03-arquitectura.md](docs/equipo/03-arquitectura.md) (decisión D11).
 
 ## 11. Solución de problemas
 
