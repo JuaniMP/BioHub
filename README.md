@@ -218,21 +218,27 @@ docker compose rm -sf keycloak && docker volume rm biohub_keycloak-data && docke
 
 ## 7. Reparto por persona
 
-Reemplacen "Persona N" por los nombres reales.
+| Integrante | GitHub | Rama | Responsabilidad | Dificultad |
+|---|---|---|---|---|
+| Juanita Mejía Pineda | [@JuaniMP](https://github.com/JuaniMP) | `feature/ubicacion-consulta-publica` | `servicio-cientifico` módulo **ubicacion** (cifrado, llaves, mapa, búsqueda) + `servicio-consulta-publica` (BD de lectura y caché Redis) + `web-publica` | Alta |
+| Santiago Pinzón Vásquez | [@Chocax](https://github.com/Chocax) | `feature/seguridad-acceso` | `api-gateway` (API Keys, rate limiting en `ApiKeyRateLimitFilter`), Keycloak y roles, `web-interna` (login y navegación). **Coordina la infraestructura compartida** | Alta |
+| Hernando Javier García Mogollón | [@Nandoski666](https://github.com/Nandoski666) | `feature/registro-cientifico` | `servicio-cientifico` módulo **registro** (hallazgos, fichas, historial). Publica los eventos de hallazgos | Media |
+| Nicolás Espinosa Estrada | [@Gattocho888](https://github.com/Gattocho888) | `feature/reportes-equipos` | `servicio-equipos` (gestión de equipos de trabajo) + `servicio-reportes` (consume eventos y arma reportes) | Media-baja |
 
-| Persona | Rama | Responsabilidad |
-|---|---|---|
-| Persona 1 | `feature/registro-cientifico` | `servicio-cientifico`, módulo **registro** (hallazgos, fichas, historial) |
-| Persona 2 | `feature/seguridad-acceso` | `api-gateway` (API Keys, rate limiting en `ApiKeyRateLimitFilter`), Keycloak/roles, `web-interna` (login y navegación) |
-| Persona 3 | `feature/ubicacion-consulta-publica` | `servicio-cientifico` módulo **ubicacion** (cifrado, llaves, mapa, búsqueda) + `servicio-consulta-publica` + `web-publica` |
-| Persona 4 | `feature/reportes-equipos` | `servicio-reportes` + `servicio-equipos` |
+### Dependencias entre personas (acordar al inicio)
+
+- **Evento "hallazgo registrado"**: lo publica Hernando (registro) y lo consumen Juanita (consulta pública) y Nicolás (reportes). Definan juntos su formato (campos, routing key en `biohub.eventos`) antes de programarlo, y documéntenlo en `docs/equipo/04-contrato-api.md`.
+- **Esquema `cientifico`**: lo comparten Hernando (registro) y Juanita (ubicacion). Usen migraciones con versión por fecha (sección 9) y no modifiquen tablas del otro módulo sin avisar.
+- **Roles y permisos**: Santiago define qué rol puede hacer qué; los demás protegen sus endpoints con esos roles.
 
 ### Zonas compartidas (coordinar antes de tocar)
 
+Las coordina **Santiago**:
+
 - `pom.xml` raíz
-- `docker-compose.yml`
+- `docker-compose.yml` e `infra/` (MySQL, Keycloak)
 - `infra/keycloak/realm-biohub.json`
-- `config/` de `servicio-cientifico` (la comparten Persona 1 y Persona 3)
+- `config/` de `servicio-cientifico` (la comparten Hernando y Juanita)
 
 Cualquier cambio en estas zonas se **avisa al equipo** antes de abrir el PR.
 
@@ -316,5 +322,5 @@ cd web-publica && npm test
 
 ## 13. Autores y licencia
 
-- Autores: Persona 1, Persona 2, Persona 3, Persona 4 (reemplazar por nombres).
+- Autores: Juanita Mejía Pineda, Santiago Pinzón Vásquez, Hernando Javier García Mogollón y Nicolás Espinosa Estrada (Ingeniería de Software 2, Universidad El Bosque).
 - Licencia: pendiente de definir (el repositorio aún no incluye archivo `LICENSE`).

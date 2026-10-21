@@ -46,7 +46,7 @@ Arquitectura basada en servicios + API Gateway propio (Spring Boot, sin Spring C
 | 9 | Git: main, develop, ramas feature, push | Tech Lead | Hecho |
 | 10 | Protección de main/develop: solo por pull request, sin aprobación obligatoria, sin force push ni borrado | Tech Lead | Hecho |
 | 11 | Decisión de despliegue: webs en Vercel; backend on-premise en 2 VMs (backend y datos) con contenedores Docker; Tailscale entre VMs, para el equipo y Funnel para publicar (D11) | Equipo | Decidido |
-| 12 | Reparto de ramas por persona en el README | Tech Lead | Pendiente (falta reparto) |
+| 12 | Reparto de ramas por persona en el README (Juanita: ubicación/consulta pública; Santiago: seguridad/acceso + infra compartida; Hernando: registro; Nicolás: reportes/equipos) | Tech Lead | Hecho |
 | 13 | Preparar despliegue (2 VMs, Tailscale + ACLs por etiquetas, Dockerfiles, compose prod, reverse proxy, Funnel, Keycloak prod, Vercel) | devops | Pendiente (antes de la primera entrega en línea) |
 
 ## Agentes no usados y por qué
