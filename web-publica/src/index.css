@@ -1,0 +1,5 @@
+:root { font-family: system-ui, sans-serif; color: #1b2a1f; background: #f4f8f4; }
+body { margin: 0; }
+.contenedor { max-width: 52rem; margin: 0 auto; padding: 1.5rem; }
+.ok { color: #1b5e20; }
+.error { color: #b71c1c; }

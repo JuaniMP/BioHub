@@ -1,0 +1,11 @@
+:root { font-family: system-ui, sans-serif; color: #1b2a1f; background: #f4f8f4; }
+body { margin: 0; }
+.contenedor { max-width: 52rem; margin: 0 auto; padding: 1.5rem; }
+.encabezado { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.encabezado div { display: flex; gap: .75rem; align-items: center; }
+button { padding: .5rem 1rem; border: 0; border-radius: .375rem; background: #2e7d32; color: #fff; cursor: pointer; }
+button:focus-visible { outline: 3px solid #81c784; outline-offset: 2px; }
+.ping { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; background: #fff; padding: 1rem; border-radius: .5rem; }
+.ping dt { font-weight: 600; }
+.ping dd { margin: 0; }
+.error { color: #b71c1c; }

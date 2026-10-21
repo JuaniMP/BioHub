@@ -1,0 +1,4 @@
+-- V1 base de servicio-reportes (esquema: reportes)
+-- Migración inicial intencionalmente vacía: solo deja Flyway inicializado
+-- (crea flyway_schema_history). Las tablas se agregan con cada historia de usuario
+-- en migraciones nuevas V2__..., V3__... ¡Nunca modificar una migración ya aplicada!

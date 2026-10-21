@@ -1,0 +1,230 @@
+{
+  "realm": "biohub",
+  "displayName": "BioHub",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "waitIncrementSeconds": 60,
+  "minimumQuickLoginWaitSeconds": 60,
+  "passwordPolicy": "length(12) and maxLength(64) and notUsername and notEmail and passwordHistory(3)",
+  "accessTokenLifespan": 300,
+  "accessTokenLifespanForImplicitFlow": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "accessCodeLifespan": 60,
+  "accessCodeLifespanUserAction": 300,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "internationalizationEnabled": true,
+  "supportedLocales": [
+    "es",
+    "en"
+  ],
+  "defaultLocale": "es",
+  "roles": {
+    "realm": [
+      {
+        "name": "investigador_campo",
+        "description": "Registra hallazgos y fichas en campo."
+      },
+      {
+        "name": "auditor_cientifico",
+        "description": "Revisa y valida registros científicos."
+      },
+      {
+        "name": "cientifico_alto_rango",
+        "description": "Accede a ubicaciones protegidas y decisiones científicas."
+      },
+      {
+        "name": "analista_ambiental",
+        "description": "Consulta reportes y análisis ambientales."
+      },
+      {
+        "name": "administrador",
+        "description": "Administra usuarios, equipos y configuración."
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "web-interna",
+      "name": "BioHub - Web interna",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "rootUrl": "http://localhost:5173",
+      "baseUrl": "/",
+      "redirectUris": [
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "audiencia-biohub-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "biohub-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "biohub-pruebas",
+      "name": "SOLO DESARROLLO - obtener tokens por consola para pruebas",
+      "description": "Permite password grant para curl/pruebas automatizadas. ELIMINAR en cualquier entorno que no sea local.",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "protocolMappers": [
+        {
+          "name": "audiencia-biohub-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "biohub-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "admin-cli",
+      "name": "${client_admin-cli}",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "description": "Cliente interno de Keycloak. Password grant deshabilitado en el realm biohub (SEC-09)."
+    }
+  ],
+  "users": [
+    {
+      "username": "investigador1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Ivana",
+      "lastName": "Investigadora",
+      "email": "investigador1@biohub.test",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_TEST_USERS_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "investigador_campo"
+      ]
+    },
+    {
+      "username": "auditor1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Andrés",
+      "lastName": "Auditor",
+      "email": "auditor1@biohub.test",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_TEST_USERS_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "auditor_cientifico"
+      ]
+    },
+    {
+      "username": "cientifico1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Carla",
+      "lastName": "Científica",
+      "email": "cientifico1@biohub.test",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_TEST_USERS_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "cientifico_alto_rango"
+      ]
+    },
+    {
+      "username": "analista1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Ana",
+      "lastName": "Analista",
+      "email": "analista1@biohub.test",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_TEST_USERS_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "analista_ambiental"
+      ]
+    },
+    {
+      "username": "admin1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Admin",
+      "lastName": "BioHub",
+      "email": "admin1@biohub.test",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_TEST_USERS_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "administrador"
+      ]
+    }
+  ],
+  "eventsEnabled": true,
+  "eventsExpiration": 2592000,
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": false
+}

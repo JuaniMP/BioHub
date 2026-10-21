@@ -1,0 +1,159 @@
+# BioHub - infraestructura local de desarrollo.
+# Uso:  cp .env.example .env  (y cambiar contraseñas)  ->  docker compose up -d
+# Los servicios Spring Boot y las webs se ejecutan fuera de Docker (ver README).
+# Todos los puertos se publican SOLO en 127.0.0.1 (no quedan expuestos a la red).
+
+x-mysql-healthcheck: &mysql-healthcheck
+  # Usa TCP: durante la inicialización MySQL solo escucha por socket, así que no
+  # se marca "healthy" hasta que terminan los scripts de init.
+  # La contraseña va por MYSQL_PWD (variable de entorno), no por argumento visible con `ps`.
+  test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h 127.0.0.1 -uroot --silent"]
+  interval: 10s
+  timeout: 5s
+  retries: 12
+  start_period: 30s
+
+services:
+  mysql-transaccional:
+    image: mysql:8.4
+    container_name: biohub-mysql-transaccional
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_TRANSACCIONAL_ROOT_PASSWORD:?Falta en .env}
+      MYSQL_CIENTIFICO_USER: ${MYSQL_CIENTIFICO_USER:?Falta en .env}
+      MYSQL_CIENTIFICO_PASSWORD: ${MYSQL_CIENTIFICO_PASSWORD:?Falta en .env}
+      MYSQL_EQUIPOS_USER: ${MYSQL_EQUIPOS_USER:?Falta en .env}
+      MYSQL_EQUIPOS_PASSWORD: ${MYSQL_EQUIPOS_PASSWORD:?Falta en .env}
+      MYSQL_ROOT_HOST: 127.0.0.1   # root solo desde dentro del contenedor (no existe root@'%')
+      TZ: America/Bogota
+    ports:
+      - "127.0.0.1:${MYSQL_TRANSACCIONAL_PORT:-3307}:3306"
+    volumes:
+      - mysql-transaccional-data:/var/lib/mysql
+      - ./infra/mysql/transaccional:/docker-entrypoint-initdb.d:ro
+    healthcheck: *mysql-healthcheck
+
+  mysql-lectura:
+    image: mysql:8.4
+    container_name: biohub-mysql-lectura
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_LECTURA_ROOT_PASSWORD:?Falta en .env}
+      MYSQL_DATABASE: consulta_publica
+      MYSQL_USER: ${MYSQL_LECTURA_USER:?Falta en .env}
+      MYSQL_PASSWORD: ${MYSQL_LECTURA_PASSWORD:?Falta en .env}
+      MYSQL_ROOT_HOST: 127.0.0.1   # root solo desde dentro del contenedor (no existe root@'%')
+      TZ: America/Bogota
+    ports:
+      - "127.0.0.1:${MYSQL_LECTURA_PORT:-3308}:3306"
+    volumes:
+      - mysql-lectura-data:/var/lib/mysql
+    healthcheck: *mysql-healthcheck
+
+  mysql-analitica:
+    image: mysql:8.4
+    container_name: biohub-mysql-analitica
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ANALITICA_ROOT_PASSWORD:?Falta en .env}
+      MYSQL_DATABASE: reportes
+      MYSQL_USER: ${MYSQL_ANALITICA_USER:?Falta en .env}
+      MYSQL_PASSWORD: ${MYSQL_ANALITICA_PASSWORD:?Falta en .env}
+      MYSQL_ROOT_HOST: 127.0.0.1   # root solo desde dentro del contenedor (no existe root@'%')
+      TZ: America/Bogota
+    ports:
+      - "127.0.0.1:${MYSQL_ANALITICA_PORT:-3309}:3306"
+    volumes:
+      - mysql-analitica-data:/var/lib/mysql
+    healthcheck: *mysql-healthcheck
+
+  mysql-gateway:
+    image: mysql:8.4
+    container_name: biohub-mysql-gateway
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_GATEWAY_ROOT_PASSWORD:?Falta en .env}
+      MYSQL_DATABASE: gateway
+      MYSQL_USER: ${MYSQL_GATEWAY_USER:?Falta en .env}
+      MYSQL_PASSWORD: ${MYSQL_GATEWAY_PASSWORD:?Falta en .env}
+      MYSQL_ROOT_HOST: 127.0.0.1   # root solo desde dentro del contenedor (no existe root@'%')
+      TZ: America/Bogota
+    ports:
+      - "127.0.0.1:${MYSQL_GATEWAY_PORT:-3310}:3306"
+    volumes:
+      - mysql-gateway-data:/var/lib/mysql
+    healthcheck: *mysql-healthcheck
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: biohub-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Falta en .env}
+    # La contraseña se escribe en un .conf dentro del contenedor (no queda en los argumentos del proceso)
+    command: ["sh", "-c", "umask 077 && printf 'appendonly yes\\nrequirepass %s\\n' \"$$REDIS_PASSWORD\" > /tmp/redis.conf && exec redis-server /tmp/redis.conf"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:4.1-management
+    container_name: biohub-rabbitmq
+    restart: unless-stopped
+    hostname: biohub-rabbitmq   # fijo: RabbitMQ guarda los datos por nombre de nodo
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?Falta en .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Falta en .env}
+    ports:
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 20s
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1
+    container_name: biohub-keycloak
+    restart: unless-stopped
+    # start-dev: solo desarrollo (HTTP, BD H2 embebida). --import-realm importa
+    # infra/keycloak/*.json la primera vez (si el realm ya existe, no lo toca).
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:?Falta en .env}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Falta en .env}
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8180}
+      KC_HEALTH_ENABLED: "true"
+      # Usada por el placeholder del realm-biohub.json para los usuarios de prueba
+      KEYCLOAK_TEST_USERS_PASSWORD: ${KEYCLOAK_TEST_USERS_PASSWORD:?Falta en .env}
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT:-8180}:8080"
+    volumes:
+      - keycloak-data:/opt/keycloak/data   # H2 en data/h2; el import se monta dentro
+      - ./infra/keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      # La imagen no trae curl: se consulta el puerto de management (9000) con bash.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+volumes:
+  mysql-transaccional-data:
+  mysql-lectura-data:
+  mysql-analitica-data:
+  mysql-gateway-data:
+  redis-data:
+  rabbitmq-data:
+  keycloak-data:

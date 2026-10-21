@@ -1,0 +1,41 @@
+# Java / Maven
+target/
+*.class
+*.log
+hs_err_pid*
+
+# Node
+node_modules/
+dist/
+coverage/
+npm-debug.log*
+
+# Entorno (secretos)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+!.vscode/extensions.json
+.classpath
+.project
+.settings/
+.factorypath
+*.swp
+.DS_Store
+
+# Llaves, certificados y secretos (SEC-14)
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+secrets/
+
+# Herramientas locales de agentes/IA
+.claude/

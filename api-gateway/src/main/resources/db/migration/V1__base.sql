@@ -1,0 +1,4 @@
+-- V1 base de api-gateway (esquema: gateway)
+-- Migración inicial intencionalmente vacía: solo deja Flyway inicializado
+-- (crea flyway_schema_history). Las tablas de API Keys y límites se crean con su
+-- historia de usuario en V2__..., V3__... ¡Nunca modificar una migración ya aplicada!
