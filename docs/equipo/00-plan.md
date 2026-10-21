@@ -45,9 +45,9 @@ Arquitectura basada en servicios + API Gateway propio (Spring Boot, sin Spring C
 | 8d | Corrección de hallazgos QA/seguridad + re-verificación desde cero | Tech Lead | Hecho |
 | 9 | Git: main, develop, ramas feature, push | Tech Lead | Hecho |
 | 10 | Protección de main/develop: solo por pull request, sin aprobación obligatoria, sin force push ni borrado | Tech Lead | Hecho |
-| 11 | Decisión de despliegue: webs en Vercel; backend en una sola VM on-premise con contenedores Docker; Tailscale (red privada del equipo + Funnel) (D11) | Equipo | Decidido |
+| 11 | Decisión de despliegue: webs en Vercel; backend on-premise en 2 VMs (backend y datos) con contenedores Docker; Tailscale entre VMs, para el equipo y Funnel para publicar (D11) | Equipo | Decidido |
 | 12 | Reparto de ramas por persona en el README | Tech Lead | Pendiente (falta reparto) |
-| 13 | Preparar despliegue (VM, Tailscale + ACLs, Dockerfiles, compose prod, reverse proxy, Funnel, Keycloak prod, Vercel) | devops | Pendiente (antes de la primera entrega en línea) |
+| 13 | Preparar despliegue (2 VMs, Tailscale + ACLs por etiquetas, Dockerfiles, compose prod, reverse proxy, Funnel, Keycloak prod, Vercel) | devops | Pendiente (antes de la primera entrega en línea) |
 
 ## Agentes no usados y por qué
 product-owner, ux-ui-designer, dba, arquitecto-software, devops (compose lo hizo el Tech Lead; CI/CD y dockerizar servicios quedan pendientes): no hay requisitos ni modelo de datos todavía y la arquitectura ya está decidida.

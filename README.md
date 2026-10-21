@@ -281,11 +281,15 @@ cd web-publica && npm test
 ## 10b. Despliegue (decidido, pendiente de implementar)
 
 - **Webs** (web-interna y web-publica): **Vercel**, plan gratuito.
-- **Backend:** **una sola máquina virtual on-premise** (Ubuntu Server). Dentro, cada componente (gateway, servicios, los 4 MySQL, Redis, RabbitMQ, Keycloak) corre como **contenedor Docker** con Docker Compose.
-- **Tailscale** para la conectividad y la seguridad:
-  - **Red privada del equipo:** cada integrante instala Tailscale y entra a la VM (SSH, consola de Keycloak, panel de RabbitMQ, MySQL) por la red cifrada de Tailscale, sin abrir puertos en el router.
-  - **Tailscale Funnel:** publica en internet, con HTTPS y URL fija, **solo** el gateway y el login de Keycloak. Las bases de datos y los paneles de administración nunca quedan expuestos.
-- Topología, reglas de seguridad y cambios para producción: [docs/equipo/03-arquitectura.md](docs/equipo/03-arquitectura.md) (decisión D11).
+- **Backend on-premise en dos máquinas virtuales** (Ubuntu Server, todo en contenedores Docker):
+  - **VM de backend** (`biohub-backend`): gateway, servicios, Keycloak, RabbitMQ y Redis.
+  - **VM de datos** (`biohub-datos`): los 4 MySQL (y la base de Keycloak en producción).
+- **Tailscale** conecta todo por una red privada cifrada:
+  - La VM de backend habla con la VM de datos por Tailscale; **solo** ella puede llegar a los MySQL.
+  - Los 4 integrantes entran a las VMs (SSH, consola de Keycloak, panel de RabbitMQ, MySQL) por Tailscale, sin abrir puertos en el router.
+  - **Tailscale Funnel** publica en internet, con HTTPS y URL fija, **solo** el gateway y el login de Keycloak.
+- Los servicios ya leen el host de cada MySQL de variables (`MYSQL_*_HOST`), así que separar las VMs no requiere cambiar código.
+- Topología, reglas de seguridad (ACLs de Tailscale) y recursos: [docs/equipo/03-arquitectura.md](docs/equipo/03-arquitectura.md) (decisión D11).
 
 ## 11. Solución de problemas
 
