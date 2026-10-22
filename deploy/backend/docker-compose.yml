@@ -1,0 +1,220 @@
+# BioHub - VM biohub-backend.
+# Publicados SOLO en la IP de Tailscale (TS_IP_BACKEND): gateway 8080, Keycloak 8180, panel RabbitMQ 15672.
+# Servicios, RabbitMQ (5672) y Redis: solo red Docker interna.
+# Uso (en la VM):  docker compose up -d --wait      (requiere .env: ver .env.example)
+# Las imagenes biohub/<servicio>:<BIOHUB_TAG> las carga deploy/desplegar.sh (docker load).
+
+x-servicio: &servicio
+  restart: unless-stopped
+  pull_policy: never
+  # El issuer del JWT es http://biohub-backend:8180/realms/biohub. Dentro de la red Docker,
+  # "biohub-backend" es un alias del contenedor de Keycloak (escucha en 8180), así que los
+  # servicios llegan directo sin pasar por la IP de Tailscale del host (ufw bloquea ese hairpin).
+  networks: [interna]
+
+x-java-env: &java-env
+  SERVER_ADDRESS: 0.0.0.0
+  KEYCLOAK_ISSUER_URI: http://biohub-backend:8180/realms/biohub
+  KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-biohub-api}
+  TZ: America/Bogota
+
+services:
+  api-gateway:
+    <<: *servicio
+    image: biohub/api-gateway:${BIOHUB_TAG:-latest}
+    container_name: biohub-api-gateway
+    environment:
+      <<: *java-env
+      API_GATEWAY_PORT: "8080"
+      MYSQL_GATEWAY_HOST: ${TS_IP_DATOS:?Falta TS_IP_DATOS en .env}
+      MYSQL_GATEWAY_PORT: ${MYSQL_GATEWAY_PORT:-3310}
+      MYSQL_GATEWAY_USER: ${MYSQL_GATEWAY_USER:?Falta en .env}
+      MYSQL_GATEWAY_PASSWORD: ${MYSQL_GATEWAY_PASSWORD:?Falta en .env}
+      SERVICIO_CIENTIFICO_URL: http://servicio-cientifico:8081
+      SERVICIO_EQUIPOS_URL: http://servicio-equipos:8082
+      SERVICIO_CONSULTA_PUBLICA_URL: http://servicio-consulta-publica:8083
+      SERVICIO_REPORTES_URL: http://servicio-reportes:8084
+      CORS_ORIGENES: ${CORS_ORIGENES:-http://localhost:5173,http://localhost:5174}
+    ports:
+      - "${TS_IP_BACKEND:?Falta TS_IP_BACKEND en .env}:8080:8080"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  servicio-cientifico:
+    <<: *servicio
+    image: biohub/servicio-cientifico:${BIOHUB_TAG:-latest}
+    container_name: biohub-servicio-cientifico
+    environment:
+      <<: *java-env
+      SERVICIO_CIENTIFICO_PORT: "8081"
+      MYSQL_TRANSACCIONAL_HOST: ${TS_IP_DATOS:?Falta TS_IP_DATOS en .env}
+      MYSQL_TRANSACCIONAL_PORT: ${MYSQL_TRANSACCIONAL_PORT:-3307}
+      MYSQL_CIENTIFICO_USER: ${MYSQL_CIENTIFICO_USER:?Falta en .env}
+      MYSQL_CIENTIFICO_PASSWORD: ${MYSQL_CIENTIFICO_PASSWORD:?Falta en .env}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: cientifico_mq
+      RABBITMQ_PASSWORD: ${RABBITMQ_CIENTIFICO_PASSWORD:?Falta en .env}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8081/actuator/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  servicio-equipos:
+    <<: *servicio
+    image: biohub/servicio-equipos:${BIOHUB_TAG:-latest}
+    container_name: biohub-servicio-equipos
+    environment:
+      <<: *java-env
+      SERVICIO_EQUIPOS_PORT: "8082"
+      MYSQL_TRANSACCIONAL_HOST: ${TS_IP_DATOS:?Falta TS_IP_DATOS en .env}
+      MYSQL_TRANSACCIONAL_PORT: ${MYSQL_TRANSACCIONAL_PORT:-3307}
+      MYSQL_EQUIPOS_USER: ${MYSQL_EQUIPOS_USER:?Falta en .env}
+      MYSQL_EQUIPOS_PASSWORD: ${MYSQL_EQUIPOS_PASSWORD:?Falta en .env}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8082/actuator/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  servicio-consulta-publica:
+    <<: *servicio
+    image: biohub/servicio-consulta-publica:${BIOHUB_TAG:-latest}
+    container_name: biohub-servicio-consulta-publica
+    environment:
+      <<: *java-env
+      SERVICIO_CONSULTA_PUBLICA_PORT: "8083"
+      MYSQL_LECTURA_HOST: ${TS_IP_DATOS:?Falta TS_IP_DATOS en .env}
+      MYSQL_LECTURA_PORT: ${MYSQL_LECTURA_PORT:-3308}
+      MYSQL_LECTURA_USER: ${MYSQL_LECTURA_USER:?Falta en .env}
+      MYSQL_LECTURA_PASSWORD: ${MYSQL_LECTURA_PASSWORD:?Falta en .env}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Falta en .env}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: consulta_mq
+      RABBITMQ_PASSWORD: ${RABBITMQ_CONSULTA_PASSWORD:?Falta en .env}
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8083/actuator/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  servicio-reportes:
+    <<: *servicio
+    image: biohub/servicio-reportes:${BIOHUB_TAG:-latest}
+    container_name: biohub-servicio-reportes
+    environment:
+      <<: *java-env
+      SERVICIO_REPORTES_PORT: "8084"
+      MYSQL_ANALITICA_HOST: ${TS_IP_DATOS:?Falta TS_IP_DATOS en .env}
+      MYSQL_ANALITICA_PORT: ${MYSQL_ANALITICA_PORT:-3309}
+      MYSQL_ANALITICA_USER: ${MYSQL_ANALITICA_USER:?Falta en .env}
+      MYSQL_ANALITICA_PASSWORD: ${MYSQL_ANALITICA_PASSWORD:?Falta en .env}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: reportes_mq
+      RABBITMQ_PASSWORD: ${RABBITMQ_REPORTES_PASSWORD:?Falta en .env}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8084/actuator/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: biohub-redis
+    restart: unless-stopped
+    networks: [interna]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Falta en .env}
+    # La contraseña va a un .conf dentro del contenedor (no queda en los argumentos del proceso)
+    command: ["sh", "-c", "umask 077 && printf 'appendonly yes\\nrequirepass %s\\n' \"$$REDIS_PASSWORD\" > /tmp/redis.conf && exec redis-server /tmp/redis.conf"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:4.1-management
+    container_name: biohub-rabbitmq
+    restart: unless-stopped
+    hostname: biohub-rabbitmq   # fijo: RabbitMQ guarda los datos por nombre de nodo
+    networks: [interna]
+    ports:
+      - "${TS_IP_BACKEND:?Falta TS_IP_BACKEND en .env}:15672:15672"   # panel de administracion
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      # Usuarios, permisos y vhost: generado por rabbitmq/generar-definitions.sh (no se sube al repo)
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - ./rabbitmq/20-definitions.conf:/etc/rabbitmq/conf.d/20-definitions.conf:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1
+    container_name: biohub-keycloak
+    restart: unless-stopped
+    networks:
+      interna:
+        aliases: [biohub-backend]   # mismo nombre que ven los clientes por Tailscale (issuer idéntico)
+    # start-dev: SOLO desarrollo (HTTP, H2 embebida); alcance acordado. --import-realm solo la primera vez.
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:?Falta en .env}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Falta en .env}
+      KC_HOSTNAME: http://biohub-backend:8180
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_PORT: "8180"          # mismo puerto dentro y fuera: http://biohub-backend:8180 sirve en ambos lados
+      KEYCLOAK_TEST_USERS_PASSWORD: ${KEYCLOAK_TEST_USERS_PASSWORD:?Falta en .env}
+    ports:
+      - "${TS_IP_BACKEND:?Falta TS_IP_BACKEND en .env}:8180:8180"
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+      - ./keycloak:/opt/keycloak/data/import:ro   # realm-biohub.json (lo copia desplegar.sh)
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+networks:
+  interna:
+    name: biohub-interna
+
+volumes:
+  redis-data:
+  rabbitmq-data:
+  keycloak-data:

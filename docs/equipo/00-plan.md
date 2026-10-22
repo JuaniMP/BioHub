@@ -63,3 +63,39 @@ Entrarán con cada historia de usuario.
 ## Pendientes (asignados a historias)
 - SEC-02 reglas por rol y `denyAll` por defecto · SEC-04 usuarios RabbitMQ por servicio · SEC-05 API Keys + rate limit · SEC-11 usuario Flyway separado · SEC-12 variables por servicio en despliegue.
 - CI/CD (GitHub Actions) y Dockerfiles de los servicios (devops) – no pedidos en el esqueleto; ver tarea 13 y D11.
+
+---
+# Iteración: despliegue en 2 VMs + Tailscale + RabbitMQ (tarea 13, alcance 4a)
+
+**Alcance acordado con Juanita (2026-10-21):** VMs nuevas en KVM local (1a); Tailscale con `tailscale up` y aprobación por enlace (2b); RabbitMQ desplegado con usuarios por servicio y evento de prueba de punta a punta (3a); sin Funnel, sin Keycloak en modo producción, sin Vercel (4a). Rama `feature/despliegue` → PR a `develop`.
+
+**Decisiones del Tech Lead (D12)**
+- VMs: `biohub-backend` (4 vCPU, 6 GB, 30 GB) y `biohub-datos` (2 vCPU, 4 GB, 40 GB), Ubuntu 24.04 cloud image, usuario `biohub`, red NAT `default` de libvirt.
+- Acceso del equipo solo por la tailnet (IP 100.x de cada VM). VM datos publica MySQL en 3307-3310 sobre su IP de Tailscale. VM backend publica gateway 8080, Keycloak 8180 y panel RabbitMQ 15672 sobre su IP de Tailscale; el resto queda en la red Docker interna.
+- Keycloak sigue en `start-dev` (H2) con `KC_HOSTNAME=http://biohub-backend:8180`; los contenedores resuelven `biohub-backend` con `extra_hosts`.
+- RabbitMQ: exchange topic `biohub.eventos`, DLX `biohub.eventos.dlx`, colas `consulta-publica.eventos` y `reportes.eventos` (con `.dlq`) enlazadas a `prueba.#` y `hallazgo.#`. La topología la declara el código (Spring). Usuarios: `cientifico_mq` (solo publica), `consulta_mq` y `reportes_mq` (consumen su cola), `biohub` (administrador del panel). En local se sigue usando un único usuario.
+
+| # | Tarea | Responsable | Estado |
+|---|---|---|---|
+| 13a | Dockerfiles, compose de backend y de datos, scripts de creación de VMs, VMs creadas | devops | Hecho |
+| 13b | RabbitMQ: topología, evento de prueba publicado por científico y consumido por consulta-publica y reportes, tests | backend-senior | Hecho (71 tests; E2E local OK; nota: consumidores necesitan READ sobre biohub.eventos y biohub.eventos.dlx para los bindings) |
+| 13c | Unir VMs a Tailscale (aprobación por enlace) + ACLs | Tech Lead + Juanita | Hecho (backend 100.76.214.94 tag:backend, datos 100.94.121.117 tag:datos) |
+| 13d | Despliegue en las VMs y verificación de punta a punta | Tech Lead | Desplegado: 4 MySQL + 9 contenedores healthy; Hecho. Verificación final tras D13 (corrida por Juanita, 2026-10-22): token OK; 5 pings 200; sin token 401; evento con investigador1 403; evento con admin1 202 y recibido en consulta-publica y reportes; consola Keycloak y panel RabbitMQ 200 |
+| 13e | QA del despliegue y del flujo de eventos | qa-tester | Hecho – Aprobado con observaciones (BUG-04 Bajo corregido) |
+| 13f | Auditoría de seguridad del despliegue | ciberseguridad | Hecho – Aprobado con observaciones (0 Críticos/Altos; 4 Medios, 7 Bajos). SEC-D-05 y SEC-D-10 corregidos; SEC-D-11 aceptado (definitions.json debe ser 644 para el uid de rabbitmq; protegido por el home 750) |
+
+**Verificación final del Tech Lead (2026-10-22):** `mvn -B verify` OK – 75 tests (73 ejecutados, 2 opt-in omitidos), 0 fallos; web-interna 2/2 y web-publica 2/2; E2E por Tailscale OK (ver 13d).
+
+**Pendientes de seguridad (antes de datos reales, nuevos integrantes o Funnel; pasan a Alto si cambia alguna de esas condiciones)**
+- SEC-D-01 (Medio): cualquier miembro con SSH es root en las VMs y puede leer los `.env` → usuario `equipo` sin sudo/docker, Tailscale SSH en modo `check`, usuario MySQL de solo lectura.
+- SEC-D-02 (Medio): D13 + realm `master` sin protección de fuerza bruta → `bruteForceProtected=true`; volver a `sslRequired=external` con HTTPS.
+- SEC-D-03 (Medio): consumidores con `write` sobre `biohub.eventos` (pueden falsificar eventos) → limitar `write` y validar `user_id` del mensaje. Hacer antes de `hallazgo.registrado`.
+- SEC-D-04 (Medio): ACL amplia (`autogroup:member:*`, MySQL abierto a miembros) → grupos con nombre y política versionada en `deploy/tailscale/policy.hujson`.
+- Bajos: SEC-D-06 backups sin cifrar ni copia externa (instalar timer), SEC-D-07 DLQ sin límite, SEC-D-08 endurecimiento de contenedores, SEC-D-09 llave SSH sin passphrase. Detalle en `08-reporte-seguridad.md`.
+| 13g | Guía de uso de Tailscale y del despliegue para el equipo | documentador-tecnico | Hecho (`docs/guia-tailscale.md`, README 10b, CHANGELOG) |
+
+**Ajustes del Tech Lead durante el despliegue**
+- `desplegar.sh`: corregido `trap RETURN` que rompía `subir_env`.
+- VM datos: `userland-proxy: false` para conservar la IP de origen en MySQL (parametrizado por VM en `user-data.tpl`/`crear-vms.sh`).
+- VM backend: alias de red `biohub-backend` en Keycloak (`KC_HTTP_PORT=8180`) en lugar de `extra_hosts`.
+- D13 (aprobada por Juanita): `sslRequired=NONE` en Keycloak, solo accesible por la tailnet. Registrada en `03-arquitectura.md`.

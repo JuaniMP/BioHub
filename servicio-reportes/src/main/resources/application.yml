@@ -22,6 +22,16 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USER}
     password: ${RABBITMQ_PASSWORD}
+    connection-timeout: 5s
+    listener:
+      simple:
+        default-requeue-rejected: false   # rechazados -> DLX/DLQ, nunca reencolados
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1s
+          multiplier: 2
+          max-interval: 5s
   security:
     oauth2:
       resourceserver:
@@ -51,3 +61,5 @@ management:
 biohub:
   eventos:
     exchange: biohub.eventos
+    dlx: biohub.eventos.dlx
+    cola: reportes.eventos

@@ -22,6 +22,8 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USER}
     password: ${RABBITMQ_PASSWORD}
+    connection-timeout: 5s
+    publisher-confirm-type: correlated   # el publicador espera la confirmación del broker
   security:
     oauth2:
       resourceserver:
@@ -51,3 +53,4 @@ management:
 biohub:
   eventos:
     exchange: biohub.eventos
+    timeout-confirmacion: 5s
