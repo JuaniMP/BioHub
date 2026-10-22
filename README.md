@@ -218,21 +218,27 @@ docker compose rm -sf keycloak && docker volume rm biohub_keycloak-data && docke
 
 ## 7. Reparto por persona
 
-Reemplacen "Persona N" por los nombres reales.
+| Integrante | GitHub | Rama | Responsabilidad | Dificultad |
+|---|---|---|---|---|
+| Juanita Mejía Pineda | [@JuaniMP](https://github.com/JuaniMP) | `feature/ubicacion-consulta-publica` | `servicio-cientifico` módulo **ubicacion** (cifrado, llaves, mapa, búsqueda) + `servicio-consulta-publica` (BD de lectura y caché Redis) + `web-publica` | Alta |
+| Santiago Pinzón Vásquez | [@Chocax](https://github.com/Chocax) | `feature/seguridad-acceso` | `api-gateway` (API Keys, rate limiting en `ApiKeyRateLimitFilter`), Keycloak y roles, `web-interna` (login y navegación). **Coordina la infraestructura compartida** | Alta |
+| Hernando Javier García Mogollón | [@Nandoski666](https://github.com/Nandoski666) | `feature/registro-cientifico` | `servicio-cientifico` módulo **registro** (hallazgos, fichas, historial). Publica los eventos de hallazgos | Media |
+| Nicolás Espinosa Estrada | [@Gattocho888](https://github.com/Gattocho888) | `feature/reportes-equipos` | `servicio-equipos` (gestión de equipos de trabajo) + `servicio-reportes` (consume eventos y arma reportes) | Media-baja |
 
-| Persona | Rama | Responsabilidad |
-|---|---|---|
-| Persona 1 | `feature/registro-cientifico` | `servicio-cientifico`, módulo **registro** (hallazgos, fichas, historial) |
-| Persona 2 | `feature/seguridad-acceso` | `api-gateway` (API Keys, rate limiting en `ApiKeyRateLimitFilter`), Keycloak/roles, `web-interna` (login y navegación) |
-| Persona 3 | `feature/ubicacion-consulta-publica` | `servicio-cientifico` módulo **ubicacion** (cifrado, llaves, mapa, búsqueda) + `servicio-consulta-publica` + `web-publica` |
-| Persona 4 | `feature/reportes-equipos` | `servicio-reportes` + `servicio-equipos` |
+### Dependencias entre personas (acordar al inicio)
+
+- **Evento "hallazgo registrado"**: lo publica Hernando (registro) y lo consumen Juanita (consulta pública) y Nicolás (reportes). Definan juntos su formato (campos, routing key en `biohub.eventos`) antes de programarlo, y documéntenlo en `docs/equipo/04-contrato-api.md`.
+- **Esquema `cientifico`**: lo comparten Hernando (registro) y Juanita (ubicacion). Usen migraciones con versión por fecha (sección 9) y no modifiquen tablas del otro módulo sin avisar.
+- **Roles y permisos**: Santiago define qué rol puede hacer qué; los demás protegen sus endpoints con esos roles.
 
 ### Zonas compartidas (coordinar antes de tocar)
 
+Las coordina **Santiago**:
+
 - `pom.xml` raíz
-- `docker-compose.yml`
+- `docker-compose.yml` e `infra/` (MySQL, Keycloak)
 - `infra/keycloak/realm-biohub.json`
-- `config/` de `servicio-cientifico` (la comparten Persona 1 y Persona 3)
+- `config/` de `servicio-cientifico` (la comparten Hernando y Juanita)
 
 Cualquier cambio en estas zonas se **avisa al equipo** antes de abrir el PR.
 
@@ -242,7 +248,14 @@ Cualquier cambio en estas zonas se **avisa al equipo** antes de abrir el PR.
 - `develop`: integración.
 - `feature/*`: una por persona.
 
-Cada uno trabaja en su rama y abre un pull request hacia `develop`. **Otra persona** lo revisa y aprueba antes del merge. `develop` pasa a `main` solo en las entregas (PR `develop` → `main`).
+Cada uno trabaja en su rama `feature/*` (ahí puede hacer push libremente) y, cuando algo está listo, abre un **pull request hacia `develop`** y lo fusiona. `develop` pasa a `main` solo en las entregas (PR `develop` → `main`).
+
+`main` y `develop` están **protegidas** en GitHub:
+- No se permite push directo (ni siquiera a la dueña del repo): todo entra por pull request.
+- No se exige aprobación de otra persona: cada uno puede fusionar su propio PR. Aun así, se recomienda pedirle a alguien que le eche un ojo a los cambios en zonas compartidas.
+- No se permite force push ni borrar estas ramas.
+
+Antes de abrir el PR, actualiza tu rama con `develop` y comprueba que `mvn test` (y `npm test` si tocaste una web) pasen.
 
 ```bash
 git checkout feature/registro-cientifico     # tu rama
@@ -257,7 +270,8 @@ Commits sugeridos (Conventional Commits en español): `feat:`, `fix:`, `chore:`,
 
 ## 9. Convenciones
 
-- **Migraciones Flyway:** `src/main/resources/db/migration/V<n>__descripcion.sql`. Nunca edites una migración ya aplicada: crea una nueva. `V1__base.sql` está vacía. Hibernate usa `ddl-auto: validate`.
+- **Migraciones Flyway:** `src/main/resources/db/migration/V<fecha_hora>__descripcion.sql`, con la versión en formato **`AAAAMMDD_HHMM`**, por ejemplo `V20261022_1430__crear_tabla_hallazgo.sql`. Así dos personas que trabajan en el mismo esquema (registro y ubicación comparten `cientifico`) nunca crean la misma versión. Nunca edites una migración ya aplicada: crea una nueva. `V1__base.sql` está vacía. Hibernate usa `ddl-auto: validate`.
+- **Bases de datos:** no hay una persona "de la base de datos": cada quien escribe las tablas de su servicio como migraciones en su propio módulo. Los servidores MySQL son los del `docker-compose.yml` y los comparte todo el equipo.
 - **Eventos:** exchange de tipo topic `biohub.eventos` en RabbitMQ.
 - **Endpoints:** bajo `/api/<prefijo>/` (`gateway`, `cientifico`, `equipos`, `publica`, `reportes`).
 - **Seguridad:** cada servicio valida el JWT (firma, `iss`, `exp` y `aud=biohub-api`); los roles llegan como authorities `ROLE_<rol>`.
@@ -269,6 +283,19 @@ mvn test            # desde la raíz: todos los servicios
 cd web-interna && npm test
 cd web-publica && npm test
 ```
+
+## 10b. Despliegue (decidido, pendiente de implementar)
+
+- **Webs** (web-interna y web-publica): **Vercel**, plan gratuito.
+- **Backend on-premise en dos máquinas virtuales** (Ubuntu Server, todo en contenedores Docker):
+  - **VM de backend** (`biohub-backend`): gateway, servicios, Keycloak, RabbitMQ y Redis.
+  - **VM de datos** (`biohub-datos`): los 4 MySQL (y la base de Keycloak en producción).
+- **Tailscale** conecta todo por una red privada cifrada:
+  - La VM de backend habla con la VM de datos por Tailscale; **solo** ella puede llegar a los MySQL.
+  - Los 4 integrantes entran a las VMs (SSH, consola de Keycloak, panel de RabbitMQ, MySQL) por Tailscale, sin abrir puertos en el router.
+  - **Tailscale Funnel** publica en internet, con HTTPS y URL fija, **solo** el gateway y el login de Keycloak.
+- Los servicios ya leen el host de cada MySQL de variables (`MYSQL_*_HOST`), así que separar las VMs no requiere cambiar código.
+- Topología, reglas de seguridad (ACLs de Tailscale) y recursos: [docs/equipo/03-arquitectura.md](docs/equipo/03-arquitectura.md) (decisión D11).
 
 ## 11. Solución de problemas
 
@@ -295,5 +322,5 @@ cd web-publica && npm test
 
 ## 13. Autores y licencia
 
-- Autores: Persona 1, Persona 2, Persona 3, Persona 4 (reemplazar por nombres).
+- Autores: Juanita Mejía Pineda, Santiago Pinzón Vásquez, Hernando Javier García Mogollón y Nicolás Espinosa Estrada (Ingeniería de Software 2, Universidad El Bosque).
 - Licencia: pendiente de definir (el repositorio aún no incluye archivo `LICENSE`).
