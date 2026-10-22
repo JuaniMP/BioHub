@@ -284,18 +284,22 @@ cd web-interna && npm test
 cd web-publica && npm test
 ```
 
-## 10b. Despliegue (decidido, pendiente de implementar)
+## 10b. Despliegue (implementado)
 
-- **Webs** (web-interna y web-publica): **Vercel**, plan gratuito.
-- **Backend on-premise en dos máquinas virtuales** (Ubuntu Server, todo en contenedores Docker):
-  - **VM de backend** (`biohub-backend`): gateway, servicios, Keycloak, RabbitMQ y Redis.
-  - **VM de datos** (`biohub-datos`): los 4 MySQL (y la base de Keycloak en producción).
-- **Tailscale** conecta todo por una red privada cifrada:
-  - La VM de backend habla con la VM de datos por Tailscale; **solo** ella puede llegar a los MySQL.
-  - Los 4 integrantes entran a las VMs (SSH, consola de Keycloak, panel de RabbitMQ, MySQL) por Tailscale, sin abrir puertos en el router.
-  - **Tailscale Funnel** publica en internet, con HTTPS y URL fija, **solo** el gateway y el login de Keycloak.
-- Los servicios ya leen el host de cada MySQL de variables (`MYSQL_*_HOST`), así que separar las VMs no requiere cambiar código.
-- Topología, reglas de seguridad (ACLs de Tailscale) y recursos: [docs/equipo/03-arquitectura.md](docs/equipo/03-arquitectura.md) (decisión D11).
+Estado: **implementado** en dos máquinas virtuales (KVM, en el portátil de Juanita) conectadas por Tailscale. La app solo está en línea cuando ese equipo y las VMs están encendidos.
+
+- **VM `biohub-backend`**: gateway (8080), Keycloak (8180, modo dev), panel de RabbitMQ (15672); servicios y Redis en red Docker interna.
+- **VM `biohub-datos`**: los 4 MySQL (3307-3310). Los usuarios de aplicación solo aceptan conexiones desde la VM backend.
+- **Tailscale**: los 4 integrantes entran por la tailnet (`http://biohub-backend:8080`, SSH con `ssh biohub@biohub-backend`). Nada se publica en internet.
+- Redespliegue (solo quien tenga la máquina anfitriona): `deploy/desplegar.sh backend|datos|todo`.
+- **Pendiente**: HTTPS/Funnel y webs en Vercel.
+
+Guías:
+- [docs/guia-tailscale.md](docs/guia-tailscale.md): cómo conectarte, probar y consultar (empieza aquí).
+- [docs/equipo/09-despliegue.md](docs/equipo/09-despliegue.md): detalle técnico, variables y operación.
+- [docs/equipo/03-arquitectura.md](docs/equipo/03-arquitectura.md): decisión D11.
+
+Las contraseñas (`deploy/*/.env`) no están en el repo: pídelas a Juanita por un canal privado.
 
 ## 11. Solución de problemas
 

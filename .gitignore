@@ -39,3 +39,8 @@ secrets/
 
 # Herramientas locales de agentes/IA
 .claude/
+
+# Despliegue on-premise (secretos generados; ver deploy/generar-env.sh)
+deploy/**/.env
+deploy/backend/rabbitmq/definitions.json
+deploy/backend/keycloak/

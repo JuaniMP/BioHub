@@ -29,6 +29,8 @@ public class SecurityConfig {
                         // Deja llegar los errores (400/500) al cliente en vez de convertirlos en 401
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
+                        // Verificación de eventos: JWT con rol administrador, validado aquí (el gateway no exige JWT en GET /api/publica/**)
+                        .requestMatchers("/api/publica/eventos/**").hasRole("administrador")
                         // Consulta pública: sin login. API Keys y rate limiting se aplican en el gateway.
                         .requestMatchers(HttpMethod.GET, "/api/publica/**").permitAll()
                         .anyRequest().authenticated())

@@ -1,0 +1,9 @@
+[Unit]
+Description=Backup de MySQL de BioHub
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=biohub
+ExecStart=/home/biohub/biohub-datos/backup/backup.sh
