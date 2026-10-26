@@ -99,3 +99,95 @@ Los scripts de Playwright viven fuera del repo (scratchpad de la sesión: `e2e.m
 - Convertir SE-01..SE-13, SE-20 y IG-01..IG-08 en pruebas automáticas de integración (p. ej. `@SpringBootTest` + WireMock para el destino) cuando haya historias; hoy solo existen las pruebas MockMvc de la sección 1.
 - Cuando haya API Key + rate limiting: casos 429, `Retry-After`, key inválida/revocada, límite por IP.
 - Cuando existan endpoints con roles: matriz rol x endpoint (403 para roles sin permiso).
+
+---
+# Iteración despliegue + RabbitMQ (tarea 13e)
+
+## 6. Trazabilidad: criterios del evento -> casos
+| Criterio (contrato 04, "Eventos") | Casos | Tipo |
+|---|---|---|
+| POST prueba: 202 con sobre tras publisher confirm | EV-01, EV-02, EV-03 | integración (MockMvc) / IT Testcontainers |
+| POST prueba: 400 (mensaje >200, JSON roto) y borde exacto 200 | EV-04, EV-05, EV-06 | integración |
+| POST prueba: 401 sin token / 403 sin rol `administrador` | EV-07, EV-08 | integración |
+| POST prueba: 503 con broker caído, sin detalles internos | EV-09, EV-10 | integración / IT |
+| Publicación: JSON, persistente, routing key = tipo, sin `__TypeId__`, `message_id` = id | EV-11, EV-12 | unitaria / IT |
+| GET recibidos: 401 / 403 / 200 (consulta-publica y reportes) | EV-13..EV-15 | integración |
+| Límite de 20 eventos, orden del más reciente al más antiguo | EV-16 | unitaria |
+| DLQ: JSON roto | EV-17 | unitaria + IT |
+| DLQ: tipo desconocido | EV-18 | unitaria + IT |
+| DLQ: routing key distinta del tipo | EV-19 | unitaria + **IT nuevo (QA)** |
+| DLQ: cuerpo > 64 KB / vacío | EV-20 | unitaria + **IT nuevo (QA)** |
+| Cabecera `__TypeId__` de otra clase se ignora | EV-21 | IT (el evento válido lleva la cabecera) |
+| Sobre incompleto, `datos` de prueba inválidos | EV-22 | unitaria |
+| Permisos por usuario RabbitMQ (SEC-04) | EV-23, EV-24 | integración opt-in (QA) |
+
+## 7. Casos de eventos
+| ID | Descripción | Pasos / datos | Esperado | Dónde |
+|---|---|---|---|---|
+| EV-01 | Publicar con mensaje | POST `{"mensaje":"hola"}` admin | 202, sobre con `tipo=prueba.ping`, `origen=servicio-cientifico`, `usuario` | EventosPruebaControllerTest |
+| EV-02 | Sin cuerpo | POST sin body | 202, `mensaje="ping"` | idem |
+| EV-03 | Publicación real | publicador contra RabbitMQ real | mensaje en cola | PublicadorEventosIntegracionTest |
+| EV-04 | Mensaje de 201 caracteres | POST | 400 problem+json | idem EV-01 |
+| EV-05 | Mensaje de exactamente 200 | POST | 202 | idem |
+| EV-06 | JSON roto | POST `{roto` | 400 | idem |
+| EV-07 | Sin token | POST | 401 | idem |
+| EV-08 | Rol distinto de administrador | POST | 403 | idem |
+| EV-09 | Broker caído (mock) | POST | 503 sin texto de excepción | idem |
+| EV-10 | Sin broker real | publicar a puerto cerrado | `EventoNoPublicadoException` | PublicadorEventosIntegracionTest |
+| EV-11 | Routing key y persistencia | publicar y leer | rk = tipo, delivery_mode 2, message_id = id | PublicadorEventosTest |
+| EV-12 | Sin `__TypeId__`, `application/json` | leer mensaje real | cabecera ausente | PublicadorEventosIntegracionTest |
+| EV-13 | GET recibidos sin token | GET | 401 | EventosRecibidosControllerTest (x2 servicios) |
+| EV-14 | GET recibidos sin rol | GET | 403 | idem |
+| EV-15 | GET recibidos admin | GET | 200 `{servicio,total,eventos[]}` | idem |
+| EV-16 | 25 eventos | consumir 25 | 20, el primero es el último recibido | ConsumidorEventosTest (x2) |
+| EV-17..EV-22 | Rechazos del consumidor | ver matriz | `EventoInvalidoException` y, en broker real, mensaje en `<cola>.dlq` y cola principal vacía | ConsumidorEventosTest, ConsumidorEventosIntegracionTest, **ConsumidorEventosRechazosIntegracionTest** |
+| EV-23 | `reportes_mq` declara su cola, consume y manda a DLQ con las definitions reales | `QA_RMQ_PORT=<p> QA_RMQ_USER=reportes_mq QA_RMQ_PASS=... mvn -pl servicio-reportes test -Dtest=ConsumidorBrokerDesplegadoTest` | pasa | opt-in |
+| EV-24 | `cientifico_mq` publica con confirmación y NO puede leer colas | idem con `PublicadorBrokerDesplegadoTest` en servicio-cientifico | pasa; el broker responde ACCESS_REFUSED al leer | opt-in |
+
+Los tests opt-in se omiten si `QA_RMQ_PORT` no está definido (no afectan a `mvn verify`).
+
+## 8. Casos de artefactos de despliegue (verificación estática)
+| ID | Descripción | Comando | Esperado |
+|---|---|---|---|
+| DP-01 | Sintaxis de scripts | `for f in $(find deploy -name '*.sh'); do bash -n $f; done` | sin errores |
+| DP-02 | Compose backend válido | `docker compose --env-file <env ficticio> -f deploy/backend/docker-compose.yml config` | rc 0 |
+| DP-03 | Compose datos válido | idem datos | rc 0 |
+| DP-04 | Ningún `ports:` a 0.0.0.0 | revisar `host_ip` en `config` | todos con IP Tailscale |
+| DP-05 | Servicios sin puertos publicados | `config` | solo api-gateway, keycloak, rabbitmq(15672) |
+| DP-06 | Variables por servicio (SEC-12) | comparar `environment` de cada servicio; sin `env_file` | cada uno solo con las suyas |
+| DP-07 | Variables obligatorias | quitar `TS_IP_BACKEND` o `RABBITMQ_REPORTES_PASSWORD` del env | `config` falla con mensaje claro |
+| DP-08 | Imágenes | `mvn -DskipTests package` y `docker build -f <svc>/Dockerfile .` (contexto = raíz) | 5 imágenes, usuario uid 10001, `curl` presente |
+| DP-09 | `generar-env.sh` (en copia fuera del repo) | ejecutar y analizar | permisos 600, 16 contraseñas únicas, MySQL idéntico en ambos, sin comentarios/espacios, no sobrescribe sin `--forzar` |
+| DP-10 | `generar-definitions.sh` + RabbitMQ real | cargar `definitions.json` generado en `rabbitmq:4.1-management` | 4 usuarios, sin `guest`, login AMQP de cada usuario, permisos EV-23/24 |
+
+## 9. Procedimiento E2E contra las VMs (para repetir)
+Requisitos: equipo en la tailnet, `biohub-backend` resolviendo a la IP Tailscale (MagicDNS o `/etc/hosts`). La contraseña se lee del `.env` sin imprimirla.
+
+```bash
+set -a; . deploy/backend/.env; set +a      # carga KEYCLOAK_TEST_USERS_PASSWORD (no hacer echo)
+KC=http://biohub-backend:8180/realms/biohub/protocol/openid-connect/token
+GW=http://biohub-backend:8080
+tok() { curl -s -X POST "$KC" -d grant_type=password -d client_id=biohub-pruebas -d "username=$1" \
+          --data-urlencode "password=$KEYCLOAK_TEST_USERS_PASSWORD" | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])'; }
+ADMIN=$(tok admin1); INV=$(tok investigador1)
+
+# E2E-V1 Sin token -> 401           (esperado 401)
+curl -s -o /dev/null -w '%{http_code}\n' -X POST $GW/api/cientifico/eventos/prueba
+# E2E-V2 investigador1 -> 403       (esperado 403)
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H "Authorization: Bearer $INV" $GW/api/cientifico/eventos/prueba
+# E2E-V3 mensaje > 200 -> 400       (esperado 400)
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+     -d "{\"mensaje\":\"$(printf 'a%.0s' $(seq 201))\"}" $GW/api/cientifico/eventos/prueba
+# E2E-V4 admin1 publica -> 202 con sobre (guardar el id)
+curl -s -w '\n%{http_code}\n' -X POST -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+     -d '{"mensaje":"e2e-vm"}' $GW/api/cientifico/eventos/prueba
+# E2E-V5 recibido en ambos consumidores (esperado 200, el id de V4 es el primero de la lista)
+for r in publica reportes; do curl -s -H "Authorization: Bearer $ADMIN" $GW/api/$r/eventos/recibidos | python3 -m json.tool | head -20; done
+# E2E-V6 consumidores sin token / con investigador1 (esperado 401 y 403, incluido /api/publica)
+for r in publica reportes; do
+  curl -s -o /dev/null -w "$r sin token %{http_code}\n" $GW/api/$r/eventos/recibidos
+  curl -s -o /dev/null -w "$r investigador %{http_code}\n" -H "Authorization: Bearer $INV" $GW/api/$r/eventos/recibidos
+done
+# E2E-V7 DLQ vacías y colas vacías (panel http://<IP TS backend>:15672, usuario biohub): reportes.eventos.dlq y consulta-publica.eventos.dlq con 0 mensajes
+```
+Opcional (503): detener `biohub-rabbitmq` en la VM y repetir V4 (esperado 503 problem+json); volver a levantarlo. Requiere autorización de la dueña.
