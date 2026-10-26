@@ -670,3 +670,236 @@ Condiciones:
 1. **Antes del evento real `hallazgo.registrado`:** SEC-D-03 (permisos `write` de consumidores y validación de `user_id`) y SEC-D-07 (límites de la DLQ).
 2. **Antes de datos reales, de invitar a alguien más a la tailnet o de activar Funnel/serve:** SEC-D-01 (separar el acceso root), SEC-D-04 (ACL con grupos, sin `member:*` ni MySQL para miembros) y SEC-D-02 (volver `sslRequired` a `external`/`all` con HTTPS). Ya hoy, a bajo costo: activar fuerza bruta en `master`.
 3. Los Bajos se pueden resolver en la próxima tarea de devops. SEC-D-05, SEC-D-09 y SEC-D-10 son de esfuerzo S.
+
+---
+
+# Iteración 14 – cierre de Tailscale
+
+**Revisor:** ciberseguridad · **Fecha:** 2026-10-26 · **Rama:** `feature/despliegue` · **Commit revisado:** `14b77e9` (más `git diff 5a8d206..HEAD -- deploy docs`) · **Alcance:** ACL versionada (`deploy/tailscale/`), usuario `equipo` y `biohub-estado`, usuario MySQL `lectura_equipo`, HTTPS con `tailscale serve` y el estado de SEC-D-01..11 y D13.
+
+## Resumen
+
+| Severidad | Nuevos (SEC-T) |
+|---|---|
+| Crítico | 0 |
+| Alto | 0 |
+| Medio | 2 |
+| Bajo | 6 |
+| Informativo | 4 |
+
+**Veredicto: APROBADO CON OBSERVACIONES.** El commit cumple lo que promete en lo técnico: separa root del equipo, la ACL es de mínimo privilegio, el usuario de solo lectura está bien acotado y HTTPS por `serve` está bien diseñado (sin Funnel, 8080/8180 en loopback e issuer no falsificable). Quedan dos Medios: la shell `equipo` en la VM backend hereda la posición de red de `tag:backend` (SEC-T-01), y la guía sigue repartiendo al equipo las credenciales de administrador de Keycloak y RabbitMQ (SEC-T-02). Por eso **SEC-D-01 queda "resuelto en infraestructura, parcial en credenciales"**. **Es seguro que Juanita pegue la política y active HTTPS en el orden documentado** (detalle en "Orden de aplicación").
+
+### Cómo se revisó
+- **Estático:** todos los archivos del commit `14b77e9` (`policy.hujson`, README, `biohub-estado`, `instalar-equipo.sh`, `tailscale-https.sh`, `02-lectura-equipo.sh`, `aplicar-lectura-equipo.sh`, `desplegar.sh`, `generar-env.sh`, ambos compose y `.env.example`), `09-despliegue.md` §4.1-4.2, `guia-tailscale.md`, `03-arquitectura.md` D11-D13 y el código del gateway relacionado (`ProxyService`, `SecurityConfig` de los 5 servicios).
+- **Secretos:** `git check-ignore` de `deploy/**/.env`, `definitions.json` y `deploy/backend/keycloak/` (ignorados). Se buscaron con `git grep -F` los **valores** de las 22 contraseñas de `deploy/backend/.env` y `deploy/datos/.env` en **todo el historial** (`git rev-list --all`), sin imprimirlas: **0 coincidencias**. Ningún `.env` local conserva valores `cambiar_*`; todos tienen 24 caracteres y permisos 600.
+- **VMs (solo lectura; no se cambió ni reinició nada):** por la red NAT (`biohub-backend` 192.168.122.234, `biohub-datos` 192.168.122.81):
+  - `id`/`passwd -S equipo`, permisos de `/home/biohub`, `/home/equipo` y `/usr/local/bin/biohub-estado`;
+  - `/etc/sudoers.d/biohub-equipo`, `sudo -l -U equipo` y los `Defaults` de sudo;
+  - pruebas como `equipo` (`sudo -u equipo`): `ps`, argumentos no permitidos (`--help`, `-f`, `../x`), acceso a Docker, `/home/biohub`, `/etc/shadow`, `tailscale status`, `ps -eo args` buscando secretos, alcance de red con conexiones TCP con `/dev/tcp`;
+  - `SHOW GRANTS` y `mysql.user` en las 4 instancias; realms `master`/`biohub` con `kcadm get` (lectura);
+  - `tailscale debug netmap` (filtro de paquetes y política SSH **vigentes**), `CertDomains`, `serve status`, `ss -ltnp`, `ufw status`, `sshd -T`;
+  - prueba de falsificación de `X-Forwarded-*` contra el discovery de Keycloak.
+- **Política ACL:** revisada en papel. No hay acceso a la consola: los `tests` se razonaron, no se ejecutaron.
+
+---
+
+## Estado de SEC-D-01..11
+
+| ID | Estado | Evidencia |
+|---|---|---|
+| **SEC-D-01** (todos root) | **Resuelto en infraestructura; parcial en credenciales; pendiente de aplicar la ACL** | `equipo` existe en ambas VMs: bloqueado (`L`), solo en el grupo `equipo` (sin `sudo`/`docker`/`adm`/`lxd`). `/home/biohub` es 750, así que `equipo` recibe *Permission denied* al leer `.env` y `definitions.json`. El sudoers coincide con el repositorio: 13 comandos exactos, `env_reset` y `secure_path`. `-f`, `--help` y argumentos inventados son rechazados por sudo. Sin acceso al socket Docker. **Pero:** la política vigente (netmap) sigue siendo la antigua (`accept` como `biohub`, sin `check`), y la guía reparte las credenciales de admin de Keycloak/RabbitMQ (SEC-T-02). La shell de `equipo` en backend alcanza MySQL y la red Docker (SEC-T-01). |
+| **SEC-D-02** (Keycloak sin TLS) | **Parcial.** Fuerza bruta en `master`: **resuelto**. `sslRequired`: **pendiente de activar HTTPS** | `master`: `bruteForceProtected=true`, `failureFactor=5`, `maxFailureWaitSeconds=900` (verificado). Hoy `sslRequired=none` en ambos realms porque el despliegue está en modo HTTP (`TS_HTTPS=0`, sin `serve`). El mecanismo para pasar a `external` está implementado y es correcto. Los certificados de la tailnet ya están activos (`CertDomains` = `biohub-backend.tailcfd75e.ts.net`). |
+| **D13** | **Vigente hasta ejecutar `BIOHUB_HTTPS=1`**; condiciones de D13 cumplidas hoy | 8080/8180 solo en `100.76.214.94` (comprobado con `ss`). Sin Funnel ni `serve`. Hoy la única fuente del filtro es el nodo de Juanita. |
+| **SEC-D-03** (falsificación de eventos) | **Pendiente** | `generar-definitions.sh:38-41` sin cambios: `consulta_mq`/`reportes_mq` siguen con `write` sobre `biohub.eventos`. No hay `user_id`. Agravado por SEC-T-02: el admin de RabbitMQ en manos del equipo también puede publicar. |
+| **SEC-D-04** (ACL amplia) | **Resuelto en el repositorio; pendiente de pegar** | `policy.hujson` cumple lo pedido (ver "Bien hecho"). El filtro vigente en la VM aún es `22,8080,8180,15672` desde el nodo de Juanita, sin grupos ni `check`. |
+| **SEC-D-05** (secreto en argumentos) | **Resuelto** | `desplegar.sh:160` usa `KC_CLI_PASSWORD`. Verificado que `kcadm` 26.8.1 autentica así. `ps -eo args` como `equipo`: sin secretos. |
+| **SEC-D-06** (backups) | **Pendiente y peor de lo supuesto** | `systemctl list-timers biohub-backup.timer` → 0 timers; `/var/backups/biohub` no existe: **hoy no hay ningún backup**. |
+| **SEC-D-07** (DLQ) | Pendiente | Sin `maxLength`/TTL. |
+| **SEC-D-08** (endurecimiento) | Pendiente | Sin `no-new-privileges`/`cap_drop`. |
+| **SEC-D-09** (llave sin passphrase) | Pendiente | `ssh-keygen -y -P ""` sobre `~/.ssh/biohub_vms` funciona, así que la llave no tiene passphrase. |
+| **SEC-D-10** (IP de origen) | Pendiente | `userland-proxy: true` en backend. En modo HTTPS el gateway ve `172.18.0.1` y `ProxyService:153` sobrescribe `X-Forwarded-For` con esa IP, con lo que se pierde también la IP que aporta `serve`. |
+| **SEC-D-11** (`definitions.json` 644) | **Mitigado** (sigue en 644) | `equipo` no puede leerlo porque `/home/biohub` es 750. |
+
+---
+
+## Hallazgos nuevos
+
+### SEC-T-01 · Medio · A01 / A05 (segmentación de red)
+**La shell de `equipo` en `biohub-backend` hereda la posición de red de `tag:backend` y de la red Docker: el "nadie del equipo llega a MySQL" de la ACL no se cumple en la práctica.**
+
+- **Archivos:** `deploy/tailscale/policy.hujson:35` (`tag:backend -> tag:datos:3307-3310`), `:51-53` (comentario "MySQL SOLO la admin"), `:64-65` (SSH del equipo a `tag:backend`). `deploy/backend/docker-compose.yml:227-229` (red `biohub-interna`). `servicio-consulta-publica/.../SecurityConfig.java:35` (`permitAll` en `/api/publica/**`; la API key y el rate limit están solo en el gateway, en `ApiKeyRateLimitFilter`).
+- **Problema (verificado como `sudo -u equipo` en backend):** con conexiones TCP abiertas desde la shell de `equipo` llegan a estar **ABIERTOS**:
+  - MySQL en datos `100.94.121.117:3307` y `:3310`;
+  - Redis `172.18.0.2:6379`;
+  - AMQP `172.18.0.9:5672`;
+  - Keycloak directo `172.18.0.4:8180` y la gestión `:9000`;
+  - los servicios `172.18.0.6:8081` (el ping sin token responde 401) y el gateway `:8080`;
+  - SSH por NAT de la otra VM (`192.168.122.81:22`).
+
+  Hoy ninguna credencial está al alcance de `equipo`: los `.env` no son legibles, no hay secretos en `ps` y `/proc/<pid>/environ` de otros usuarios está protegido. Las contraseñas son aleatorias de 24 caracteres. Aun así:
+  1. La ACL deja de ser la barrera de MySQL: queda solo la contraseña. `lectura_equipo@100.64.0.0/10` acepta además la IP del backend (`100.76.214.94`).
+  2. Desde la shell se puede llamar `servicio-consulta-publica:8083/api/publica/**` **sin API key ni rate limit**, porque esos controles solo existen en el gateway.
+  3. Tailscale SSH permite reenvío de puertos por defecto (la política SSH vigente muestra `allowLocalPortForwarding: true`). Con `ssh -L 13307:100.94.121.117:3307 equipo@biohub-backend` el compañero lleva MySQL y la red Docker a su portátil. Ese reenvío lo hace `tailscaled` (root), así que un filtro `iptables --uid-owner equipo` **no** lo bloquearía. Verificarlo cuando la política nueva esté aplicada.
+- **Por qué importa:** el modelo de amenaza de SEC-D-01/D-04 es "portátil de un compañero comprometido". Con este hallazgo, ese atacante queda dentro del perímetro del backend con acceso de red a todo. Basta que una sola credencial se filtre (logs, copia de un `.env`, `docker inspect` futuro) para llegar a los datos. Hoy son datos de prueba, por eso es Medio. **Pasa a Alto con datos reales** (ubicaciones protegidas).
+- **Cómo corregirlo (de menor a mayor esfuerzo):**
+  1. **Shell restringida como login de `equipo`.** Tailscale SSH ejecuta los comandos con la shell de login del usuario, así que funciona como un `ForceCommand`:
+     ```bash
+     # /usr/local/bin/biohub-equipo-shell (root:root 755) y: usermod -s /usr/local/bin/biohub-equipo-shell equipo
+     #!/bin/bash
+     set -euo pipefail
+     cmd="${2:-}"          # invocada como: shell -c "<comando>"
+     case "$cmd" in
+       "sudo biohub-estado ps"|"biohub-estado ps") exec sudo /usr/local/bin/biohub-estado ps ;;
+       "sudo biohub-estado logs "[a-z-]*|"biohub-estado logs "[a-z-]*)
+         exec sudo /usr/local/bin/biohub-estado logs "${cmd##* }" ;;
+       *) echo "Solo: biohub-estado ps | biohub-estado logs <servicio>"; exit 2 ;;
+     esac
+     ```
+     Así no queda shell interactiva ni `/dev/tcp`. Comprobar que `scp`/`sftp` también fallen.
+  2. **Reenvío de puertos:** si la versión de Tailscale lo admite en la política, desactivarlo para `group:biohub-equipo`. Si no, aceptar el riesgo de forma explícita y documentada, apoyado en el punto 1 y en las credenciales.
+  3. **API key en profundidad:** que `servicio-consulta-publica` no confíe en que solo el gateway lo llama. Por ejemplo, un secreto compartido gateway→servicio en una cabecera, o exigir JWT de servicio. Esto ya estaba previsto en "Requisitos de seguridad > API Keys".
+  4. `lectura_equipo`: limitar el host a las IP concretas de quienes lo usen en vez de `/10` (o como mínimo excluir la del backend).
+- **Esfuerzo:** S (shell restringida) / M (resto) · **Responsable:** devops.
+
+### SEC-T-02 · Medio · A01 / A07 (credenciales de administración compartidas)
+**La guía sigue repartiendo al equipo la contraseña del admin de Keycloak (`master`) y la del administrador de RabbitMQ: SEC-D-01 se corrige a nivel de sistema operativo, pero no a nivel de aplicación.**
+
+- **Archivos:** `docs/guia-tailscale.md:63` ("Las contraseñas (usuarios de prueba de Keycloak, **consola de Keycloak** y **panel de RabbitMQ**)… Pídelas"), `:117` (entrar al panel con el usuario `biohub`), `:49` (consola `/admin` por 8443). `policy.hujson:43-46` (15672 y 8443/8180 para todo `group:biohub-equipo`).
+- **Problema:**
+  - El admin bootstrap de `master` controla todo el IdP: puede crear usuarios con rol `administrador` en `biohub`, cambiar `sslRequired`, exportar claves y deshabilitar la protección contra fuerza bruta.
+  - El usuario `biohub` de RabbitMQ (tag `administrator`) puede leer y purgar colas, publicar eventos falsos (esto agrava SEC-D-03) y crear usuarios.
+  - Además, el realm `master` tiene `eventsEnabled=false` y `adminEventsEnabled=false` (verificado): los cambios de un admin compartido no quedan registrados.
+- **Por qué importa:** con un portátil comprometido ya no se obtiene root de la VM, pero sí el control total de la autenticación y de la mensajería de la aplicación, que es lo que protege los datos. Además no hay trazabilidad por persona.
+- **Cómo corregirlo:**
+  - **RabbitMQ:** crear un usuario de solo lectura para el equipo en `generar-definitions.sh` y dar el admin solo a Juanita:
+    ```python
+    ("equipo_mq", "RABBITMQ_EQUIPO_PASSWORD", "monitoring", ("^$", "^$", "^$")),  # ve el panel, no publica ni lee mensajes
+    ```
+    Y, en la ACL, 15672 solo para `group:biohub-admin` si el equipo no lo necesita.
+  - **Keycloak:** el equipo no necesita la consola de `master`. Para administrar usuarios de prueba, crear cuentas personales en el realm `biohub` con `realm-management: view-users, manage-users` (no `realm-admin`) y mantener el admin de `master` solo para Juanita. Activar eventos en `master` desde `desplegar.sh`:
+    ```bash
+    $K update realms/master --config $C -s eventsEnabled=true -s adminEventsEnabled=true -s adminEventsDetailsEnabled=false
+    ```
+    Opcional en modo HTTPS: publicar en 8443 solo `/realms` y `/resources` (`tailscale serve --https=8443 --set-path /realms http://127.0.0.1:8180/realms`, igual para `/resources`) y administrar por túnel SSH.
+  - **Guía:** cambiar `:63` y `:117` para que el equipo reciba solo la contraseña de los usuarios de prueba y la de `equipo_mq`.
+- **Esfuerzo:** S (guía + usuario monitoring + eventos) / M (cuentas personales en Keycloak) · **Responsable:** devops + dueña.
+
+### SEC-T-03 · Bajo · A07 (OpenSSH abierto a `equipo` por la red NAT)
+- **Archivos:** `deploy/vms/user-data.tpl` (ufw `22/tcp ALLOW 192.168.122.0/24`), `instalar-equipo.sh:69-71`.
+- **Problema:** `sshd` escucha en `0.0.0.0:22` con `pubkeyauthentication yes`. `passwd -l` no impide entrar con llave cuando `UsePAM yes`. `equipo` puede escribir su propio `~/.ssh/authorized_keys` y luego saltar de una VM a la otra por NAT (`192.168.122.81:22` es alcanzable desde backend, verificado) sin pasar por la ACL ni por el `check` de 12 h. El alcance es limitado: necesita una sesión previa en una de las VMs y no llega al anfitrión (`192.168.122.1:22` cerrado).
+- **Cómo corregirlo:** en `instalar-equipo.sh`:
+  ```bash
+  printf 'DenyUsers equipo\n' > /etc/ssh/sshd_config.d/10-biohub-equipo.conf && sshd -t && systemctl reload ssh
+  ```
+  (Tailscale SSH no usa `sshd`, así que `equipo` sigue entrando por Tailscale.) Mejor aún: `AllowUsers biohub`.
+- **Esfuerzo:** S · **Responsable:** devops.
+
+### SEC-T-04 · Bajo · A05 (`KC_PROXY_HEADERS=xforwarded` sin proxy de confianza en modo HTTP)
+- **Archivo:** `deploy/backend/docker-compose.yml:209-211`.
+- **Problema:** en modo HTTP, 8180 está en la IP Tailscale y Keycloak confía en `X-Forwarded-*` de **cualquier** cliente. Se verificó que **no** se puede falsificar el issuer: con `X-Forwarded-Host: evil.example`, `X-Forwarded-Proto: https` o `Host: evil.example`, el discovery sigue devolviendo `http://biohub-backend:8180/realms/biohub`, porque `KC_HOSTNAME` es una URL completa. Lo que sí se puede falsificar es `X-Forwarded-For`, es decir, la IP que se registra en los eventos del realm `biohub` (repudio). La protección contra fuerza bruta de Keycloak es por usuario, no por IP, así que no se puede evadir. En modo HTTPS, 8180 está en `127.0.0.1`: solo `serve` y los usuarios locales llegan (ver SEC-T-01). `serve` reescribe las cabeceras `X-Forwarded-*` de los clientes de la tailnet (comportamiento de `tailscale serve` según su implementación; no se probó en vivo porque el modo HTTPS no está activo).
+- **Cómo corregirlo:** activar la confianza en proxies solo en modo HTTPS:
+  ```yaml
+  KC_PROXY_HEADERS: ${KC_PROXY_HEADERS:-}        # desplegar.sh pone xforwarded solo con TS_HTTPS=1
+  ```
+  Con `userland-proxy: true` todo llega desde `172.18.0.1`, así que `KC_PROXY_TRUSTED_ADDRESSES` no distingue clientes. Resolver junto con SEC-D-10.
+- **Esfuerzo:** S · **Responsable:** devops.
+
+### SEC-T-05 · Bajo · A05 (pruebas de la ACL incompletas)
+- **Archivo:** `deploy/tailscale/policy.hujson:73-95`.
+- **Problema:** las únicas pruebas que verifican "un compañero **no** llega a MySQL ni al anfitrión" están comentadas hasta que haya correos reales. Tampoco hay pruebas activas de que `tag:backend`/`tag:datos` no lleguen al portátil de Juanita (`100.110.39.21`), que es justo el riesgo de mayor impacto (escape de VM → anfitrión KVM). Hoy no existe ninguna regla que lo permita, pero una edición futura podría abrirlo sin que la consola se queje.
+- **Cómo corregirlo:** añadir ya (no dependen de los correos):
+  ```hujson
+  {"src": "tag:backend", "deny": ["100.110.39.21:22", "100.110.39.21:80", "100.110.39.21:5173"]},
+  {"src": "tag:datos",   "deny": ["100.110.39.21:22", "tag:backend:15672", "tag:backend:8443"]},
+  ```
+  Y, tras completar los correos, descomentar la prueba del compañero (incluye `deny tag:datos:3307`).
+- **Esfuerzo:** S · **Responsable:** dueña.
+
+### SEC-T-06 · Bajo · A01 (roles de la consola de Tailscale)
+- **Archivo:** `deploy/tailscale/policy.hujson:28-31` (`tagOwners` incluye `autogroup:admin`).
+- **Problema:** si a un compañero se le da el rol *Admin* o *Network admin* en la consola, puede editar la política y etiquetar su portátil como `tag:backend`. Con eso obtiene el acceso a MySQL del backend y se salta todo lo anterior. La política no puede impedirlo; depende de la configuración de usuarios.
+- **Cómo corregirlo:** documentar en `deploy/tailscale/README.md` que los compañeros deben tener rol **Member**, y comprobarlo en https://login.tailscale.com/admin/users al invitarlos.
+- **Esfuerzo:** S · **Responsable:** dueña.
+
+### SEC-T-07 · Bajo · A01 (alcance futuro de `lectura_equipo`)
+- **Archivos:** `deploy/datos/docker-compose.yml:95,118,141,164`, `deploy/datos/init/02-lectura-equipo.sh:31-33`.
+- **Problema:** hoy los grants son exactamente los esperados (verificado en las 4 instancias): `USAGE` + `SELECT, SHOW VIEW` en el esquema de aplicación, `max_user_connections=5`, sin `Super/File/Process/Shutdown`, sin `GRANT OPTION`, sin `mysql`/`sys`. Los esquemas están casi vacíos. Pero los grants son **por esquema completo**: cuando existan tablas sensibles, `lectura_equipo` las leerá:
+  - `gateway`: hashes de API keys;
+  - `cientifico`: ubicaciones protegidas, cifradas o no;
+  - tablas de auditoría.
+
+  Además, es una sola cuenta compartida (sin trazabilidad por persona) y `require_secure_transport=OFF` (aceptable dentro de WireGuard).
+- **Cómo corregirlo:** al crear esas tablas, pasar de `GRANT ... ON esquema.*` a grants por tabla o a vistas sin las columnas sensibles (`GRANT SELECT ON cientifico.v_hallazgos_sin_ubicacion`). Añadirlo como criterio de aceptación de las historias de ubicaciones y API keys.
+- **Esfuerzo:** S (por historia) · **Responsable:** backend-senior + devops.
+
+### SEC-T-08 · Bajo · A05 / A09 (panel RabbitMQ en HTTP también en modo HTTPS)
+- **Archivos:** `deploy/backend/docker-compose.yml:181-182`, `policy.hujson:43,46`.
+- **Problema:** en modo HTTPS 15672 sigue en HTTP sobre la IP Tailscale. El cifrado lo da WireGuard, pero la cookie de sesión del panel no lleva `Secure`. Junto con SEC-T-02, esto deja una superficie de administración amplia para todo el equipo.
+- **Cómo corregirlo:** en modo HTTPS, ligar 15672 a `127.0.0.1` y publicarlo con `tailscale serve --bg --https=15672 http://127.0.0.1:15672` (o limitar 15672 a `group:biohub-admin` en la ACL).
+- **Esfuerzo:** S · **Responsable:** devops.
+
+### Informativos
+- **SEC-T-I1 · Fallo a medias al activar HTTPS.** `desplegar.sh:148-163` primero escribe `TS_HTTPS=1`/`HTTP_BIND_IP=127.0.0.1`, recrea los contenedores y pone `sslRequired=external`, y **después** ejecuta `tailscale-https.sh aplicar`. Si `tailscale cert` falla (timeout de 180 s), el backend queda sin acceso desde la tailnet hasta ejecutar `BIOHUB_HTTPS=0`. Es una falla segura (cierra, no abre), pero conviene pedir el certificado antes del `compose up` y documentar la recuperación en §4.1.
+- **SEC-T-I2 · Secuencias de escape en los logs.** `biohub-estado logs` muestra el log tal cual. Un nombre de usuario con secuencias ANSI en un login fallido (Keycloak lo registra) se interpreta en la terminal de quien lee. Filtrar con `| tr -d '\000-\010\013-\037\177'` o `sed 's/\x1b\[[0-9;]*[A-Za-z]//g'`.
+- **SEC-T-I3 · Metadatos de la tailnet visibles para `equipo`.** `tailscale status`/`debug prefs` funcionan sin root y muestran nodos, IP y el nombre del portátil de Juanita. Es inofensivo, pero si se quiere evitar, se cubre con la shell restringida de SEC-T-01.
+- **SEC-T-I4 · Marcadores de correo.** `COMPANERO_n-PENDIENTE@invalido.example` usa el TLD reservado `.example` (RFC 2606): nadie puede autenticarse con esa identidad, así que es inofensivo. Si la consola rechazara un usuario desconocido, simplemente no guarda: falla de forma segura.
+
+---
+
+## Bien hecho (iteración 14)
+- **ACL de mínimo privilegio y versionada:**
+  - grupos con nombre y sin `autogroup:member`;
+  - **ninguna regla con destino en portátiles** (el anfitrión queda fuera de alcance);
+  - MySQL solo para `group:biohub-admin`;
+  - `tag:datos` sin salida;
+  - SSH en modo `check` 12 h: el equipo como `equipo` y solo la admin como `biohub`; ni `root` ni `autogroup:nonroot`;
+  - sin `nodeAttrs` de Funnel;
+  - `tests`/`sshTests` que impiden que la admin se quede fuera.
+- **`biohub-estado` + sudoers:**
+  - ruta y argumentos exactos (sin comodines) y validación repetida en el script;
+  - `PATH`/`LANG` fijos y `unset` de las variables `DOCKER_*`/`COMPOSE_*`;
+  - `--project-directory` y `-f` absolutos;
+  - sin `-f`/`exec`/`inspect`, con `--tail 200`;
+  - `visudo -cf` antes de instalar, 0440 root:root;
+  - script 0755 root:root (idéntico al del repositorio).
+
+  No se encontró ninguna escalada: no hay inyección de argumentos, rutas relativas, herencia de entorno ni symlinks controlables por `equipo` (su `HOME` no interviene y `/home/biohub` no es escribible por él).
+- **`lectura_equipo`:**
+  - validación estricta de caracteres, que evita inyección SQL en el heredoc;
+  - lista negra de `mysql/sys/information_schema/performance_schema`;
+  - `REVOKE ALL` + `GRANT` idempotente que corrige desviaciones;
+  - `MAX_USER_CONNECTIONS 5`;
+  - contraseña por `MYSQL_PWD` y por nombre de variable en `docker exec -e` (nunca en argumentos).
+- **HTTPS:**
+  - 8080/8180 a `127.0.0.1` en modo HTTPS (nunca `0.0.0.0`);
+  - JWKS por la red interna, con validación de `iss` y `aud`;
+  - issuer no falsificable (verificado);
+  - comprobación de Funnel después de `serve`;
+  - FQDN validado con regex;
+  - la clave del certificado de prueba en un `mktemp -d` que se borra;
+  - rollback `BIOHUB_HTTPS=0` que quita `serve` antes de devolver los puertos a la IP Tailscale;
+  - `sslRequired` ligado al modo.
+- **Secretos:**
+  - `generar-env.sh` idempotente, sin regenerar ni filtrar contraseñas existentes;
+  - `.env` 600 y subidos por stdin con `umask 077`;
+  - `KC_CLI_PASSWORD` en lugar de `--password` (SEC-D-05 resuelto);
+  - 0 secretos en el historial de git.
+
+## Orden de aplicación: ¿es seguro pegar la política y activar HTTPS?
+**Sí, en el orden del README.** Los certificados ya están activos, así que el paso 1 está hecho. El orden es: pegar la política, comprobar el acceso y después `BIOHUB_HTTPS=1`.
+- **Política antes que HTTPS (lo documentado):** el equipo sigue entrando por 8080/8180, porque la política nueva los mantiene. Juanita no pierde el acceso: sus `tests` lo garantizan y, además, tiene la llave por NAT. Correcto.
+- **HTTPS antes que la política (error de orden):** la política vieja no abre 443/8443, así que el equipo pierde el acceso a la app, pero nadie gana acceso indebido. Juanita conserva SSH por Tailscale (política vieja) y por NAT. Se arregla pegando la política o con `BIOHUB_HTTPS=0`. Falla de forma segura.
+- **Olvidar el paso 6 (quitar 8080/8180 de la ACL):** inofensivo, porque en modo HTTPS nada escucha en la IP Tailscale en esos puertos.
+- **Antes de pegarla:** confirmar que la identidad de Juanita en la consola es exactamente `JuaniMP@github` y que los compañeros tendrán rol *Member* (SEC-T-06). Se recomienda añadir las pruebas de SEC-T-05.
+
+## Veredicto (iteración 14)
+**APROBADO CON OBSERVACIONES.** No hay Críticos ni Altos.
+- **SEC-D-04:** resuelto en el repositorio; se cierra al pegar la política.
+- **SEC-D-01:** resuelto en el sistema operativo y en sudo (verificado en las VMs). Para cerrarlo del todo hace falta SEC-T-02 (no repartir los admin de Keycloak/RabbitMQ) y, antes de que los compañeros entren por SSH, SEC-T-01 (shell restringida) y SEC-T-03 (`DenyUsers equipo`).
+- **SEC-D-02:** fuerza bruta en `master` resuelta. `sslRequired=external` queda listo y se aplica al ejecutar `BIOHUB_HTTPS=1`.
+- **D13:** se retira en ese mismo momento. Hasta entonces sus condiciones se cumplen.
+
+Condiciones:
+1. **Antes de invitar a los compañeros a la tailnet:** SEC-T-01 (punto 1), SEC-T-02, SEC-T-03 y SEC-T-06.
+2. **Antes de datos reales:** SEC-T-01 completo (pasa a Alto), SEC-T-07, SEC-D-03 y SEC-D-06 (instalar el timer de backup: hoy no existe ningún backup).
+3. Los Bajos y los Informativos, en la próxima tarea de devops.
