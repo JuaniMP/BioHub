@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { aFichaPublica } from '../api/fichas.js';
@@ -22,7 +22,7 @@ describe('Ficha de especie', () => {
     renderizar(`/especies/${ID}`);
     const h1 = await screen.findByRole('heading', { level: 1 });
     expect(h1).toHaveTextContent('Atelopus ebenoides');
-    expect(h1).toHaveFocus();
+    await waitFor(() => expect(h1).toHaveFocus());
     expect(document.title).toBe('Atelopus ebenoides · BioHub');
     expect(screen.getByText('Rana arlequín de Boyacá')).toBeInTheDocument();
     expect(screen.getByText('15 de marzo de 2026')).toBeInTheDocument();
@@ -109,7 +109,7 @@ describe('Ficha de especie', () => {
     mockFetch(() => respuesta({ codigo: 'NO_ENCONTRADO' }, 404));
     renderizar(`/especies/${ID}`);
     const h1 = await screen.findByRole('heading', { level: 1, name: 'No encontramos esta especie' });
-    expect(h1).toHaveFocus();
+    await waitFor(() => expect(h1).toHaveFocus());
     expect(screen.getByText('Es posible que el enlace esté mal escrito o que la ficha ya no esté disponible.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Ir al buscador' })).toBeInTheDocument();
     expect(document.title).toBe('Especie no encontrada · BioHub');

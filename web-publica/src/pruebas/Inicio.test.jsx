@@ -72,7 +72,7 @@ describe('Inicio: búsqueda', () => {
     await u.click(screen.getByRole('button', { name: 'Buscar' }));
     expect(screen.getByText('Escribe al menos 2 letras.')).toBeInTheDocument();
     expect(campo).toHaveAttribute('aria-invalid', 'true');
-    expect(campo).toHaveFocus();
+    await waitFor(() => expect(campo).toHaveFocus());
     expect(f.mock.calls.length).toBe(antes);
     expect(screen.getByTestId('url')).toHaveTextContent(/^\/$/);
   });
