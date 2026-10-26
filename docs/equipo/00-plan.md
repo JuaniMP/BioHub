@@ -99,3 +99,21 @@ Entrarán con cada historia de usuario.
 - VM datos: `userland-proxy: false` para conservar la IP de origen en MySQL (parametrizado por VM en `user-data.tpl`/`crear-vms.sh`).
 - VM backend: alias de red `biohub-backend` en Keycloak (`KC_HTTP_PORT=8180`) en lugar de `extra_hosts`.
 - D13 (aprobada por Juanita): `sslRequired=NONE` en Keycloak, solo accesible por la tailnet. Registrada en `03-arquitectura.md`.
+
+---
+# Iteración 14: cierre de Tailscale (alcance 1b), prueba de bases de datos y parte de Juanita
+
+**Alcance acordado con Juanita (2026-10-26):**
+- PR #2 fusionado a `develop` (5a8d206) tras `mvn -B verify`: 75 tests, 0 fallos (2 opt-in omitidos).
+- Tailscale 1b: SEC-D-04 (ACL con grupos y versionada), SEC-D-01 (usuario `equipo` sin sudo/docker, SSH `check`, MySQL solo lectura) y HTTPS con `tailscale serve`, con Keycloak de vuelta a `sslRequired=external` (se retira D13). **Sin Funnel ni Vercel.**
+- Pruebas de infraestructura: los 4 MySQL, Redis y RabbitMQ de las VMs. **Al terminar no debe quedar ningún dato de prueba:** esquemas solo con su estructura base, colas vacías y Redis sin claves de prueba. Cada integrante arranca limpio.
+- Parte de Juanita (`feature/ubicacion-consulta-publica`): espera las historias de usuario (Word). Se adelanta el contrato del evento `hallazgo.registrado` (lo publica registro/Hernando y lo consume Juanita). Cada integrante conserva sus responsabilidades: no se toca código de registro, equipos/reportes ni seguridad/acceso.
+
+| # | Tarea | Responsable | Estado |
+|---|---|---|---|
+| 14a | Fusionar PR #2 | Tech Lead | Hecho |
+| 14b | Tailscale 1b (ACL versionada, usuario equipo, SSH check, MySQL lectura, HTTPS serve, Keycloak external) | devops | En curso |
+| 14c | Activar certificados HTTPS en la consola de Tailscale y pegar la política ACL | Juanita | Pendiente |
+| 14d | Prueba de MySQL x4, Redis y RabbitMQ en VMs, con limpieza total | qa-tester | Pendiente (tras 14b) |
+| 14e | Auditoría de los cambios de Tailscale | ciberseguridad | Pendiente (tras 14b) |
+| 14f | Requisitos de ubicación/consulta pública/web-publica desde el Word | product-owner | Esperando el documento |
