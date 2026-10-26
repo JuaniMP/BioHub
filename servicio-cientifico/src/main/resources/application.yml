@@ -12,6 +12,10 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: validate   # el esquema lo maneja Flyway, nunca Hibernate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC   # DATETIME(3) en UTC (05-modelo-datos §3)
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -51,6 +55,15 @@ management:
         enabled: true
 
 biohub:
+  ubicacion:
+    cifrado:
+      # Llaves AES-256 versionadas: "v1:<base64 de 32 bytes>,v2:<...>" (openssl rand -base64 32).
+      # Sin llave activa válida el servicio NO arranca (D20). Nunca poner valores reales aquí.
+      claves: ${UBICACION_CLAVES:}
+      clave-activa: ${UBICACION_CLAVE_ACTIVA:}
+      # Solo con el perfil "dev": genera una llave efímera en memoria (las coordenadas guardadas
+      # se pierden al reiniciar). Desactivado por defecto; jamás activarlo en las VMs.
+      llave-efimera-dev: ${UBICACION_LLAVE_EFIMERA_DEV:false}
   eventos:
     exchange: biohub.eventos
     timeout-confirmacion: 5s
