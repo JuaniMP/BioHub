@@ -20,6 +20,7 @@ class ConsumidorEventosTest {
 
     private AlmacenEventosRecibidos almacen;
     private ConsumidorEventos consumidor;
+    private ProcesadorHallazgos procesador;
 
     @BeforeEach
     void preparar() {
@@ -27,7 +28,8 @@ class ConsumidorEventosTest {
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule())
                 .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
                 .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        consumidor = new ConsumidorEventos(mapper, almacen);
+        procesador = org.mockito.Mockito.mock(ProcesadorHallazgos.class);
+        consumidor = new ConsumidorEventos(mapper, almacen, procesador, false, "cientifico_mq");
     }
 
     private static Message mensaje(String json, String routingKey) {
@@ -62,9 +64,40 @@ class ConsumidorEventosTest {
     }
 
     @Test
-    void aceptaTipoHallazgoRegistrado() {
-        consumidor.recibir(mensaje(json("hallazgo.registrado", "{\"x\":1}"), "hallazgo.registrado"));
-        assertThat(almacen.ultimos()).hasSize(1);
+    void despachaLosTresTiposHallazgoAlProcesadorSinGuardarlosEnElAlmacenDePrueba() {
+        for (String tipo : new String[] {"hallazgo.registrado", "hallazgo.reclasificado", "hallazgo.actualizado"}) {
+            consumidor.recibir(mensaje(json(tipo, "{\"x\":1}"), tipo));
+        }
+        org.mockito.Mockito.verify(procesador, org.mockito.Mockito.times(3))
+                .procesar(org.mockito.ArgumentMatchers.any());
+        assertThat(almacen.ultimos()).isEmpty();
+    }
+
+    @Test
+    void rechazaHallazgoConOrigenDistintoDeServicioCientifico() {
+        String falso = json("hallazgo.registrado", "{\"x\":1}").replace("\"origen\":\"servicio-cientifico\"", "\"origen\":\"otro-servicio\"");
+        assertThatThrownBy(() -> consumidor.recibir(mensaje(falso, "hallazgo.registrado")))
+                .isInstanceOf(EventoInvalidoException.class);
+        org.mockito.Mockito.verifyNoInteractions(procesador);
+    }
+
+    @Test
+    void conVerificacionActivaExigeElUserIdDelPublicador() {
+        ConsumidorEventos estricto = new ConsumidorEventos(new ObjectMapper().registerModule(new JavaTimeModule())
+                .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false),
+                almacen, procesador, true, "cientifico_mq");
+        MessageProperties intruso = new MessageProperties();
+        intruso.setReceivedRoutingKey("hallazgo.registrado");
+        intruso.setReceivedUserId("otro_mq");
+        String cuerpo = json("hallazgo.registrado", "{\"x\":1}");
+        assertThatThrownBy(() -> estricto.recibir(new Message(cuerpo.getBytes(StandardCharsets.UTF_8), intruso)))
+                .isInstanceOf(EventoInvalidoException.class);
+
+        MessageProperties legitimo = new MessageProperties();
+        legitimo.setReceivedRoutingKey("hallazgo.registrado");
+        legitimo.setReceivedUserId("cientifico_mq");
+        estricto.recibir(new Message(cuerpo.getBytes(StandardCharsets.UTF_8), legitimo));
+        org.mockito.Mockito.verify(procesador).procesar(org.mockito.ArgumentMatchers.any());
     }
 
     @Test

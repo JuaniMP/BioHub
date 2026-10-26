@@ -18,6 +18,7 @@ import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.RabbitMQContainer;
@@ -27,6 +28,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import co.edu.unbosque.biohub.consultapublica.config.RabbitConfig;
 import co.edu.unbosque.biohub.consultapublica.eventos.service.AlmacenEventosRecibidos;
 import co.edu.unbosque.biohub.consultapublica.eventos.service.ConsumidorEventos;
+import co.edu.unbosque.biohub.consultapublica.eventos.service.ProcesadorHallazgos;
 
 /** Integración con un RabbitMQ real: topología, enrutamiento por patrón, consumo y DLQ. */
 @Testcontainers(disabledWithoutDocker = true)
@@ -57,6 +59,10 @@ class ConsumidorEventosIntegracionTest {
         r.add("spring.rabbitmq.username", RABBIT::getAdminUsername);
         r.add("spring.rabbitmq.password", RABBIT::getAdminPassword);
     }
+
+    /** El procesamiento de hallazgo.* se prueba aparte; aquí solo la mensajería. */
+    @MockitoBean
+    private ProcesadorHallazgos procesador;
 
     @Autowired
     private RabbitTemplate template;

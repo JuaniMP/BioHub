@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,24 +24,53 @@ public class ConsumidorEventos {
 
     private static final Logger log = LoggerFactory.getLogger(ConsumidorEventos.class);
 
-    /** Tipos conocidos. Los eventos reales (hallazgo.*) se agregan aquí al implementarlos. */
-    static final Set<String> TIPOS_CONOCIDOS = Set.of("prueba.ping", "hallazgo.registrado");
+    /** Tipos conocidos: la prueba y los tres eventos reales hallazgo.* (contrato 04, §7). */
+    static final Set<String> TIPOS_CONOCIDOS = Set.of("prueba.ping", "hallazgo.registrado",
+            "hallazgo.reclasificado", "hallazgo.actualizado");
+    static final String ORIGEN_CIENTIFICO = "servicio-cientifico";
     static final int TAMANO_MAXIMO_BYTES = 64 * 1024;
     static final int MENSAJE_PRUEBA_MAX = 200;
 
     private final ObjectMapper objectMapper;
     private final AlmacenEventosRecibidos almacen;
+    private final ProcesadorHallazgos procesador;
+    private final boolean verificarPublicador;
+    private final String publicadorEsperado;
 
-    public ConsumidorEventos(ObjectMapper objectMapper, AlmacenEventosRecibidos almacen) {
+    public ConsumidorEventos(ObjectMapper objectMapper, AlmacenEventosRecibidos almacen,
+                             ProcesadorHallazgos procesador,
+                             @Value("${biohub.eventos.verificar-publicador:false}") boolean verificarPublicador,
+                             @Value("${biohub.eventos.publicador-cientifico:cientifico_mq}") String publicadorEsperado) {
         this.objectMapper = objectMapper;
         this.almacen = almacen;
+        this.procesador = procesador;
+        this.verificarPublicador = verificarPublicador;
+        this.publicadorEsperado = publicadorEsperado;
     }
 
     @RabbitListener(queues = "${biohub.eventos.cola}")
     public void recibir(Message mensaje) {
         EventoSobre evento = interpretar(mensaje);
-        almacen.agregar(evento);
         log.info("Evento recibido id={} tipo={} origen={}", evento.id(), evento.tipo(), evento.origen());
+        if (evento.tipo().startsWith("hallazgo.")) {
+            validarOrigen(evento, mensaje);
+            procesador.procesar(evento);
+        } else {
+            almacen.agregar(evento);
+        }
+    }
+
+    /** D24: solo servicio-cientifico publica hallazgo.*; opcionalmente se verifica el user_id AMQP (SEC-D-03). */
+    private void validarOrigen(EventoSobre evento, Message mensaje) {
+        if (!ORIGEN_CIENTIFICO.equals(evento.origen())) {
+            log.warn("Evento hallazgo.* con origen no permitido id={}", evento.id());
+            throw new EventoInvalidoException("Evento con origen no permitido");
+        }
+        if (verificarPublicador
+                && !publicadorEsperado.equals(mensaje.getMessageProperties().getReceivedUserId())) {
+            log.warn("Evento hallazgo.* con publicador no permitido id={}", evento.id());
+            throw new EventoInvalidoException("Evento con publicador no permitido");
+        }
     }
 
     EventoSobre interpretar(Message mensaje) {

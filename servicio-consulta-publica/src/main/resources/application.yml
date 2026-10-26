@@ -8,10 +8,15 @@ spring:
     url: jdbc:mysql://${MYSQL_LECTURA_HOST:localhost}:${MYSQL_LECTURA_PORT:3308}/consulta_publica
     username: ${MYSQL_LECTURA_USER}
     password: ${MYSQL_LECTURA_PASSWORD}
+    hikari:
+      # Si mysql-lectura cae, responde 503 rápido en vez de colgarse (J10)
+      connection-timeout: 2000
   jpa:
     open-in-view: false
     hibernate:
       ddl-auto: validate   # el esquema lo maneja Flyway, nunca Hibernate
+    properties:
+      hibernate.jdbc.time_zone: UTC
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -22,10 +27,11 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD}
+      # Redis no es fuente de verdad: si tarda, se lee de MySQL (D25). Reconecta solo al volver.
+      timeout: 300ms
+      connect-timeout: 300ms
   cache:
-    type: redis
-    redis:
-      time-to-live: 10m
+    type: redis   # los TTL por caché (fichas 5 min, busquedas 60 s) están en CacheConfig / biohub.cache.*
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
@@ -57,6 +63,9 @@ server:
     include-message: never
 
 management:
+  health:
+    redis:
+      enabled: false   # Redis caído NO marca el servicio como no sano (D25, RNF5)
   endpoints:
     web:
       exposure:
@@ -72,3 +81,12 @@ biohub:
     exchange: biohub.eventos
     dlx: biohub.eventos.dlx
     cola: consulta-publica.eventos
+    # Verifica el user_id AMQP del publicador (SEC-D-03). Activar en las VMs cuando el publicador lo ponga.
+    verificar-publicador: ${BIOHUB_EVENTOS_VERIFICAR_PUBLICADOR:false}
+    publicador-cientifico: ${BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO:cientifico_mq}
+  cache:
+    ttl-fichas: 5m
+    ttl-busquedas: 60s
+  publica:
+    # RNF1: si es true se ignoran familia y departamento (q y paginación siguen funcionando)
+    modo-degradado: ${CONSULTA_MODO_DEGRADADO:false}
