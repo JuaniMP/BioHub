@@ -1,5 +1,9 @@
 # BioHub - VM biohub-backend.
-# Publicados SOLO en la IP de Tailscale (TS_IP_BACKEND): gateway 8080, Keycloak 8180, panel RabbitMQ 15672.
+# Dos modos (los fija deploy/desplegar.sh en .env; ver docs/equipo/09-despliegue.md seccion 4.1):
+#  - HTTP (provisional, mientras la tailnet no tenga certificados HTTPS): gateway 8080, Keycloak 8180 y panel
+#    RabbitMQ 15672 publicados SOLO en la IP de Tailscale (TS_IP_BACKEND). Issuer http://biohub-backend:8180/...
+#  - HTTPS (TS_HTTPS=1): 8080 y 8180 pasan a 127.0.0.1 (HTTP_BIND_IP) y `tailscale serve` los expone por HTTPS
+#    en https://<TS_FQDN> (gateway, 443) y https://<TS_FQDN>:8443 (Keycloak). El panel 15672 sigue en la IP Tailscale.
 # Servicios, RabbitMQ (5672) y Redis: solo red Docker interna.
 # Uso (en la VM):  docker compose up -d --wait      (requiere .env: ver .env.example)
 # Las imagenes biohub/<servicio>:<BIOHUB_TAG> las carga deploy/desplegar.sh (docker load).
@@ -7,14 +11,19 @@
 x-servicio: &servicio
   restart: unless-stopped
   pull_policy: never
-  # El issuer del JWT es http://biohub-backend:8180/realms/biohub. Dentro de la red Docker,
-  # "biohub-backend" es un alias del contenedor de Keycloak (escucha en 8180), así que los
-  # servicios llegan directo sin pasar por la IP de Tailscale del host (ufw bloquea ese hairpin).
+  # El issuer del JWT (KEYCLOAK_ISSUER_URI) es la URL PUBLICA de Keycloak (la misma que KC_HOSTNAME), p. ej.
+  # https://biohub-backend.<tailnet>.ts.net:8443/realms/biohub. Los contenedores NO la usan para descargar
+  # las claves: lo hacen por la red Docker (jwk-set-uri interna, ver x-java-env), porque ufw bloquea el
+  # hairpin contenedor -> IP Tailscale del host y porque no necesitan salir a la tailnet.
   networks: [interna]
 
 x-java-env: &java-env
   SERVER_ADDRESS: 0.0.0.0
-  KEYCLOAK_ISSUER_URI: http://biohub-backend:8180/realms/biohub
+  # Valor esperado del claim `iss` (lo valida Spring). Debe ser IDENTICO a KC_HOSTNAME + /realms/biohub.
+  KEYCLOAK_ISSUER_URI: ${KEYCLOAK_ISSUER_URI:-http://biohub-backend:8180/realms/biohub}
+  # Claves publicas (JWKS) por la red Docker, sin depender del nombre publico ni de TLS. Con jwk-set-uri
+  # Spring no hace discovery y sigue validando `iss` contra KEYCLOAK_ISSUER_URI.
+  SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI: http://keycloak:8180/realms/biohub/protocol/openid-connect/certs
   KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-biohub-api}
   TZ: America/Bogota
 
@@ -36,7 +45,8 @@ services:
       SERVICIO_REPORTES_URL: http://servicio-reportes:8084
       CORS_ORIGENES: ${CORS_ORIGENES:-http://localhost:5173,http://localhost:5174}
     ports:
-      - "${TS_IP_BACKEND:?Falta TS_IP_BACKEND en .env}:8080:8080"
+      # HTTP: IP Tailscale. HTTPS: 127.0.0.1 (lo publica `tailscale serve`). Nunca 0.0.0.0.
+      - "${HTTP_BIND_IP:-${TS_IP_BACKEND:?Falta TS_IP_BACKEND en .env}}:8080:8080"
     depends_on:
       keycloak:
         condition: service_healthy
@@ -188,18 +198,22 @@ services:
     restart: unless-stopped
     networks:
       interna:
-        aliases: [biohub-backend]   # mismo nombre que ven los clientes por Tailscale (issuer idéntico)
+        aliases: [biohub-backend]   # modo HTTP: mismo nombre que ven los clientes (inofensivo en modo HTTPS)
     # start-dev: SOLO desarrollo (HTTP, H2 embebida); alcance acordado. --import-realm solo la primera vez.
     command: ["start-dev", "--import-realm"]
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:?Falta en .env}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Falta en .env}
-      KC_HOSTNAME: http://biohub-backend:8180
+      # URL publica de Keycloak = base del issuer. HTTP: http://biohub-backend:8180. HTTPS: https://<TS_FQDN>:8443
+      KC_HOSTNAME: ${KC_PUBLIC_URL:-http://biohub-backend:8180}
+      # Detras de `tailscale serve` (modo HTTPS): confiar en X-Forwarded-* para saber que el cliente uso HTTPS.
+      # Es inocuo en modo HTTP (sslRequired=NONE) y en HTTPS el puerto 8180 solo escucha en 127.0.0.1.
+      KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
-      KC_HTTP_PORT: "8180"          # mismo puerto dentro y fuera: http://biohub-backend:8180 sirve en ambos lados
+      KC_HTTP_PORT: "8180"          # mismo puerto dentro y fuera (alias biohub-backend en modo HTTP; keycloak:8180 para el JWKS)
       KEYCLOAK_TEST_USERS_PASSWORD: ${KEYCLOAK_TEST_USERS_PASSWORD:?Falta en .env}
     ports:
-      - "${TS_IP_BACKEND:?Falta TS_IP_BACKEND en .env}:8180:8180"
+      - "${HTTP_BIND_IP:-${TS_IP_BACKEND:?Falta TS_IP_BACKEND en .env}}:8180:8180"
     volumes:
       - keycloak-data:/opt/keycloak/data
       - ./keycloak:/opt/keycloak/data/import:ro   # realm-biohub.json (lo copia desplegar.sh)

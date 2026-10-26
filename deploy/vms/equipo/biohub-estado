@@ -1,0 +1,51 @@
+#!/bin/bash
+# biohub-estado - consulta de SOLO LECTURA para el usuario `equipo` (SEC-D-01).
+#
+#   sudo biohub-estado ps                 estado de los contenedores del stack de esta VM
+#   sudo biohub-estado logs <servicio>    ultimas 200 lineas de log de un servicio de la lista blanca
+#
+# Se instala en /usr/local/bin (root:root, 755) con deploy/vms/equipo/instalar-equipo.sh y se autoriza
+# en /etc/sudoers.d/biohub-equipo con RUTA Y ARGUMENTOS EXACTOS (una linea por servicio): `equipo`
+# no puede pasar otros argumentos. Aqui se vuelve a validar todo (defensa en profundidad).
+# No hay `exec`, `run`, `up`, `cp`, `inspect` ni `-f` (seguir logs): nada que permita escalar a root.
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export LANG=C LC_ALL=C
+# Que el entorno de quien llama no cambie a donde apunta docker/compose
+unset DOCKER_HOST DOCKER_CONFIG DOCKER_CONTEXT DOCKER_TLS_VERIFY COMPOSE_FILE COMPOSE_PROJECT_NAME \
+      COMPOSE_ENV_FILES COMPOSE_PROFILES COMPOSE_PATH_SEPARATOR
+
+# Lista blanca de servicios por VM (el instalador lee estas dos lineas para generar el sudoers)
+SERVICIOS_BACKEND="api-gateway servicio-cientifico servicio-equipos servicio-consulta-publica servicio-reportes keycloak rabbitmq redis"
+SERVICIOS_DATOS="mysql-transaccional mysql-lectura mysql-analitica mysql-gateway"
+
+BASE=/home/biohub
+if [[ -f "$BASE/biohub-backend/docker-compose.yml" ]]; then
+  DIR="$BASE/biohub-backend"; SERVICIOS="$SERVICIOS_BACKEND"
+elif [[ -f "$BASE/biohub-datos/docker-compose.yml" ]]; then
+  DIR="$BASE/biohub-datos"; SERVICIOS="$SERVICIOS_DATOS"
+else
+  echo "biohub-estado: no hay un stack BioHub desplegado en esta VM" >&2; exit 1
+fi
+
+uso() {
+  echo "Uso: sudo biohub-estado ps | sudo biohub-estado logs <servicio>" >&2
+  echo "Servicios de esta VM: $SERVICIOS" >&2
+  exit 2
+}
+compose() { docker compose --project-directory "$DIR" -f "$DIR/docker-compose.yml" "$@"; }
+
+case "${1:-}" in
+  ps)
+    [[ $# -eq 1 ]] || uso
+    compose ps
+    ;;
+  logs)
+    [[ $# -eq 2 ]] || uso
+    svc="$2"
+    ok=0; for s in $SERVICIOS; do [[ "$s" == "$svc" ]] && ok=1; done
+    [[ $ok -eq 1 ]] || { echo "biohub-estado: servicio no permitido: $svc" >&2; uso; }
+    compose logs --no-color --timestamps --tail 200 "$svc"
+    ;;
+  *) uso ;;
+esac

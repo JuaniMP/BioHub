@@ -25,12 +25,18 @@ services:
       MYSQL_CIENTIFICO_PASSWORD: ${MYSQL_CIENTIFICO_PASSWORD:?Falta en .env}
       MYSQL_EQUIPOS_USER: ${MYSQL_EQUIPOS_USER:?Falta en .env}
       MYSQL_EQUIPOS_PASSWORD: ${MYSQL_EQUIPOS_PASSWORD:?Falta en .env}
+      # Usuario de solo lectura (SELECT, SHOW VIEW) para el equipo; init/02-lectura-equipo.sh
+      LECTURA_EQUIPO_USER: ${MYSQL_LECTURA_EQUIPO_USER:-lectura_equipo}
+      LECTURA_EQUIPO_PASSWORD: ${MYSQL_LECTURA_EQUIPO_PASSWORD:?Falta en .env}
+      LECTURA_EQUIPO_DBS: "cientifico equipos"
+      LECTURA_EQUIPO_HOST: ${MYSQL_LECTURA_EQUIPO_HOST:-100.64.0.0/255.192.0.0}
       TZ: America/Bogota
     ports:
       - "${TS_IP_DATOS:?Falta TS_IP_DATOS en .env}:${MYSQL_TRANSACCIONAL_PORT:-3307}:3306"
     volumes:
       - mysql-transaccional-data:/var/lib/mysql
       - ./init/01-transaccional.sh:/docker-entrypoint-initdb.d/01-transaccional.sh:ro
+      - ./init/02-lectura-equipo.sh:/docker-entrypoint-initdb.d/02-lectura-equipo.sh:ro
 
   mysql-lectura:
     <<: *mysql
@@ -42,12 +48,18 @@ services:
       APP_DB: consulta_publica
       APP_USER: ${MYSQL_LECTURA_USER:?Falta en .env}
       APP_PASSWORD: ${MYSQL_LECTURA_PASSWORD:?Falta en .env}
+      # Usuario de solo lectura (SELECT, SHOW VIEW) para el equipo; init/02-lectura-equipo.sh
+      LECTURA_EQUIPO_USER: ${MYSQL_LECTURA_EQUIPO_USER:-lectura_equipo}
+      LECTURA_EQUIPO_PASSWORD: ${MYSQL_LECTURA_EQUIPO_PASSWORD:?Falta en .env}
+      LECTURA_EQUIPO_DBS: "consulta_publica"
+      LECTURA_EQUIPO_HOST: ${MYSQL_LECTURA_EQUIPO_HOST:-100.64.0.0/255.192.0.0}
       TZ: America/Bogota
     ports:
       - "${TS_IP_DATOS:?Falta TS_IP_DATOS en .env}:${MYSQL_LECTURA_PORT:-3308}:3306"
     volumes:
       - mysql-lectura-data:/var/lib/mysql
       - ./init/01-usuario-unico.sh:/docker-entrypoint-initdb.d/01-usuario-unico.sh:ro
+      - ./init/02-lectura-equipo.sh:/docker-entrypoint-initdb.d/02-lectura-equipo.sh:ro
 
   mysql-analitica:
     <<: *mysql
@@ -59,12 +71,18 @@ services:
       APP_DB: reportes
       APP_USER: ${MYSQL_ANALITICA_USER:?Falta en .env}
       APP_PASSWORD: ${MYSQL_ANALITICA_PASSWORD:?Falta en .env}
+      # Usuario de solo lectura (SELECT, SHOW VIEW) para el equipo; init/02-lectura-equipo.sh
+      LECTURA_EQUIPO_USER: ${MYSQL_LECTURA_EQUIPO_USER:-lectura_equipo}
+      LECTURA_EQUIPO_PASSWORD: ${MYSQL_LECTURA_EQUIPO_PASSWORD:?Falta en .env}
+      LECTURA_EQUIPO_DBS: "reportes"
+      LECTURA_EQUIPO_HOST: ${MYSQL_LECTURA_EQUIPO_HOST:-100.64.0.0/255.192.0.0}
       TZ: America/Bogota
     ports:
       - "${TS_IP_DATOS:?Falta TS_IP_DATOS en .env}:${MYSQL_ANALITICA_PORT:-3309}:3306"
     volumes:
       - mysql-analitica-data:/var/lib/mysql
       - ./init/01-usuario-unico.sh:/docker-entrypoint-initdb.d/01-usuario-unico.sh:ro
+      - ./init/02-lectura-equipo.sh:/docker-entrypoint-initdb.d/02-lectura-equipo.sh:ro
 
   mysql-gateway:
     <<: *mysql
@@ -76,12 +94,18 @@ services:
       APP_DB: gateway
       APP_USER: ${MYSQL_GATEWAY_USER:?Falta en .env}
       APP_PASSWORD: ${MYSQL_GATEWAY_PASSWORD:?Falta en .env}
+      # Usuario de solo lectura (SELECT, SHOW VIEW) para el equipo; init/02-lectura-equipo.sh
+      LECTURA_EQUIPO_USER: ${MYSQL_LECTURA_EQUIPO_USER:-lectura_equipo}
+      LECTURA_EQUIPO_PASSWORD: ${MYSQL_LECTURA_EQUIPO_PASSWORD:?Falta en .env}
+      LECTURA_EQUIPO_DBS: "gateway"
+      LECTURA_EQUIPO_HOST: ${MYSQL_LECTURA_EQUIPO_HOST:-100.64.0.0/255.192.0.0}
       TZ: America/Bogota
     ports:
       - "${TS_IP_DATOS:?Falta TS_IP_DATOS en .env}:${MYSQL_GATEWAY_PORT:-3310}:3306"
     volumes:
       - mysql-gateway-data:/var/lib/mysql
       - ./init/01-usuario-unico.sh:/docker-entrypoint-initdb.d/01-usuario-unico.sh:ro
+      - ./init/02-lectura-equipo.sh:/docker-entrypoint-initdb.d/02-lectura-equipo.sh:ro
 
 volumes:
   mysql-transaccional-data:

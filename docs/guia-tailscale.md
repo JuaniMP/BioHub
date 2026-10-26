@@ -12,7 +12,7 @@ La tailnet es la de la cuenta de Juanita (JuaniMP). Su dominio MagicDNS es `tail
 
 ## 2. Instalar y entrar a la tailnet
 
-Los 3 compañeros ya aceptaron la invitación. Si aún no instalaste Tailscale, hazlo así.
+Por ahora solo Juanita está en la tailnet. Cada compañero entra con el enlace o correo de invitación que le manda Juanita (consola > Users > Invite users); luego instala Tailscale así:
 
 ### Windows
 1. Descarga el instalador desde https://tailscale.com/download/windows e instálalo.
@@ -45,15 +45,17 @@ ping biohub-datos
 
 | VM | IP Tailscale | Qué | URL / puerto |
 |---|---|---|---|
-| biohub-backend | 100.76.214.94 | Gateway (API) | http://biohub-backend:8080 |
-| biohub-backend | 100.76.214.94 | Keycloak | http://biohub-backend:8180 (consola admin: http://biohub-backend:8180/admin) |
+| biohub-backend | 100.76.214.94 | Gateway (API) | **HTTPS (cuando esté activado):** https://biohub-backend.tailcfd75e.ts.net · **HTTP provisional:** http://biohub-backend:8080 |
+| biohub-backend | 100.76.214.94 | Keycloak | **HTTPS:** https://biohub-backend.tailcfd75e.ts.net:8443 (consola: `/admin`) · **HTTP provisional:** http://biohub-backend:8180 |
 | biohub-backend | 100.76.214.94 | Panel de RabbitMQ | http://biohub-backend:15672 (usuario `biohub`) |
 | biohub-backend | 100.76.214.94 | SSH | puerto 22 |
-| biohub-datos | 100.94.121.117 | MySQL transaccional (esquemas `cientifico`, `equipos`) | 3307 |
+| biohub-datos | 100.94.121.117 | MySQL transaccional (esquemas `cientifico`, `equipos`) | 3307 (solo la admin, ver sección 6) |
 | biohub-datos | 100.94.121.117 | MySQL lectura (`consulta_publica`) | 3308 |
 | biohub-datos | 100.94.121.117 | MySQL analítica (`reportes`) | 3309 |
 | biohub-datos | 100.94.121.117 | MySQL gateway (`gateway`) | 3310 |
 | biohub-datos | 100.94.121.117 | SSH | puerto 22 |
+
+Mientras no esté activado HTTPS se usan las URL `http://biohub-backend:8080/8180`; Juanita te avisa cuando cambie. En los ejemplos de abajo, cambia `http://biohub-backend:8180` por `https://biohub-backend.tailcfd75e.ts.net:8443` y `http://biohub-backend:8080` por `https://biohub-backend.tailcfd75e.ts.net` (los puertos 8080/8180 dejan de estar disponibles en modo HTTPS).
 
 Los servicios internos (8081-8084), Redis y el puerto AMQP de RabbitMQ (5672) no son accesibles desde fuera: solo se entra por el gateway.
 
@@ -118,71 +120,64 @@ Cada consulta debe listar tu evento (`"tipo": "prueba.ping"`). Si solo falla una
 
 ## 5. Entrar por SSH a las VMs
 
-Con Tailscale SSH no necesitas llave: Tailscale te autoriza.
+Con Tailscale SSH no necesitas llave: Tailscale te autoriza (y cada 12 horas te pide reconfirmar en el navegador).
 
 ```bash
-ssh biohub@biohub-backend
-ssh biohub@biohub-datos
+ssh equipo@biohub-backend
+ssh equipo@biohub-datos
 ```
-La primera vez puede pedirte confirmar la conexión o abrir un enlace de autenticación en el navegador. Sigue las instrucciones.
+El usuario `equipo` **no tiene sudo, no usa Docker y no ve las contraseñas** (`.env`): es a propósito. Solo puede mirar el estado y los logs con un comando acotado. El usuario `biohub` (administrador) es solo de Juanita.
 
-> Juanita además puede entrar con su llave: `ssh -i ~/.ssh/biohub_vms biohub@<IP NAT de la VM>` (red local del portátil).
+> Juanita además puede entrar con su llave: `ssh -i ~/.ssh/biohub_vms biohub@<IP NAT de la VM>` (red local del portátil), o `ssh biohub@biohub-backend` por Tailscale.
 
-### Rutas en las VMs
-| VM | Carpeta del stack |
-|---|---|
-| biohub-backend | `~/biohub-backend` |
-| biohub-datos | `~/biohub-datos` |
-
-### Comandos útiles
-Ejecútalos dentro de la VM, en la carpeta del stack.
-
+### Comandos permitidos al equipo
 ```bash
-cd ~/biohub-backend                       # o ~/biohub-datos
-
-docker compose ps                         # estado de los contenedores (deben estar healthy)
-docker compose logs -f api-gateway        # logs en vivo (Ctrl+C para salir)
-docker compose logs --tail 100 servicio-cientifico
-docker compose restart servicio-reportes  # reiniciar un servicio
+sudo biohub-estado ps                       # estado de los contenedores (deben estar healthy)
+sudo biohub-estado logs api-gateway         # últimas 200 líneas de log de un servicio
+sudo biohub-estado logs servicio-cientifico
 ```
-
 Servicios de `biohub-backend`: `api-gateway`, `servicio-cientifico`, `servicio-equipos`, `servicio-consulta-publica`, `servicio-reportes`, `redis`, `rabbitmq`, `keycloak`.
 Servicios de `biohub-datos`: `mysql-transaccional`, `mysql-lectura`, `mysql-analitica`, `mysql-gateway`.
 
 Para ejecutar un solo comando sin quedarte dentro:
 ```bash
-ssh biohub@biohub-backend 'cd ~/biohub-backend && docker compose ps'
+ssh equipo@biohub-backend 'sudo biohub-estado ps'
 ```
+Reiniciar servicios, ver logs en vivo (`-f`) o entrar a un contenedor lo hace Juanita.
 
-**No uses** `docker compose down -v`: borra los volúmenes (los datos).
+### Rutas en las VMs (solo administración)
+| VM | Carpeta del stack |
+|---|---|
+| biohub-backend | `~biohub/biohub-backend` |
+| biohub-datos | `~biohub/biohub-datos` |
+
+**No uses** `docker compose down -v` (solo Juanita administra los stacks): borra los volúmenes (los datos).
 
 ## 6. Consultar MySQL
 
-Desde tu portátil **no** puedes conectarte a MySQL con los usuarios de aplicación (`cientifico_app`, etc.). Esos usuarios solo aceptan conexiones desde la VM backend, a propósito. Aunque el puerto 3307-3310 sea alcanzable por la tailnet, MySQL rechaza tu conexión.
+Los usuarios de aplicación (`cientifico_app`, etc.) solo aceptan conexiones desde la VM backend, a propósito. Para consultar datos existe un usuario **de solo lectura**, `lectura_equipo`:
 
-Para consultar la base de datos:
-1. Entra por SSH a la VM de datos: `ssh biohub@biohub-datos`
-2. Abre el cliente MySQL dentro del contenedor de la instancia que necesitas:
+- Permisos: `SELECT` y `SHOW VIEW` únicamente sobre los esquemas de la aplicación; no ve `mysql`/`sys` ni puede escribir. Solo acepta conexiones desde la tailnet (100.64.0.0/10).
+- La contraseña está en `deploy/datos/.env` de la máquina de Juanita (`MYSQL_LECTURA_EQUIPO_PASSWORD`); pídela por un canal privado.
+- **Acceso por red:** la política de Tailscale (ACL) abre los puertos 3307-3310 solo a Juanita. Si el equipo debe consultar directamente, Juanita puede habilitar la regla opcional comentada en `deploy/tailscale/policy.hujson`. Mientras tanto, pídele a Juanita las consultas.
 
 ```bash
-docker exec -it biohub-mysql-transaccional mysql -uroot -p
+mysql -h biohub-datos -P 3307 -ulectura_equipo -p     # 3307 transaccional, 3308 lectura, 3309 analítica, 3310 gateway
 ```
-Te pide la contraseña de root de esa instancia (está en `deploy/datos/.env` de la máquina de Juanita; pídela por un canal privado, o pídele a Juanita que haga la consulta).
 
-| Instancia | Contenedor | Esquema(s) |
+| Instancia | Puerto | Esquema(s) |
 |---|---|---|
-| transaccional | `biohub-mysql-transaccional` | `cientifico`, `equipos` |
-| lectura | `biohub-mysql-lectura` | `consulta_publica` |
-| analítica | `biohub-mysql-analitica` | `reportes` |
-| gateway | `biohub-mysql-gateway` | `gateway` |
+| transaccional | 3307 | `cientifico`, `equipos` |
+| lectura | 3308 | `consulta_publica` |
+| analítica | 3309 | `reportes` |
+| gateway | 3310 | `gateway` |
 
-Ejemplo dentro de MySQL:
 ```sql
 SHOW DATABASES;
 USE cientifico;
 SHOW TABLES;
 ```
-Usa consultas de lectura. No modifiques datos a mano: los cambios se hacen con migraciones Flyway en el código.
+No modifiques datos a mano: los cambios se hacen con migraciones Flyway en el código. Con root (solo Juanita): `docker exec -it biohub-mysql-transaccional mysql -uroot -p` dentro de la VM de datos.
 
 ## 7. Cómo se redespliega
 
@@ -198,7 +193,7 @@ Antes de desplegar, corre las pruebas (`mvn -B verify`): el script compila con `
 
 Si algo sale mal, el rollback está descrito en [09-despliegue.md](equipo/09-despliegue.md) (sección 8).
 
-Nota: `desplegar.sh backend` también aplica la decisión D13 (ver sección 8).
+Para activar HTTPS: pegar antes la política de `deploy/tailscale/` y luego `BIOHUB_HTTPS=1 deploy/desplegar.sh backend --sin-build` (detalles en 09-despliegue.md, sección 4.1). Para volver a HTTP: `BIOHUB_HTTPS=0`.
 
 ## 8. Problemas frecuentes
 
@@ -208,14 +203,16 @@ Nota: `desplegar.sh backend` también aplica la decisión D13 (ver sección 8).
 | Timeout o "connection timed out" | Portátil de Juanita o las VMs apagadas/en arranque; o tú desconectado de Tailscale | Pregunta a Juanita si el equipo y las VMs están encendidos. Espera unos minutos tras un arranque. Prueba `ping biohub-backend` |
 | `401 Unauthorized` | Token vencido (dura 5 min), ausente o con mala contraseña | Pide un token nuevo (sección 4.1) |
 | `403 Forbidden` | Tu usuario no tiene el rol | El evento de prueba exige `admin1` |
-| Keycloak responde "HTTPS required" | La decisión D13 no se aplicó | Que Juanita corra `deploy/desplegar.sh backend` |
-| `Access denied` al conectar a MySQL desde tu equipo | Es lo esperado | Usa SSH + `docker exec` (sección 6) |
-| `ssh` pide contraseña o llave | Tailscale SSH no se autorizó | Verifica que usas `ssh biohub@biohub-backend` (usuario `biohub`) y que estás en la tailnet |
+| Keycloak responde "HTTPS required" | Usas la URL HTTP cuando el backend ya está en modo HTTPS | Usa `https://biohub-backend.tailcfd75e.ts.net:8443` |
+| Timeout en `https://biohub-backend...` | La política ACL nueva aún no está pegada, o tu correo no está en `group:biohub-equipo` | Avisa a Juanita (README de `deploy/tailscale/`) |
+| `Access denied` al conectar a MySQL con un usuario de aplicación | Es lo esperado | Usa `lectura_equipo` (sección 6) |
+| `ssh` pide contraseña o llave | Tailscale SSH no se autorizó | Usa `ssh equipo@biohub-backend` (usuario `equipo`) y verifica que estás en la tailnet y en el grupo del equipo |
+| `sudo: a password is required` | Intentaste un comando fuera de `biohub-estado ps/logs` | Es lo esperado; solo están permitidos esos |
 
-Nota sobre el nombre: el token lleva como emisor `http://biohub-backend:8180/realms/biohub`. Si lo pides usando la IP en vez del nombre, los servicios lo rechazan (401). Usa siempre `biohub-backend`.
+Nota sobre el nombre: el token lleva como emisor la URL pública de Keycloak (`https://biohub-backend.tailcfd75e.ts.net:8443/realms/biohub` en modo HTTPS; `http://biohub-backend:8180/realms/biohub` en modo HTTP). Los servicios solo aceptan ese emisor: pide el token siempre con el nombre (no con la IP).
 
-### Decisión D13 (por qué Keycloak va sin HTTPS)
-Keycloak funciona con `sslRequired=NONE` porque solo se alcanza por la tailnet, cuyo tráfico ya va cifrado con WireGuard. Por eso **no** debes exponer esos puertos fuera de Tailscale. HTTPS (tailscale serve/Funnel) y Vercel están pendientes.
+### HTTPS y la decisión D13
+En modo HTTPS (`tailscale serve`, certificados de Tailscale) Keycloak exige HTTPS (`sslRequired=external`) y D13 deja de aplicar. Solo mientras el despliegue esté en el modo HTTP provisional, Keycloak va con `sslRequired=NONE` (la tailnet ya cifra con WireGuard); por eso **no** debes exponer esos puertos fuera de Tailscale. Funnel no se usa. Vercel está pendiente.
 
 ### Qué NO hacer
 - No compartas contraseñas por el repo ni por el chat del grupo.
