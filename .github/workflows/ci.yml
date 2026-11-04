@@ -17,7 +17,7 @@ jobs:
   frontend:
     name: web-publica (build y tests)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: web-publica
@@ -33,6 +33,17 @@ jobs:
       - run: npm test
       # Solo dependencias de produccion; falla si hay vulnerabilidades altas o criticas
       - run: npm audit --omit=dev --audit-level=high
+      # RNF13: E2E en Chromium (cubre Edge), Firefox y WebKit (Safari)
+      - name: Instalar navegadores de Playwright
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: E2E (RNF13)
+        run: npm run test:e2e
+      - name: Informe de Playwright
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web-publica/playwright-report
 
   backend:
     name: backend (${{ matrix.servicio }})
