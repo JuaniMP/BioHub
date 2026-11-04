@@ -8,6 +8,9 @@ export const CENTRO_COLOMBIA = [4.5, -74.1];
 export const ZOOM_INICIAL = 5;
 /** Máximo acercamiento: limita lo que las teselas de OSM pueden revelar (02 §7.3). */
 export const ZOOM_MAXIMO = 12;
+/** Zoom máximo del ajuste automático: con pocos puntos no se acerca tanto (SEC-J-04). */
+export const ZOOM_AJUSTE_UN_PUNTO = 8;
+export const ZOOM_AJUSTE_VARIOS = 10;
 export const MAX_ERRORES_TESELAS = 3;
 const URL_TESELAS = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const ATRIBUCION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
@@ -24,7 +27,7 @@ function AjustarVista({ puntos }) {
   const mapa = useMap();
   useEffect(() => {
     if (puntos.length === 0) return;
-    mapa.fitBounds(puntos.map((p) => p.posicion), { maxZoom: ZOOM_MAXIMO, padding: [32, 32] });
+    mapa.fitBounds(puntos.map((p) => p.posicion), { maxZoom: puntos.length === 1 ? ZOOM_AJUSTE_UN_PUNTO : ZOOM_AJUSTE_VARIOS, padding: [32, 32] });
   }, [puntos, mapa]);
   return null;
 }
@@ -42,7 +45,7 @@ export default function MapaHallazgos({ puntos, seleccionadoId, onSeleccionar, o
     <div role="region" aria-label="Mapa de hallazgos" className="ub-mapa">
       <p className="ub-solo-lectores">Mapa con {puntos.length} hallazgos</p>
       <MapContainer center={CENTRO_COLOMBIA} zoom={ZOOM_INICIAL} maxZoom={ZOOM_MAXIMO} minZoom={3} scrollWheelZoom keyboard style={{ height: '100%', width: '100%' }}>
-        <TileLayer url={URL_TESELAS} attribution={ATRIBUCION} maxZoom={ZOOM_MAXIMO} eventHandlers={manejadores} />
+        <TileLayer url={URL_TESELAS} attribution={ATRIBUCION} referrerPolicy="no-referrer" maxZoom={ZOOM_MAXIMO} eventHandlers={manejadores} />
         <AjustarVista puntos={puntos} />
         {puntos.map((p) => (
           <Marker
