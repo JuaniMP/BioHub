@@ -15,6 +15,7 @@ import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CifradorCoordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Coordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CoordenadasCifradas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Departamento;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.DetectorCoordenadasEnTexto;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgo;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgoRepository;
 
@@ -94,6 +95,10 @@ class UbicacionServiceImpl implements UbicacionService {
         }
         if (nombre == null || nombre.isBlank() || nombre.trim().length() > MAX_NOMBRE) {
             throw new UbicacionInvalidaException("nombreCientifico", "obligatorio, máximo 150 caracteres");
+        }
+        // SEC-J-02: el nombre se muestra a todos los roles y viaja al portal público; no puede llevar coordenadas
+        if (DetectorCoordenadasEnTexto.pareceCoordenada(nombre)) {
+            throw new UbicacionInvalidaException("nombreCientifico", "no puede contener coordenadas");
         }
         if (fecha == null || fecha.isAfter(LocalDate.now(reloj.withZone(ZONA_BOGOTA)))) {
             throw new UbicacionInvalidaException("fechaRecoleccion", "obligatoria y no futura");

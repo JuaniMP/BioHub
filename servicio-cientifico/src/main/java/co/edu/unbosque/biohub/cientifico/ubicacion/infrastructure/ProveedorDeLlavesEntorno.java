@@ -22,6 +22,8 @@ public final class ProveedorDeLlavesEntorno implements ProveedorDeLlaves {
 
     private static final Pattern ID_VALIDO = Pattern.compile("^v[1-9][0-9]{0,3}$");
     private static final int BYTES_LLAVE = 32;
+    /** Id de la llave efímera de desarrollo: no puede confundirse con una llave real (v1, v2...) al diagnosticar (SEC-J-06). */
+    public static final String ID_EFIMERA = "v9999";
 
     private final Map<String, SecretKey> llaves;
     private final String activa;
@@ -39,7 +41,7 @@ public final class ProveedorDeLlavesEntorno implements ProveedorDeLlaves {
     public static ProveedorDeLlavesEntorno efimera() {
         byte[] bytes = new byte[BYTES_LLAVE];
         new java.security.SecureRandom().nextBytes(bytes);
-        return new ProveedorDeLlavesEntorno("v1:" + Base64.getEncoder().encodeToString(bytes), "v1");
+        return new ProveedorDeLlavesEntorno(ID_EFIMERA + ":" + Base64.getEncoder().encodeToString(bytes), ID_EFIMERA);
     }
 
     private static Map<String, SecretKey> parsear(String claves) {

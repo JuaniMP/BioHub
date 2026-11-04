@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Base64;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -104,8 +105,52 @@ class ProveedorDeLlavesEntornoTest {
                 .run(ctx -> assertThat(ctx).hasFailed());
         // perfil dev pero sin activarla: no arranca
         runner.withPropertyValues("spring.profiles.active=dev").run(ctx -> assertThat(ctx).hasFailed());
-        // ambas cosas: arranca con una llave efímera
-        runner.withPropertyValues("spring.profiles.active=dev", "biohub.ubicacion.cifrado.llave-efimera-dev=true")
+        // ambas cosas y BD local: arranca con una llave efímera con un id que no puede ser el de una llave real
+        runner.withPropertyValues("spring.profiles.active=dev", "biohub.ubicacion.cifrado.llave-efimera-dev=true",
+                        "spring.datasource.url=jdbc:mysql://localhost:3307/cientifico")
+                .run(ctx -> assertThat(ctx.getBean(ProveedorDeLlaves.class).versionActiva()).isEqualTo("v9999"));
+    }
+
+    @Test
+    @DisplayName("SEC-J-06: la llave efímera se niega con una BD remota o sin URL conocida (RNF9, ASR6)")
+    void laLlaveEfimeraSeNiegaConUnaBaseNoLocal() {
+        for (String url : new String[] {"jdbc:mysql://mysql-x.a.aivencloud.com:12345/cientifico", "jdbc:mysql://10.0.0.5:3306/c",
+                "jdbc:mysql://localhost.evil.com/c?x=//localhost", ""}) {
+            runner.withPropertyValues("spring.profiles.active=dev", "biohub.ubicacion.cifrado.llave-efimera-dev=true",
+                            "spring.datasource.url=" + url)
+                    .run(ctx -> {
+                        assertThat(ctx).as(url).hasFailed();
+                        assertThat(rootMessage(ctx.getStartupFailure())).contains("UBICACION_LLAVE_EFIMERA_DEV solo se permite con una BD local");
+                    });
+        }
+        assertThat(ConfiguracionUbicacion.esBaseLocal("jdbc:mysql://127.0.0.1:3306/c")).isTrue();
+        assertThat(ConfiguracionUbicacion.esBaseLocal("jdbc:mysql://[::1]:3306/c")).isTrue();
+        assertThat(ConfiguracionUbicacion.esBaseLocal(null)).isFalse();
+    }
+
+    @Test
+    @DisplayName("SEC-J-06: fuera del perfil dev, sin llaves el servicio no arranca (aunque se pida la efímera)")
+    void sinLlavesNoArrancaEnPerfilesDistintosDeDev() {
+        for (String perfil : new String[] {"local", "aiven", "prod", "default"}) {
+            runner.withPropertyValues("spring.profiles.active=" + perfil, "biohub.ubicacion.cifrado.llave-efimera-dev=true",
+                            "spring.datasource.url=jdbc:mysql://localhost:3307/cientifico")
+                    .run(ctx -> {
+                        assertThat(ctx).as(perfil).hasFailed();
+                        assertThat(rootMessage(ctx.getStartupFailure()))
+                                .contains("UBICACION_CLAVE_ACTIVA no está configurada o no existe en UBICACION_CLAVES");
+                    });
+        }
+    }
+
+    @Test
+    @DisplayName("SEC-J-06: el id de la llave efímera no coincide con los de llaves reales y las llaves reales ganan al efímero")
+    void laLlaveEfimeraNoUsaElIdDeUnaLlaveReal() {
+        ProveedorDeLlavesEntorno efimera = ProveedorDeLlavesEntorno.efimera();
+        assertThat(efimera.versionActiva()).isEqualTo(ProveedorDeLlavesEntorno.ID_EFIMERA).isNotEqualTo("v1");
+        assertThat(efimera.versiones()).containsExactly("v9999");
+        // con llaves reales configuradas, la bandera efímera se ignora (el proveedor real prevalece)
+        runner.withPropertyValues("spring.profiles.active=dev", "biohub.ubicacion.cifrado.llave-efimera-dev=true",
+                        "biohub.ubicacion.cifrado.claves=v1:" + K1, "biohub.ubicacion.cifrado.clave-activa=v1")
                 .run(ctx -> assertThat(ctx.getBean(ProveedorDeLlaves.class).versionActiva()).isEqualTo("v1"));
     }
 

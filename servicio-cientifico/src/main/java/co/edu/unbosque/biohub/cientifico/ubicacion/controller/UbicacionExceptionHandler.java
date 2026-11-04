@@ -59,11 +59,10 @@ public class UbicacionExceptionHandler {
         if (auth == null || auth instanceof AnonymousAuthenticationToken) {
             throw e; // lo resuelve Spring Security (401 sin cuerpo)
         }
-        // Los 403 de los endpoints de lectura se auditan aquí (el servicio ya auditó el caso de bbox)
-        if (!req.getRequestURI().endsWith("/recifrado")) {
-            auditoria.ifAvailable(a -> a.registrar(auth.getName(), req.getMethod() + " " + req.getRequestURI(),
-                    false, "", 0, 0));
-        }
+        // Los 403 se auditan aquí (el servicio ya auditó el caso de bbox). SEC-J-08: también el de POST /recifrado,
+        // un intento de un no administrador sobre la operación criptográfica es justo lo que conviene ver
+        auditoria.ifAvailable(a -> a.registrar(auth.getName(), req.getMethod() + " " + req.getRequestURI(),
+                false, "", 0, 0));
         return problema(HttpStatus.FORBIDDEN, "Acceso denegado", "No tienes permiso para ver esta información.",
                 "ROL_INSUFICIENTE", req, null);
     }

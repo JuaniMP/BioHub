@@ -132,6 +132,20 @@ class AuditoriaYSinFiltracionesTest extends BaseUbicacionMySqlTest {
     }
 
     @Test
+    @org.junit.jupiter.api.DisplayName("SEC-J-08: el 403 de POST /recifrado a un no administrador también se audita (RF13, RNF9)")
+    void elIntentoDeRecifradoDeUnNoAdministradorQuedaAuditado() throws Exception {
+        mvc.perform(post("/api/cientifico/ubicacion/recifrado").header("Authorization", bearer("intruso", "cientifico_alto_rango")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+        mvc.perform(post("/api/cientifico/ubicacion/recifrado").header("Authorization", bearer("root", "administrador")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        assertThat(auditoria()).anyMatch(l -> l.contains("usuario=intruso") && l.contains("POST /api/cientifico/ubicacion/recifrado")
+                && l.contains("resultado=DENEGADO"));
+        assertThat(auditoria()).as("el re-cifrado permitido sigue auditándose una sola vez")
+                .filteredOn(l -> l.contains("usuario=root") && l.contains("resultado=PERMITIDO")).hasSize(1);
+        assertThat(auditoria()).filteredOn(l -> l.contains("usuario=root") && l.contains("DENEGADO")).isEmpty();
+    }
+
+    @Test
     void laAuditoriaNoPermiteInyectarLineas() throws Exception {
         mvc.perform(get("/api/cientifico/ubicacion/hallazgos").param("especie", "ab\nresultado=PERMITIDO\rfalso")
                 .header("Authorization", bearer("ana", "analista_ambiental"))).andReturn();

@@ -10,10 +10,11 @@ public class AuditoriaAccesoUbicacion {
 
     private static final Logger auditoria = LoggerFactory.getLogger("biohub.auditoria.ubicacion");
     private static final int MAX_FILTROS = 300;
+    private static final int MAX_ENDPOINT = 200;
 
     public void registrar(String usuario, String endpoint, boolean permitido, String filtros, int cantidad, int omitidos) {
         auditoria.info("usuario={} endpoint={} resultado={} filtros=[{}] cantidad={} omitidos={}",
-                limpiar(usuario, 100), endpoint, permitido ? "PERMITIDO" : "DENEGADO",
+                limpiar(usuario, 100), limpiar(endpoint, MAX_ENDPOINT), permitido ? "PERMITIDO" : "DENEGADO",
                 limpiar(filtros, MAX_FILTROS), cantidad, omitidos);
     }
 

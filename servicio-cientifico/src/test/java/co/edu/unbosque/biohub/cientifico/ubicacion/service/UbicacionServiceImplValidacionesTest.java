@@ -17,6 +17,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -79,6 +80,29 @@ class UbicacionServiceImplValidacionesTest {
         invalido(cmd(id, 1, "A b", HOY, "inv", "15", EstadoConservacion.EN_PELIGRO, Double.NaN, 0.0), "latitud", "latitud fuera de rango");
         invalido(cmd(id, 1, "A b", HOY, "inv", "15", EstadoConservacion.EN_PELIGRO, 0.0, -180.5), "longitud", "longitud fuera de rango");
         invalido(cmd(id, 1, "A b", HOY, "inv", "15", EstadoConservacion.EN_PELIGRO, 0.0, Double.POSITIVE_INFINITY), "longitud", "longitud fuera de rango");
+    }
+
+    @Test
+    @DisplayName("SEC-J-02: el nombre científico no puede traer coordenadas en texto libre (RF11, RNF9)")
+    void nombreCientificoConCoordenadasSeRechazaSinEcoDelValor() {
+        for (String nombre : new String[] {"Atelopus 5.53214, -73.36712", "Atelopus 5°31'55\"N", "Atelopus lat: 5.5 lon: -73.3"}) {
+            assertThatThrownBy(() -> servicio.registrar(cmd(id, 1, nombre, HOY, "inv", "15", EstadoConservacion.EN_PELIGRO, null, null)))
+                    .isInstanceOfSatisfying(UbicacionInvalidaException.class, e -> {
+                        assertThat(e.campo()).isEqualTo("nombreCientifico");
+                        assertThat(e.getMessage()).isEqualTo("no puede contener coordenadas").doesNotContain("5.5");
+                    });
+            assertThatThrownBy(() -> servicio.actualizar(new ActualizacionUbicacionComando(id, 2, nombre, HOY, "15",
+                    EstadoConservacion.EN_PELIGRO)))
+                    .isInstanceOfSatisfying(UbicacionInvalidaException.class, e -> assertThat(e.campo()).isEqualTo("nombreCientifico"));
+        }
+        verify(repo, never()).saveAndFlush(any());
+        verifyNoInteractions(cifrador);
+        // nombres habituales (con números, subespecies, autoría y año) no son coordenadas
+        for (String nombre : new String[] {"Atelopus ebenoides marinkellei", "Rhinella marina (Linnaeus, 1758)", "Boana sp. 2",
+                "Pristimantis cf. 3.200"}) {
+            assertThat(servicio.registrar(cmd(UUID.randomUUID(), 1, nombre, HOY, "inv", "15", EstadoConservacion.SIN_EVALUAR, null, null)))
+                    .isEqualTo(ResultadoUbicacion.APLICADA);
+        }
     }
 
     @Test
