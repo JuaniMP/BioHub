@@ -326,3 +326,11 @@ Umbrales: ASR1 (SRS §2.2.1) = pico ≥ 60 veces el promedio, ≥ 95 % de petici
 
 ### 15h.5 Decisiones nuevas
 - **D42** (criterio de evidencia de carga para ASR1 y ASR4) y **D43** (el re-cifrado es la única excepción a la cadena del Decorator, verificada con ArchUnit): ver `03-arquitectura.md`, tabla de Decisiones.
+
+## Iteración 16 – cierre de ARQ propios de Juanita (2026-11-04)
+
+| ID | Estado | Evidencia | Observación |
+|---|---|---|---|
+| ARQ-28 | **Cerrado en ubicacion**; **Parcial en consulta-publica** (aeb67d8) | `EstadoConservacion` movido a `ubicacion.domain`; auditoría como puerto `domain.AuditoriaAccesoUbicacion` implementado por `infrastructure.AuditoriaAccesoUbicacionLog`; `MonitorCarga` recibe `service.UmbralesDegradacion` y ya no importa `config`; `layeredArchitecture()` en `ArquitecturaUbicacionTest` y `ArquitecturaConsultaPublicaTest` | Queda **ARQ-28b** (Bajo, deuda aceptada por el Tech Lead): `consultapublica/infrastructure/BusquedaFichasJdbc` depende de `service.CriterioBusquedaPublica` y de los DTO de `service.vista`. La regla ArchUnit permite solo esas dos dependencias y falla ante cualquier otra. Cerrarlo exige mover el criterio a `domain` y devolver records de dominio (~8 clases, M) |
+| ARQ-29 | **Cerrado** (25d2175, D45) | `ModuloRegistroNoDependeDeUbicacionInternaTest` prohíbe todo `cientifico.ubicacion` en `registro` (escaneo de fuentes + ArchUnit con `allowEmptyShould`, `registro` solo tiene `package-info`); `eventos/domain/package-info.java` corregido; nota D45 en `04` §6 | Hernando: integrar solo publicando `HallazgoRegistrado`/`HallazgoReclasificado` |
+| ARQ-33 | **Cerrado** (81f4e28) | Comentario de `application-aiven.yml` en los dos servicios: `VERIFY_IDENTITY` por defecto; `09` ya describía la topología D39 | — |
