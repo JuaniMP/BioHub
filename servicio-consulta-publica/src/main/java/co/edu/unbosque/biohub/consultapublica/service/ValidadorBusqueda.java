@@ -4,15 +4,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import co.edu.unbosque.biohub.consultapublica.controller.ProblemaResponse.ErrorCampo;
+import co.edu.unbosque.biohub.consultapublica.service.ErrorCampo;
 import co.edu.unbosque.biohub.consultapublica.domain.Departamento;
 
 /**
  * Valida y normaliza los parámetros de {@code GET /api/publica/fichas} (contrato 04, §4.1):
- * recorta espacios, el texto vacío equivale a ausente y reúne todos los errores de campo.
+ * recorta espacios, el texto vacío equivale a ausente y reúne todos los errores de campo. Valida SIEMPRE todo
+ * lo enviado (también lo que el modo degradado luego ignora) y delega en la {@link EstrategiaBusqueda} vigente
+ * el armado del criterio.
  */
 @Component
 public class ValidadorBusqueda {
@@ -23,12 +24,11 @@ public class ValidadorBusqueda {
     static final long MAXIMO_RESULTADOS_PAGINABLES = 10_000;
 
     private final CatalogoDepartamentos catalogo;
-    private final boolean modoDegradado;
+    private final ElectorEstrategiaBusqueda elector;
 
-    public ValidadorBusqueda(CatalogoDepartamentos catalogo,
-                             @Value("${biohub.publica.modo-degradado:false}") boolean modoDegradado) {
+    public ValidadorBusqueda(CatalogoDepartamentos catalogo, ElectorEstrategiaBusqueda elector) {
         this.catalogo = catalogo;
-        this.modoDegradado = modoDegradado;
+        this.elector = elector;
     }
 
     public CriterioBusquedaPublica validar(String qCrudo, String familiaCruda, String departamentoCrudo,
@@ -75,17 +75,8 @@ public class ValidadorBusqueda {
             throw new ParametroInvalidoException(errores);
         }
 
-        if (modoDegradado) {
-            List<String> ignorados = new ArrayList<>();
-            if (familia != null) {
-                ignorados.add("familia");
-            }
-            if (departamentoCodigo != null) {
-                ignorados.add("departamento");
-            }
-            return new CriterioBusquedaPublica(q, null, null, page, size, true, List.copyOf(ignorados));
-        }
-        return new CriterioBusquedaPublica(q, familia, departamentoCodigo, page, size, false, List.of());
+        // Strategy (ARQ-06): la búsqueda completa o la degradada se elige en cada petición según la carga
+        return elector.actual().criterio(q, familia, departamentoCodigo, page, size);
     }
 
     /** Entero decimal sin signo "+" ni espacios internos; {@code null} si no es un entero válido de 32 bits. */

@@ -121,6 +121,7 @@ class QaEventosInvalidosDlqTest extends BaseIntegracion {
         c.add(datos("más de 64 KB", grande));
         MessageProperties p = new MessageProperties();
         p.setContentType("application/json");
+        p.setUserId(co.edu.unbosque.biohub.consultapublica.soporte.Contenedores.usuarioAmqp());
         c.add(new Caso("bytes no UTF-8", "hallazgo.registrado", MessageBuilder.withBody(new byte[]{(byte) 0xff, (byte) 0xfe, 0x00, (byte) 0xc3, 0x28}).andProperties(p).build()));
         return c;
     }

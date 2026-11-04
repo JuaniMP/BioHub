@@ -13,8 +13,8 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
-import co.edu.unbosque.biohub.consultapublica.controller.FichaResumenResponse;
-import co.edu.unbosque.biohub.consultapublica.controller.PaginaFichasResponse;
+import co.edu.unbosque.biohub.consultapublica.service.vista.FichaResumenResponse;
+import co.edu.unbosque.biohub.consultapublica.service.vista.PaginaFichasResponse;
 import co.edu.unbosque.biohub.consultapublica.infrastructure.BusquedaFichasJdbc;
 
 class ConsultaFichasServiceTest {

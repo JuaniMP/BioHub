@@ -5,16 +5,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import co.edu.unbosque.biohub.consultapublica.controller.ProblemaResponse.ErrorCampo;
+import co.edu.unbosque.biohub.consultapublica.config.PropiedadesPublica;
 import co.edu.unbosque.biohub.consultapublica.domain.Departamento;
 
 class ValidadorBusquedaTest {
 
     private final CatalogoDepartamentos catalogo = new CatalogoDepartamentos(() -> List.of(
             new Departamento("15", "Boyacá", "Andina"), new Departamento("11", "Bogotá D.C.", "Andina")));
-    private final ValidadorBusqueda validador = new ValidadorBusqueda(catalogo, false);
+    private final ValidadorBusqueda validador = validador(false);
+
+    private ValidadorBusqueda validador(boolean forzado) {
+        MonitorCarga monitor = new MonitorCarga(new PropiedadesPublica(forzado, PropiedadesPublica.Degradacion.porDefecto()));
+        return new ValidadorBusqueda(catalogo, new ElectorEstrategiaBusqueda(monitor));
+    }
 
     private static List<ErrorCampo> errores(Runnable accion) {
         try {
@@ -90,8 +96,9 @@ class ValidadorBusquedaTest {
     }
 
     @Test
+    @DisplayName("ARQ-06 RNF1: forzado manual (CONSULTA_MODO_DEGRADADO) ignora familia y departamento solo si se enviaron")
     void modoDegradadoIgnoraFamiliaYDepartamentoSoloSiSeEnviaron() {
-        ValidadorBusqueda degradado = new ValidadorBusqueda(catalogo, true);
+        ValidadorBusqueda degradado = validador(true);
         CriterioBusquedaPublica ambos = degradado.validar("rana", "Bufonidae", "15", "1", "10");
         assertThat(ambos.modoDegradado()).isTrue();
         assertThat(ambos.filtrosIgnorados()).containsExactly("familia", "departamento");

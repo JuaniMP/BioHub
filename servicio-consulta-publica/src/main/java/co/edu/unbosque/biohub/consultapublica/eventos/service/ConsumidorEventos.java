@@ -40,7 +40,7 @@ public class ConsumidorEventos {
 
     public ConsumidorEventos(ObjectMapper objectMapper, AlmacenEventosRecibidos almacen,
                              ProcesadorHallazgos procesador,
-                             @Value("${biohub.eventos.verificar-publicador:false}") boolean verificarPublicador,
+                             @Value("${biohub.eventos.verificar-publicador:true}") boolean verificarPublicador,
                              @Value("${biohub.eventos.publicador-cientifico:cientifico_mq}") String publicadorEsperado) {
         // SEC-J-01: una clave repetida en el JSON (p. ej. dos "version") es ambigua y se rechaza
         this.objectMapper = objectMapper.copy().enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);

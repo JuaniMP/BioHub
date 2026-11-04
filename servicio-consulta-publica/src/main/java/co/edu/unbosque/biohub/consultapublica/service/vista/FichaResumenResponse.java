@@ -1,4 +1,4 @@
-package co.edu.unbosque.biohub.consultapublica.controller;
+package co.edu.unbosque.biohub.consultapublica.service.vista;
 
 import java.util.UUID;
 

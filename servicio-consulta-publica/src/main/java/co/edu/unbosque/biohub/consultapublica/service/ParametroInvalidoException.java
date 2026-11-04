@@ -2,7 +2,7 @@ package co.edu.unbosque.biohub.consultapublica.service;
 
 import java.util.List;
 
-import co.edu.unbosque.biohub.consultapublica.controller.ProblemaResponse.ErrorCampo;
+import co.edu.unbosque.biohub.consultapublica.service.ErrorCampo;
 
 /** Parámetro mal formado o fuera de rango: se traduce a 400 {@code PARAMETRO_INVALIDO}. */
 public class ParametroInvalidoException extends RuntimeException {

@@ -88,8 +88,8 @@ biohub:
     exchange: biohub.eventos
     dlx: biohub.eventos.dlx
     cola: consulta-publica.eventos
-    # Verifica el user_id AMQP del publicador (SEC-D-03). Activar en las VMs cuando el publicador lo ponga.
-    verificar-publicador: ${BIOHUB_EVENTOS_VERIFICAR_PUBLICADOR:false}
+    # Verifica el user_id AMQP del publicador (SEC-D-03, SEC-J-01). Activo por defecto (ARQ-13); false solo en local sin publicador.
+    verificar-publicador: ${BIOHUB_EVENTOS_VERIFICAR_PUBLICADOR:true}
     publicador-cientifico: ${BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO:cientifico_mq}
   cache:
     ttl-fichas: 5m

@@ -15,6 +15,7 @@ import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import co.edu.unbosque.biohub.consultapublica.service.ErrorCampo;
 import co.edu.unbosque.biohub.consultapublica.service.FichaNoEncontradaException;
 import co.edu.unbosque.biohub.consultapublica.service.ParametroInvalidoException;
 
@@ -65,7 +66,7 @@ public class ConsultaPublicaExceptionHandler {
 
     private static ResponseEntity<ProblemaResponse> respuesta(HttpStatus estado, String titulo, String detalle,
                                                               String codigo, HttpServletRequest req,
-                                                              List<ProblemaResponse.ErrorCampo> errores) {
+                                                              List<ErrorCampo> errores) {
         ProblemaResponse cuerpo = new ProblemaResponse("about:blank", titulo, estado.value(), detalle,
                 req.getRequestURI(), codigo, errores);
         return ResponseEntity.status(estado)

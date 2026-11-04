@@ -7,9 +7,9 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import co.edu.unbosque.biohub.consultapublica.config.CacheConfig;
-import co.edu.unbosque.biohub.consultapublica.controller.FichaPublicaResponse;
-import co.edu.unbosque.biohub.consultapublica.controller.FichaResumenResponse;
-import co.edu.unbosque.biohub.consultapublica.controller.PaginaFichasResponse;
+import co.edu.unbosque.biohub.consultapublica.service.vista.FichaPublicaResponse;
+import co.edu.unbosque.biohub.consultapublica.service.vista.FichaResumenResponse;
+import co.edu.unbosque.biohub.consultapublica.service.vista.PaginaFichasResponse;
 import co.edu.unbosque.biohub.consultapublica.infrastructure.BusquedaFichasJdbc;
 
 /**

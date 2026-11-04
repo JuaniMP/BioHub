@@ -23,8 +23,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
-import co.edu.unbosque.biohub.consultapublica.controller.FichaPublicaResponse;
-import co.edu.unbosque.biohub.consultapublica.controller.PaginaFichasResponse;
+import co.edu.unbosque.biohub.consultapublica.service.vista.FichaPublicaResponse;
+import co.edu.unbosque.biohub.consultapublica.service.vista.PaginaFichasResponse;
 import co.edu.unbosque.biohub.consultapublica.infrastructure.CacheErrorHandlerTolerante;
 import co.edu.unbosque.biohub.consultapublica.infrastructure.CacheManagerTolerante;
 import io.lettuce.core.ClientOptions;

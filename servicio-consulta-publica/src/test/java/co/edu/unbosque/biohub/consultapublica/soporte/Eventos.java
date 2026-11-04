@@ -55,9 +55,18 @@ public final class Eventos {
         return sobre(tipo, "servicio-cientifico", datos);
     }
 
-    /** Mensaje AMQP como lo publica servicio-cientifico (JSON persistente con cabecera __TypeId__ ajena). */
+    /**
+     * Mensaje AMQP como lo publica servicio-cientifico (JSON persistente con cabecera __TypeId__ ajena y
+     * {@code user_id} = usuario AMQP con que se conecta al broker, obligatorio según el contrato, §7).
+     */
     public static Message mensaje(String json) {
+        return mensaje(json, Contenedores.usuarioAmqp());
+    }
+
+    /** Igual que {@link #mensaje(String)} con un {@code user_id} explícito ({@code null} = sin user_id). */
+    public static Message mensaje(String json, String userId) {
         MessageProperties p = new MessageProperties();
+        p.setUserId(userId);
         p.setContentType("application/json");
         p.setHeader("__TypeId__", "co.edu.unbosque.biohub.cientifico.eventos.domain.EventoSobre");
         return MessageBuilder.withBody(json.getBytes(StandardCharsets.UTF_8)).andProperties(p).build();

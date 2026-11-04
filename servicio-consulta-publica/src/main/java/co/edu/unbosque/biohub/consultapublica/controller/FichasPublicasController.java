@@ -12,11 +12,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import co.edu.unbosque.biohub.consultapublica.controller.ProblemaResponse.ErrorCampo;
+import co.edu.unbosque.biohub.consultapublica.service.ErrorCampo;
 import co.edu.unbosque.biohub.consultapublica.service.ConsultaFichasService;
 import co.edu.unbosque.biohub.consultapublica.service.CriterioBusquedaPublica;
 import co.edu.unbosque.biohub.consultapublica.service.ParametroInvalidoException;
 import co.edu.unbosque.biohub.consultapublica.service.ValidadorBusqueda;
+import co.edu.unbosque.biohub.consultapublica.service.vista.FichaPublicaResponse;
+import co.edu.unbosque.biohub.consultapublica.service.vista.PaginaFichasResponse;
 
 /**
  * Consulta pública de fichas (contrato 04, §4). Sin autenticación (D16). Nunca devuelve coordenadas (D14).

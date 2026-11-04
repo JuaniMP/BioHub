@@ -26,12 +26,16 @@ import co.edu.unbosque.biohub.consultapublica.config.SecurityConfig;
 import co.edu.unbosque.biohub.consultapublica.domain.Departamento;
 import co.edu.unbosque.biohub.consultapublica.service.CatalogoDepartamentos;
 import co.edu.unbosque.biohub.consultapublica.service.ConsultaFichasService;
+import co.edu.unbosque.biohub.consultapublica.service.ElectorEstrategiaBusqueda;
 import co.edu.unbosque.biohub.consultapublica.service.FichaNoEncontradaException;
+import co.edu.unbosque.biohub.consultapublica.service.MonitorCarga;
+import co.edu.unbosque.biohub.consultapublica.service.vista.FichaPublicaResponse;
+import co.edu.unbosque.biohub.consultapublica.service.vista.PaginaFichasResponse;
 import co.edu.unbosque.biohub.consultapublica.service.ValidadorBusqueda;
 
 /** Capa web: validación, códigos de estado, formato de error, cabeceras y seguridad. Sin BD ni Redis. */
 @WebMvcTest(FichasPublicasController.class)
-@Import({SecurityConfig.class, ValidadorBusqueda.class})
+@Import({SecurityConfig.class, ValidadorBusqueda.class, ElectorEstrategiaBusqueda.class})
 class FichasPublicasControllerTest {
 
     @Autowired
@@ -42,6 +46,8 @@ class FichasPublicasControllerTest {
     private ConsultaFichasService servicio;
     @MockitoBean
     private CatalogoDepartamentos catalogo;
+    @MockitoBean
+    private MonitorCarga monitor; // sin carga: la estrategia es la búsqueda completa
 
     @Test
     void listadoEsPublicoSinTokenYLlevaCacheControl30s() throws Exception {

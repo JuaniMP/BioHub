@@ -8,8 +8,8 @@ import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-import co.edu.unbosque.biohub.consultapublica.controller.FichaPublicaResponse;
-import co.edu.unbosque.biohub.consultapublica.controller.FichaResumenResponse;
+import co.edu.unbosque.biohub.consultapublica.service.vista.FichaPublicaResponse;
+import co.edu.unbosque.biohub.consultapublica.service.vista.FichaResumenResponse;
 import co.edu.unbosque.biohub.consultapublica.service.CriterioBusquedaPublica;
 
 /**
