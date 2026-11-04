@@ -96,14 +96,16 @@ keytool -genseckey -alias v2 -keyalg AES -keysize 256 \
         -storetype PKCS12 -keystore ~/biohub-llaves/ubicacion.p12
 ```
 
-Variables (en el `.env` del servicio, que tampoco se versiona; ver `.env.example`):
+Variables (en el `.env` del servicio, que tampoco se versiona; ver `.env.example`). La contraseña se define aparte (ver más abajo):
 
 ```properties
 UBICACION_LLAVES_PROVEEDOR=keystore
 UBICACION_KEYSTORE_RUTA=/home/tu-usuario/biohub-llaves/ubicacion.p12
-UBICACION_KEYSTORE_PASSWORD=la-contraseña-que-pusiste-en-keytool
 UBICACION_CLAVE_ACTIVA=v1
+# UBICACION_KEYSTORE_PASSWORD NO va aquí: exportarla en el entorno del proceso o inyectarla como secreto
 ```
+
+**Permisos y contraseña (SEC-J-12).** El servicio **no arranca** si el `.p12` es accesible por el grupo o por otros (en Linux/macOS exige `chmod 600`; en Windows esta comprobación no aplica). Además, el `.env` suele guardar la ruta y la contraseña juntas: si ambas están en el mismo archivo, el keystore casi no añade protección. Pasa `UBICACION_KEYSTORE_PASSWORD` como **variable del sistema o secreto del orquestador** (Docker/Kubernetes secret, `systemd` `EnvironmentFile` con `chmod 600` distinto del `.env`, gestor de secretos), no en el `.env` junto a `UBICACION_KEYSTORE_RUTA`. El servicio borra de memoria su copia `char[]` de la contraseña tras abrir el keystore; el `String` de la propiedad sigue en el `Environment` de Spring, así que no actives volcados de heap ni expongas `env`/`configprops`/`heapdump` en actuator.
 
 Pasar de `entorno` a `keystore` con datos ya cifrados: el keystore debe contener las mismas llaves (mismos ids y bytes) que `UBICACION_CLAVES`. Si no, crea el keystore con la llave nueva `v2`, mantén también la `v1` y ejecuta el re-cifrado. Si pierdes una llave, sus coordenadas son irrecuperables: guarda una copia **fuera del servidor** y nunca junto a los respaldos de la base.
 
