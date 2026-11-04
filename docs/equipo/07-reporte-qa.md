@@ -150,36 +150,20 @@ Fecha: 2026-10-22. Rama `feature/despliegue`. Casos en `06-plan-pruebas.md` (sec
 
 ## Cobertura de criterios del evento
 Cubiertos y verdes: POST 202/400/401/403/503; GET recibidos 401/403/200 en ambos consumidores; límite de 20 y orden; DLQ por JSON roto, tipo desconocido, routing key distinta del tipo y >64 KB (con broker real); cabecera `__TypeId__` ignorada (el IT envía una clase inexistente y el evento se consume); mensaje exacto de 200 válido y 201 inválido.
-Verificado además contra un RabbitMQ real cargado con el `definitions.json` generado por `generar-definitions.sh` (con contraseñas ficticias, en contenedor local, sin tocar las VMs): 4 usuarios (`biohub` administrator, `cientifico_mq`, `consulta_mq`, `reportes_mq`), sin `guest`; `reportes_mq` declara su topología, consume y envía a DLQ; `cientifico_mq` publica con confirmación y recibe `ACCESS_REFUSED` al leer `reportes.eventos`; el evento publicado por `cientifico_mq` llegó a `reportes.eventos` (1 mensaje, cola durable con los argumentos DLX esperados). `consulta_mq` no se probó en vivo (su regla es simétrica a la de `reportes_mq`).
+Verificado además contra un RabbitMQ real cargado con el `definitions.json` generado por `generar-definitions.sh` (con contraseñas ficticias, en contenedor local, sin tocar ningún entorno compartido): 4 usuarios (`biohub` administrator, `cientifico_mq`, `consulta_mq`, `reportes_mq`), sin `guest`; `reportes_mq` declara su topología, consume y envía a DLQ; `cientifico_mq` publica con confirmación y recibe `ACCESS_REFUSED` al leer `reportes.eventos`; el evento publicado por `cientifico_mq` llegó a `reportes.eventos` (1 mensaje, cola durable con los argumentos DLX esperados). `consulta_mq` no se probó en vivo (su regla es simétrica a la de `reportes_mq`).
 
 ## Artefactos de despliegue (estático)
-| Verificación | Resultado |
-|---|---|
-| `bash -n` de los 7 `.sh` de `deploy/` | OK |
-| `docker compose config` backend y datos (env ficticio derivado de los `.env.example`) | OK, rc 0 |
-| `host_ip` de todos los `ports:` | Solo IP Tailscale (backend: 8080, 8180, 15672; datos: 3307-3310). Ningún `0.0.0.0` en puertos publicados (las apariciones de `0.0.0.0` son `SERVER_ADDRESS` dentro del contenedor) |
-| Servicios Java, Redis y AMQP 5672 sin `ports:` | OK |
-| Variables por servicio (SEC-12), sin `env_file` | OK: cada servicio recibe solo su MySQL, su usuario RabbitMQ y, en consulta-publica, Redis; equipos no recibe RabbitMQ ni Redis |
-| Variables obligatorias | Faltar `TS_IP_BACKEND` o una contraseña hace fallar `config` con mensaje claro |
-| `generar-env.sh` (en copia fuera del repo) | 600, 16 contraseñas únicas de 24 caracteres, MySQL idéntico en ambos .env, sin comentarios residuales, no sobrescribe sin `--forzar` |
-| `.env` y `definitions.json` | Ignorados por git, `.env` con permisos 600; ninguno está versionado |
-| `docker build` de las 5 imágenes (contexto = raíz, tras `verify`) | 5/5 OK; usuario uid 10001; `curl` presente para el HEALTHCHECK. Imágenes de prueba eliminadas |
-| Realm | `${KEYCLOAK_TEST_USERS_PASSWORD}` en lugar de contraseñas; ningún secreto en el JSON |
 
-No ejecutado (fuera de alcance, requiere las VMs): `docker compose up`, hairpin contenedor -> Tailscale, origen de MySQL (IP Tailscale), importación real del realm con sustitución de variable, E2E (procedimiento en el plan, sección 9).
+Sección retirada en la iteración 15 (Tailscale eliminado; ver 09-despliegue.md).
 
 ## Bugs
 No se encontraron bugs Críticos, Altos ni Medios. Hallazgos menores:
 
-### BUG-04 (Bajo) – `.env.example` mezcla valores con comentarios de fin de línea
-- Responsable: devops. Reproducir: copiar `deploy/backend/.env.example` a mano como `.env` y usarlo (p. ej. `RABBITMQ_CIENTIFICO_PASSWORD=cambiar_rabbit_cientifico   # usuario cientifico_mq`).
-- Esperado: el valor sea la contraseña. Obtenido: `generar-env.sh` y Compose lo toleran, y `generar-definitions.sh` corta en el espacio, pero cualquier otro lector (`cut -d=`, `source` con `set -a` sí lo tolera) puede incluir el comentario; me ocurrió al probar. Sugerencia: poner los comentarios en línea aparte. No bloquea.
+BUG-04 (`.env.example` de `deploy/`): sección retirada en la iteración 15 (Tailscale eliminado; ver 09-despliegue.md).
 
 ### Observaciones (para ciberseguridad / Tech Lead)
-- O-7: En el despliegue, el cliente `biohub-pruebas` mantiene password grant y `desplegar.sh` fija `sslRequired=NONE` en `master` y `biohub` (decisión D13, aceptada). Es coherente con "solo tailnet", pero el tráfico de credenciales va en HTTP; revisar al pasar a HTTPS. El realm conserva `admin-cli` con password grant en el realm (O-1 anterior).
-- O-8: `generar-definitions.sh` escribe `definitions.json` con permisos 644 (los hashes son SHA-256 con sal; el archivo está ignorado por git). Aceptable, documentado.
 - O-9: Los tests opt-in dependen de variables de entorno; no hay prueba automática en CI de las definitions reales. Sugerencia: añadir un IT que cargue `definitions.json` generado en Testcontainers.
 - O-10: Sin cobertura medida (JaCoCo) ni E2E automatizado del flujo de eventos por el gateway; queda el procedimiento manual (plan, sección 9).
 
 ## Veredicto: APROBADO CON OBSERVACIONES
-El código de RabbitMQ cumple el contrato (73/73 tests con broker real, 0 omitidos), los permisos por usuario funcionan contra un RabbitMQ real con las definitions generadas, y los artefactos de despliegue son válidos y cumplen las reglas de puertos y variables por servicio. No se aprueba sin reservas porque no pudo verificarse lo que depende de las VMs (compose up, Tailscale, MySQL por IP, importación del realm, E2E), que queda a cargo del Tech Lead con el procedimiento de la sección 9 del plan.
+El código de RabbitMQ cumple el contrato (73/73 tests con broker real, 0 omitidos) y los permisos por usuario funcionan contra un RabbitMQ real con las definitions generadas. La verificación de los artefactos de despliegue en VMs fue retirada en la iteración 15 (Tailscale eliminado; ver 09-despliegue.md).

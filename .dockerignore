@@ -9,7 +9,6 @@ web-publica/
 pruebas-carga/
 docs/
 infra/
-deploy/
 **/node_modules/
 **/src/
 **/target/classes/

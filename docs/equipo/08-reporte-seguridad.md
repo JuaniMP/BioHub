@@ -434,88 +434,16 @@ Verificado tras recrear la infraestructura desde cero (`docker compose down -v` 
 
 **Estado final: APROBADO CON OBSERVACIONES** (sin Críticos/Altos; pendientes asignados a historias).
 
----
-# Iteración despliegue (D11-D13)
+# Iteración despliegue (D11-D13) e iteración 14
 
-**Revisor:** ciberseguridad · **Fecha:** 2026-10-22 · **Rama:** `feature/despliegue` (sin commit; revisado el árbol de trabajo) · **Alcance:** despliegue en 2 VMs KVM + Tailscale (tarea 13f), código nuevo de RabbitMQ (13b) y decisión D13. Alcance acordado 4a (sin Funnel, sin Keycloak de producción, datos de prueba).
+Sección retirada en la iteración 15 (Tailscale eliminado; ver 09-despliegue.md). Se conservan solo los hallazgos que no dependían de Tailscale y que otras secciones citan (SEC-D-03 y SEC-D-07).
 
-## Resumen
-
-| Severidad | Cantidad |
-|---|---|
-| Crítico | 0 |
-| Alto | 0 |
-| Medio | 4 |
-| Bajo | 7 |
-| Informativo | 4 |
-
-**Veredicto: APROBADO CON OBSERVACIONES.** No hay hallazgos Críticos ni Altos dentro del alcance 4a. Los 4 Medios (SEC-D-01 a SEC-D-04) son aceptables solo mientras: (a) la tailnet tenga únicamente a los 4 integrantes, (b) no haya datos reales y (c) no se active Funnel/serve. Si cambia cualquiera de esas tres cosas, **SEC-D-01, SEC-D-02 y SEC-D-04 pasan a Alto** y deben corregirse antes. SEC-D-03 se debe corregir antes de implementar el evento real `hallazgo.registrado`.
-
-### Cómo se revisó
-- **Documentación:** `00-plan.md` (iteración tarea 13), `03-arquitectura.md` (D11), `04-contrato-api.md` (Eventos), `09-despliegue.md`, `docs/guia-tailscale.md` y los pendientes SEC-* de este reporte.
-- **Infraestructura (estático):** todo `deploy/**` (`crear-vms.sh`, `user-data.tpl`, `generar-env.sh`, `desplegar.sh`, ambos `docker-compose.yml`, `.env.example`, scripts de init MySQL, `generar-definitions.sh`, `20-definitions.conf`, backups y unidades systemd), los 5 `Dockerfile`, `.dockerignore`, `.gitignore`.
-- **Compose resuelto:** `docker compose config` de ambos stacks con las IP reales inyectadas por variable (sin imprimir secretos): puertos publicados, variables por servicio, usuario, `cap_drop`, `security_opt`.
-- **Código:** `eventos/**` de científico, consulta-pública y reportes; `RabbitConfig` y `SecurityConfig` de los servicios; `application.yml` (diff); tests de autorización (`isForbidden` presente en los 3 controladores de eventos).
-- **Secretos:** `git status --porcelain --ignored`, `git check-ignore -v` y búsqueda de los **valores** de todas las claves `*PASSWORD*/*SECRET*/*KEY*` de `.env`, `deploy/backend/.env` y `deploy/datos/.env` en los 199 archivos versionables (sin imprimirlos): **0 coincidencias de secretos** (solo `KEYCLOAK_ISSUER_URI` y `KEYCLOAK_AUDIENCE`, que no son secretos). Búsqueda de `tskey-` (auth keys de Tailscale): 0.
-- **Anfitrión (solo lectura):** `ss -ltn` (solo loopback, dnsmasq de libvirt en 192.168.122.1:53 y puertos efímeros de tailscaled), `tailscale status`, permisos de `.env` y de la llave SSH.
-- **ACL y estado de las VMs:** según lo verificado y reportado por el Tech Lead (no se accedió a las VMs).
-- **Dependencias:** no hay escáner de CVE instalado (`dependency-check`, `trivy`, `grype`: no disponibles) y no se instaló ninguno. Spring Boot 3.5.16. Sigue abierto SEC-15.
-
----
-
-## Hallazgos
-
-### SEC-D-01 · Medio · A01 / A05 (mínimo privilegio en la operación)
-**Cualquier miembro de la tailnet es root en las dos VMs y puede leer todos los secretos.**
-
-- **Archivos:** `deploy/vms/user-data.tpl:13-15` (`sudo: ALL=(ALL) NOPASSWD:ALL`), `deploy/vms/user-data.tpl:53` (`usermod -aG docker biohub`), regla `ssh` de la ACL (`autogroup:member -> tag:backend, tag:datos, users [biohub]`), `docs/guia-tailscale.md:61` y `:166-168`.
-- **Problema:** Tailscale SSH deja entrar a todos los miembros como `biohub`. Ese usuario tiene sudo sin contraseña **y** pertenece al grupo `docker` (equivalente a root por sí solo). Además, los `.env` (600) son de `biohub`, así que cualquiera que entre los lee directamente (`cat ~/biohub-backend/.env`), igual que con `docker inspect`/`docker exec ... env`. La guía dice "pide las contraseñas por un canal privado", pero en la práctica todos los miembros ya tienen acceso a todas: contraseñas root de MySQL, admin de Keycloak y RabbitMQ, contraseñas de los usuarios de prueba y volúmenes de datos.
-- **Por qué importa:** si se compromete el portátil de **un** integrante (o se invita a alguien más a la tailnet), el atacante obtiene root y todos los datos de ambas VMs. Así se pierde la separación backend/datos que justifica D11. Hoy los datos son de prueba, por eso queda en Medio.
-- **Cómo corregirlo:**
-  1. Separar los roles: `biohub` (administración, solo la dueña, con la llave por la red NAT o Tailscale SSH en modo `check`) y un usuario `equipo` para los compañeros, **sin** sudo y **sin** grupo `docker`, con permisos sudo solo para comandos de lectura:
-     ```
-     # /etc/sudoers.d/biohub-equipo  (visudo -f)
-     equipo ALL=(root) NOPASSWD: /usr/bin/docker compose --project-directory /home/biohub/biohub-backend ps, \
-                                 /usr/bin/docker compose --project-directory /home/biohub/biohub-backend logs *
-     ```
-     (Ojo: no permitir `docker exec`, `run` ni `compose up`: todos dan root.)
-  2. ACL de SSH con grupos explícitos y reautenticación:
-     ```json
-     "groups": { "group:admins": ["juanita@..."], "group:equipo": ["a@...", "b@...", "c@..."] },
-     "ssh": [
-       { "action": "check", "checkPeriod": "12h", "src": ["group:admins"], "dst": ["tag:backend","tag:datos"], "users": ["biohub"] },
-       { "action": "check", "checkPeriod": "12h", "src": ["group:equipo"], "dst": ["tag:backend","tag:datos"], "users": ["equipo"] }
-     ]
-     ```
-  3. Para consultas de BD, en vez de compartir la contraseña root, crear un usuario MySQL de **solo lectura** (`SELECT` sobre los esquemas, `@'localhost'`) y documentar ese.
-  4. Quitar el NOPASSWD de `biohub` cuando ya no haga falta cloud-init (o dejarlo solo para la llave local), sabiendo que mientras `biohub` esté en el grupo `docker` quitar el NOPASSWD no reduce el riesgo.
-- **Esfuerzo:** M · **Responsable:** devops + dueña (ACL).
-
-### SEC-D-02 · Medio · A02 / A05 / A07 (D13: Keycloak sin exigir TLS)
-**`sslRequired=NONE` en los realms `master` y `biohub`, con la consola de administración accesible desde toda la tailnet.**
-
-- **Archivos:** `deploy/desplegar.sh:96-100`, `deploy/backend/docker-compose.yml:192-202` (`start-dev`, `KC_HOSTNAME=http://...`, puerto 8180 en la IP de Tailscale), ACL `autogroup:member -> tag:backend:8180`.
-- **Riesgo residual evaluado (D13 aceptada por la dueña):**
-  - **Confidencialidad en tránsito: aceptable.** Todo el tráfico cliente→Keycloak viaja por WireGuard, y el puerto está ligado solo a `100.76.214.94` (verificado en el compose resuelto; Docker no lo publica en otra interfaz). Nadie fuera de la tailnet lo ve.
-  - **Lo que D13 no cubre:** (1) en `master` quedan la consola admin y el password grant de `admin-cli`, ambos alcanzables por HTTP desde cualquier dispositivo de la tailnet. El realm `master` **no** tiene `bruteForceProtected` (solo `biohub` lo tiene; el import no toca `master`), así que se puede intentar adivinar la contraseña del admin sin límite. (2) El cifrado depende de que **nadie** publique 8180 por otro medio (Funnel, `tailscale serve` HTTP, reenvío de puertos, `0.0.0.0`). Con `NONE`, Keycloak entregaría tokens y cookies por HTTP en claro sin quejarse. (3) Las cookies de sesión de la consola no llevan `Secure`.
-  - **Condiciones para mantener D13** (todas a la vez):
-    1. 8180 publicado solo en la IP de Tailscale. No usar Funnel ni `tailscale serve` sobre 8180 mientras siga en `NONE`.
-    2. ACL: 8180 solo para los miembros que lo necesitan (ver SEC-D-04). Ningún dispositivo compartido ni nodo externo.
-    3. Solo usuarios de prueba y datos de prueba (`start-dev`, H2).
-    4. **Volver a `external` en `biohub` y en `master` (o mejor `all`) en cuanto haya HTTPS** (`tailscale serve --https=443 http://127.0.0.1:8180` o Funnel solo para `/realms/biohub` y `/resources`). Cambiar entonces `KC_HOSTNAME` a `https://biohub-backend.<tailnet>.ts.net` y quitar el paso D13 de `desplegar.sh`. Si se reimporta el realm, revisar que no se haya aplicado `NONE`.
-- **Cómo reducir el riesgo ya (S):**
-  ```bash
-  # en desplegar.sh, junto al paso D13: protección contra fuerza bruta en master
-  $K update realms/master --config $C -s bruteForceProtected=true -s failureFactor=5 \
-     -s permanentLockout=false -s maxFailureWaitSeconds=900
-  ```
-  Opcional: dejar `master` en `external` y administrar con `kcadm` vía `docker exec` (como ya hace `desplegar.sh`). Así solo `biohub` queda en `NONE` y la consola admin no se usa por la tailnet.
-- **Esfuerzo:** S (fuerza bruta en master) / M (HTTPS con `tailscale serve`) · **Responsable:** devops; la reversión a `external` queda como requisito de la tarea de Funnel/Vercel.
+## Hallazgos que siguen vigentes
 
 ### SEC-D-03 · Medio · A01 / A08 (integridad de los eventos)
 **Los usuarios consumidores pueden publicar en `biohub.eventos` y los consumidores creen el campo `origen` del cuerpo: se pueden falsificar eventos.**
 
-- **Archivos:** `deploy/backend/rabbitmq/generar-definitions.sh:38-41` (`write` incluye `biohub.eventos` y `biohub.eventos.dlx` para `consulta_mq` y `reportes_mq`), `servicio-*/.../eventos/service/ConsumidorEventos.java:57-67` (consulta-pública y reportes; valida `origen` no vacío pero no quién publicó), `servicio-cientifico/.../eventos/service/PublicadorEventos.java:50-55`.
+- **Archivos:** las definitions de RabbitMQ del despliegue anterior (retiradas en la iteración 15) (`write` incluye `biohub.eventos` y `biohub.eventos.dlx` para `consulta_mq` y `reportes_mq`), `servicio-*/.../eventos/service/ConsumidorEventos.java:57-67` (consulta-pública y reportes; valida `origen` no vacío pero no quién publicó), `servicio-cientifico/.../eventos/service/PublicadorEventos.java:50-55`.
 - **Problema:** para declarar bindings, un consumidor necesita `write` sobre **su cola** y `read` sobre el exchange; no necesita `write` sobre los exchanges. Con el permiso actual, `reportes_mq` (o cualquiera que robe su contraseña desde el contenedor de reportes) puede publicar `hallazgo.registrado` con `"origen":"servicio-cientifico"`. Consulta-pública lo aceptaría y lo mostraría como dato público. El sobre no tiene nada que identifique al publicador de forma verificable.
 - **Por qué importa:** hoy solo existe `prueba.ping`, por eso queda en Medio. Con el evento real, comprometer el servicio de reportes (el menos crítico) permitiría inyectar hallazgos en la consulta pública. Así se rompe el aislamiento por servicio que buscaba SEC-04.
 - **Cómo corregirlo:**
@@ -543,51 +471,6 @@ Verificado tras recrear la infraestructura desde cero (`docker compose down -v` 
   3. Al implementar `hallazgo.registrado`: tipar `datos` con un DTO validado (no `Map<String,Object>` libre) y lista blanca de tipos **por publicador**.
 - **Esfuerzo:** S · **Responsable:** devops (permisos) + backend-senior (user_id).
 
-### SEC-D-04 · Medio · A01 / A05 (ACL de Tailscale más amplia de lo necesario)
-**La ACL da a todos los miembros más acceso del que usan, y mantiene la regla "todos con todos".**
-
-- **Archivo:** política de la tailnet (consola de Tailscale; no está versionada en el repositorio).
-- **Problema:**
-  1. `autogroup:member -> autogroup:member:*`: cada integrante llega a **todos los puertos** de los dispositivos de los demás, incluido el portátil de la dueña, que es el anfitrión KVM de las VMs. Hoy el anfitrión solo escucha en loopback (comprobado con `ss -ltn`), pero cualquier servicio que se levante en `0.0.0.0` (por ejemplo, un `docker run -p 8080:8080` de desarrollo) queda expuesto a todo el equipo.
-  2. `autogroup:member -> tag:datos:3307-3310`: según la guía (sección 6), los miembros **no** pueden ni deben usar MySQL directo (los usuarios de aplicación solo aceptan `@100.76.214.94` y root es local). El acceso solo agrega superficie previa a la autenticación de MySQL.
-  3. `autogroup:member` en lugar de grupos con nombre: cualquier invitado futuro hereda todo el acceso (8180 consola admin, 15672 panel admin, SSH como root, ver SEC-D-01).
-  4. Lo que está bien: `tagOwners` solo `autogroup:admin`; `tag:backend -> tag:datos` limitado a 3307-3310; `tag:datos` no tiene salida hacia nadie; los nodos etiquetados no entran en `autogroup:member`.
-- **Cómo corregirlo:**
-  ```json
-  "groups": { "group:admins": ["juanita@..."], "group:equipo": ["juanita@...", "a@...", "b@...", "c@..."] },
-  "acls": [
-    { "action": "accept", "src": ["tag:backend"],  "dst": ["tag:datos:3307-3310"] },
-    { "action": "accept", "src": ["group:equipo"], "dst": ["tag:backend:8080"] },
-    { "action": "accept", "src": ["group:admins"], "dst": ["tag:backend:22,8180,15672", "tag:datos:22"] },
-    { "action": "accept", "src": ["group:equipo"], "dst": ["tag:backend:22,8180", "tag:datos:22"] }
-    // sin autogroup:member -> autogroup:member:*  (o limitarlo a puertos concretos si se necesita)
-  ],
-  "tests": [
-    { "src": "a@...", "accept": ["tag:backend:8080"], "deny": ["tag:datos:3307", "tag:backend:15672"] }
-  ]
-  ```
-  Ajustar 8180 (necesario para pedir tokens) y 15672 según quién lo use de verdad. Versionar la política, sin secretos, en `deploy/tailscale/policy.hujson` como referencia, con la sección `tests` para que la consola rechace cambios que la rompan.
-- **Esfuerzo:** S · **Responsable:** dueña de la tailnet + Tech Lead.
-
-### SEC-D-05 · Bajo · A02 (secretos en argumentos de proceso; regresión parcial de SEC-10)
-- **Archivo:** `deploy/desplegar.sh:100`.
-- **Problema:** `kcadm.sh config credentials ... --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"` pone la contraseña del admin de Keycloak en la línea de comandos de un proceso. Mientras se ejecuta, cualquier usuario de la VM la ve con `ps` (los procesos del contenedor se ven desde el host). SEC-10 eliminó justo este patrón en los healthchecks.
-- **Cómo corregirlo:** que `kcadm` la lea de la variable de entorno en vez del argumento (Keycloak 26 lee `KC_CLI_PASSWORD` si no se pasa `--password`; verificarlo en 26.8.1). Si no, pasarla por stdin:
-  ```bash
-  ... sh -c 'export KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD"; $K config credentials --config $C --server http://localhost:8180 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" >/dev/null && ...'
-  ```
-- **Esfuerzo:** S · **Responsable:** devops.
-
-### SEC-D-06 · Bajo · A02 / A09 (backups)
-- **Archivos:** `deploy/datos/backup/backup.sh:16-27`, `deploy/datos/backup/README.txt:3,9`.
-- **Bien:** `umask 077` (archivos 600, carpetas por instancia 700), contraseña root leída dentro del contenedor, archivo `.tmp` + `mv` atómico, rotación de 14 días, un fallo no aborta las demás instancias.
-- **Problema:** (1) Los dumps se guardan **sin cifrar** y en el mismo disco de la misma VM, que a su vez está en el portátil de la dueña: no protegen contra pérdida o robo del equipo, y quien obtenga root (SEC-D-01) se lleva todo el histórico. (2) `--all-databases` incluye `mysql.user` (hashes de las contraseñas de aplicación y root). (3) No se verificó que el timer esté instalado (`systemctl list-timers biohub-backup.timer`). (4) El volumen `keycloak-data` (H2: usuarios y configuración del realm) no tiene backup (aceptable en dev).
-- **Cómo corregirlo:** cifrar antes de escribir y copiar fuera:
-  ```bash
-  ... | gzip -9 | age -r "$BACKUP_AGE_PUBKEY" > "$destino.tmp"     # clave privada fuera de la VM
-  ```
-  Volcar solo los esquemas de aplicación (`--databases cientifico equipos`) en lugar de `--all-databases`, o separarlos. Copia periódica a otro equipo. Verificar el timer y hacer una prueba de restauración documentada.
-- **Esfuerzo:** M · **Responsable:** devops. Pasa a **Medio** cuando haya datos reales (ubicaciones protegidas).
 
 ### SEC-D-07 · Bajo · A04 / A09 (DLQ sin límites; retención de datos)
 - **Archivos:** `servicio-consulta-publica/.../config/RabbitConfig.java:56-59` y `servicio-reportes/.../config/RabbitConfig.java:56-59`.
@@ -600,306 +483,300 @@ Verificado tras recrear la infraestructura desde cero (`docker compose down -v` 
   (Cambiar argumentos de una cola existente exige borrarla y declararla de nuevo. Como alternativa, usar una *policy* en `definitions.json`, que no exige recrear la cola.) Además, alarma de disco o de longitud de la DLQ.
 - **Esfuerzo:** S · **Responsable:** backend-senior.
 
-### SEC-D-08 · Bajo · A05 (endurecimiento de contenedores e imágenes)
-- **Archivos:** `deploy/backend/docker-compose.yml` (todos los servicios), `deploy/datos/docker-compose.yml:5`, `*/Dockerfile:6`.
-- **Problema:** ningún servicio tiene `security_opt: [no-new-privileges:true]`, `cap_drop: [ALL]` ni `read_only` (verificado en el compose resuelto). Las imágenes base se referencian por etiqueta mutable (`eclipse-temurin:21-jre`, `mysql:8.4`, `rabbitmq:4.1-management`, `redis:7.4-alpine`) y no por digest. Keycloak sí fija `26.8.1`.
+
+---
+
+# Parte de Juanita – ubicación y consulta pública
+
+**Revisor:** ciberseguridad · **Fecha:** 2026-10-26 · **Rama:** `feature/ubicacion-consulta-publica` (worktree `biohub-ubicacion`), commits `65c8860..e186843` sobre `0cb19df` · **Alcance:** módulo `ubicacion` de `servicio-cientifico` (cifrado, llaves, política de acceso, búsqueda interna, mapa, re-cifrado), `servicio-consulta-publica` (consumidor `hallazgo.*`, búsqueda y ficha pública, caché Redis), `web-publica` y `web-interna/src/ubicacion/`, y dependencias nuevas (`react-router`, `leaflet`, `react-leaflet`, `org.testcontainers:mysql`).
+
+## Resumen
+
+| Severidad | Cantidad |
+|---|---|
+| Crítico | 0 |
+| Alto | 0 |
+| Medio | 3 |
+| Bajo | 6 |
+| Informativo | 6 |
+
+**Veredicto: APROBADO CON OBSERVACIONES.** No encontré ninguna ruta, log, excepción, `toString()`, caché, evento ni respuesta por la que las coordenadas lleguen a un rol distinto de `cientifico_alto_rango`. El cifrado AES-256-GCM está bien hecho. Los 3 Medios no son explotables hoy, porque todavía no hay publicador real de `hallazgo.*` ni datos reales, pero condicionan el despliegue:
+- **SEC-J-01** (integridad de eventos; incluye SEC-D-03) pasa a **Alto** si el publicador de Hernando se despliega en las VMs sin corregirlo.
+- **SEC-J-02** y **SEC-J-03** (coordenadas en texto libre y en la DLQ) se deben resolver antes de cargar datos reales.
+
+### Cómo se revisó
+- **Documentación:**
+  - `03-arquitectura.md`: D14-D33 y §J1-J14.
+  - `04-contrato-api.md`: parte de Juanita.
+  - `01-requisitos.md` §9.
+  - `srs-biohub.md`: RF11-RF13, RF19, RNF9, ASR5, ASR6.
+  - Hallazgos SEC-*, SEC-D-* y SEC-T-* de este reporte.
+- **Código (estático):** todo `servicio-cientifico/.../ubicacion/**` (dominio, infraestructura, servicios, controladores y migraciones), `SecurityConfig` y el conversor JWT de ambos servicios, todo lo nuevo o modificado de `servicio-consulta-publica`, los dos `application.yml`, `.env.example`, `deploy/**` (Redis y variables), CORS del gateway, `web-publica/src/**`, `web-interna/src/ubicacion/**` y los tests de no filtración (`AuditoriaYSinFiltracionesTest` captura los logs en DEBUG, incluido el SQL).
+- **Búsquedas dirigidas:**
+  - Frontend: `dangerouslySetInnerHTML`, `innerHTML`, `bindPopup`, `localStorage`/`sessionStorage`, `console.*`, `target=`, `href=`, `eval`, `window.location`, `history.*`.
+  - Backend: `activateDefaultTyping`, `JsonTypeInfo`, `TrustedPackages` y `__TypeId__`.
+  - Consultas: SQL/JPQL construido con valores del cliente. Solo se concatenan fragmentos fijos y todos los valores van enlazados.
+- **Pruebas:**
+  - `mvn -B -pl servicio-cientifico,servicio-consulta-publica -am verify`: **BUILD SUCCESS**, 157 tests en científico (1 omitido) y 128 en consulta-pública. Una primera ejecución falló en `EventosPruebaControllerTest` por un `.class` ausente, causado por otra compilación que corría en paralelo en el mismo worktree; al repetirla pasó.
+  - `vitest`: web-publica 32/32 y web-interna 45/45.
+  - Contenedores Testcontainers: se eliminaron solos. Los que quedaron activos pertenecen a otra sesión que estaba ejecutando pruebas; no se tocaron las VMs ni el Compose local.
+- **Dependencias:**
+  - `npm audit` (todas las dependencias y solo producción): **0 vulnerabilidades** en las dos webs.
+  - Versiones: `leaflet` 1.9.4, `react-leaflet` 5.0.0 (`@react-leaflet/core` 3.0.0) y `react-router` 8.5.0. Todas las entradas de los `package-lock.json` tienen `integrity`.
+  - `org.testcontainers:mysql` tiene `scope test`, así que no llega al JAR.
+  - Maven: no hay escáner de CVE instalado (`dependency-check`, `trivy`, `grype` y `osv-scanner` no están disponibles). SEC-15 sigue abierto.
+- **Secretos:** se buscaron cadenas con forma de llave (`vN:` seguido de base64 de 32 bytes) en el árbol y en el historial de la rama, sin imprimir valores. Solo aparecen los hashes `integrity` de los lockfiles. No hay `application-test.yml` con llaves: los tests generan las suyas. `.env` y `dist/` están ignorados.
+
+---
+
+## Hallazgos
+
+### SEC-J-01 · Medio · A08 Integridad / A01 (SEC-D-03 sigue abierto y ahora tiene impacto real)
+**Un `hallazgo.*` falsificado se acepta como dato público y además puede "congelar" una ficha para siempre.**
+
+- **Archivos:**
+  - `servicio-consulta-publica/src/main/resources/application.yml:85` (`verificar-publicador: ${BIOHUB_EVENTOS_VERIFICAR_PUBLICADOR:false}`).
+  - `.env.example:72` (`=false`).
+  - `.../eventos/service/ConsumidorEventos.java:64-74`.
+  - `.../eventos/domain/DatosHallazgo.java:18` (`@Min(1) Integer version`, sin tope).
+  - `.../infrastructure/EscrituraFichasJdbc.java:24` (`WHERE ... version < ?`).
+  - Del lado de Santiago: las definitions de RabbitMQ (retiradas con `deploy/`) (write de los consumidores sobre `biohub.eventos`) y `PublicadorEventos` sin `setUserId`.
+- **Problema:** el consumidor ya implementa D24, pero con la verificación del `user_id` AMQP **desactivada por defecto**, y SEC-D-03 sigue abierto: `reportes_mq` y `consulta_mq` pueden publicar en `biohub.eventos`. El campo `origen` es texto del propio cuerpo y se falsifica trivialmente. Como "gana la versión mayor", un evento con `"version": 2147483647` deja la ficha con contenido del atacante, y **ningún evento legítimo posterior puede corregirla**: todos tienen una versión menor y se ignoran en silencio con un log DEBUG.
+- **Por qué importa:** quien comprometa el servicio menos crítico (reportes) o robe su contraseña de RabbitMQ puede inyectar o desfigurar fichas del portal público. Por ejemplo, puede poner en `descripcion` coordenadas inventadas o reales de otra fuente y presentarlas como dato de BioHub, o bloquear la reclasificación de una especie a `EN_PELIGRO`. El daño persiste hasta una intervención manual en `mysql-lectura`. El reporte anterior pedía corregir SEC-D-03 "antes de implementar el evento real".
 - **Cómo corregirlo:**
-  ```yaml
-  x-servicio: &servicio
-    security_opt: ["no-new-privileges:true"]
-    cap_drop: ["ALL"]
-    read_only: true
-    tmpfs: ["/tmp"]
+  1. **Santiago:** aplicar el punto 1 y el punto 2 de SEC-D-03 (permisos `write` mínimos y `setUserId(usuarioRabbit)` en `PublicadorEventos`).
+  2. **consulta-pública: fallar cerrado.** Cambiar el valor por defecto a `true` y poner `false` solo de forma explícita en el entorno local o de pruebas:
+     ```yaml
+     verificar-publicador: ${BIOHUB_EVENTOS_VERIFICAR_PUBLICADOR:true}
+     ```
+     Así, en las VMs la verificación queda activa sin depender de que alguien recuerde activarla. Si hoy rompe el E2E porque el publicador aún no pone `user_id`, mejor: obliga a cerrar el punto 1.
+  3. **consulta-pública: tope de cordura en `version`** y alerta en lugar de DEBUG cuando el salto es anómalo:
+     ```java
+     @NotNull @Min(1) @Max(1_000_000) Integer version,   // DatosHallazgo
+     ```
+     Documentar el procedimiento de reparación (borrar la fila en `mysql-lectura` y reenviar el último snapshot legítimo).
+  4. Al activar la verificación, añadir un test de integración: publicar con un usuario AMQP distinto debe acabar en la DLQ y no crear ficha.
+- **Esfuerzo:** S (consulta-pública), S (Santiago).
+- **Responsable:** consulta-pública (puntos 2-4) y Santiago (punto 1, recomendación).
+- **Condición:** **antes** de desplegar en las VMs el publicador real de Hernando. Si no se cumple, pasa a **Alto**.
+
+### SEC-J-02 · Medio · A04 Insecure Design / A01 (fuga por texto libre)
+**El consumidor solo bloquea claves con nombre de coordenada, pero publica tal cual el texto libre (`descripcion` hasta 5.000 caracteres, `nombreComun`, `tipoEspecimen`).**
+
+- **Archivos:** `servicio-consulta-publica/.../eventos/service/ValidadorDatosHallazgo.java:74` (solo `contieneClaveProhibida` sobre las **claves**) y `:99` (`d.descripcion()` pasa directo a `FichaPublica`). Se ve en `web-publica/src/paginas/Ficha.jsx` (sección "Descripción").
+- **Problema:** las claves extra se descartan (lector tolerante), así que el nombre de una clave nunca llega a `mysql-lectura`. Lo que sí llega es el **valor** de los campos de texto. Un investigador que escribe en la descripción "colectado en 5.53214, -73.36712" o "5°31'55\"N 73°22'02\"W" (algo habitual en fichas de campo) publica la coordenada exacta en el portal, en Redis y en la API pública, aunque todo lo demás de D14 esté bien.
+- **Por qué importa:** es la vía más probable de fuga de una ubicación protegida. No requiere atacante, solo un error humano. Una vez publicada, queda en cachés HTTP de terceros (`Cache-Control: public`).
+- **Cómo corregirlo:**
+  1. **Hernando (fuente):** validar en el formulario y en la API de registro que `descripcion`, `nombreComun` y `tipoEspecimen` no contengan coordenadas, y avisar al usuario.
+  2. **consulta-pública (defensa en profundidad):** detector de patrones en todos los campos de texto. Si encuentra coordenadas, el evento se descarta según SEC-J-03 (no a la DLQ con el texto en claro):
+     ```java
+     private static final Pattern COORD_DECIMAL = Pattern.compile(
+             "[-+]?\\d{1,2}[.,]\\d{3,}\\s*[,;/ ]\\s*[-+]?\\d{1,3}[.,]\\d{3,}");
+     private static final Pattern COORD_DMS = Pattern.compile(
+             "\\d{1,3}\\s*[°º]\\s*\\d{1,2}\\s*['′]\\s*(\\d{1,2}([.,]\\d+)?\\s*[\"″])?\\s*[NSEOW]",
+             Pattern.CASE_INSENSITIVE);
+     static boolean pareceCoordenada(String t) {
+         return t != null && (COORD_DECIMAL.matcher(t).find() || COORD_DMS.matcher(t).find());
+     }
+     ```
+     Probarlo con los ejemplos de arriba y con falsos positivos razonables (fechas, medidas como "12,5 cm").
+  3. Documentar la regla en `04` §7.3: "ningún campo de texto puede contener coordenadas".
+- **Esfuerzo:** S (consulta-pública), S-M (Hernando).
+- **Responsable:** consulta-pública y Hernando (recomendación).
+
+### SEC-J-03 · Medio · A04 / A09 (coordenadas en claro retenidas en la DLQ)
+**D24 manda a la DLQ precisamente los eventos que traen coordenadas. Así quedan en claro, sin TTL, en disco y en el panel de RabbitMQ.**
+
+- **Archivos:**
+  - `servicio-consulta-publica/.../eventos/service/ValidadorDatosHallazgo.java:74-77` (lanza `EventoInvalidoException`, que termina en la DLQ).
+  - `.../config/RabbitConfig.java:58` (`QueueBuilder.durable(cola + ".dlq").build()`, sin `x-message-ttl` ni `x-max-length`; ver SEC-D-07).
+  - `04-contrato-api.md` §7.5 ("`datos` con una clave de coordenadas → DLQ").
+- **Problema:** si el publicador de Hernando incluye por error `latitud`/`longitud`, el mensaje persistente (`delivery_mode=2`) queda guardado indefinidamente en `consulta-publica.eventos.dlq` con las coordenadas exactas en claro. Cualquiera con acceso al panel o al volumen de RabbitMQ en la VM backend puede leerlo. El mismo mensaje llega también a `reportes.eventos` (Nicolás), que podría guardarlo o registrarlo. El procedimiento documentado de "Move messages" lo reinyectaría.
+- **Por qué importa:** RNF9/ASR6 exigen que las coordenadas no existan en claro en ningún almacén persistente. La DLQ es un almacén persistente fuera del cifrado y fuera de la auditoría (D28).
+- **Cómo corregirlo:**
+  1. **consulta-pública:** tratar "trae coordenadas" (claves o texto, SEC-J-02) como **descartar con ack** y registrar un incidente sin valores, nunca DLQ:
+     ```java
+     // ConsumidorEventos.recibir()
+     try {
+         procesador.procesar(evento);
+     } catch (EventoConCoordenadasException e) {   // subclase nueva, lanzada por ValidadorDatosHallazgo
+         log.error("INCIDENTE: evento hallazgo.* con coordenadas descartado id={} tipo={}", evento.id(), evento.tipo());
+         return; // ack: el mensaje desaparece del broker
+     }
+     ```
+     Actualizar `04` §7.5, la fila correspondiente de §J5 y los tests de rechazo.
+  2. **Hernando:** validar `datos` contra el JSON Schema de `04` §7.3 **antes** de publicar (fallar cerrado). Así el mensaje con coordenadas nunca llega a crearse en el broker; es la única barrera que evita que exista.
+  3. **Santiago:** SEC-D-07 (TTL y `max-length` en las DLQ) y restringir el panel de RabbitMQ a administración.
+  4. **Nicolás (reportes):** la misma regla en su consumidor.
+- **Esfuerzo:** S.
+- **Responsable:** consulta-pública. Recomendación para Hernando, Santiago y Nicolás.
+
+### SEC-J-04 · Bajo · A04 (privacidad: fuga del área a las teselas OSM)
+**Con "Ver en el mapa" de un solo hallazgo, el mapa se centra en la coordenada exacta a zoom 12 y pide a `tile.openstreetmap.org` las teselas alrededor del punto.**
+
+- **Archivos:** `web-interna/src/ubicacion/componentes/MapaHallazgos.jsx:12` (`URL_TESELAS`) y `:27` (`fitBounds(..., { maxZoom: ZOOM_MAXIMO })`).
+- **Problema:** las teselas de zoom 12 miden unos 10 km de lado. El conjunto de teselas pedido, centrado en el punto, permite a OSMF y a su CDN deducir el área (unos pocos km) de un hallazgo protegido, junto con la IP del científico y la hora. TLS oculta la ruta a terceros en la red, pero no al proveedor. R6 lo acepta para la vista general, pero el caso de un único punto es el peor.
+- **Cómo corregirlo:**
+  - Rápido: en el ajuste automático usar un zoom menor cuando hay pocos puntos, por ejemplo `fitBounds(pos, { maxZoom: puntos.length === 1 ? 8 : 10, padding: [32, 32] })`. El usuario puede acercar manualmente, lo que sigue revelando el área, pero ya por decisión propia.
+  - Definitivo: servir las teselas desde un servidor propio o un proxy con caché en la VM backend, y no enviar `Referer` (`referrerPolicy: 'no-referrer'` en `TileLayer`).
+- **Esfuerzo:** S (rápido), M (proxy).
+- **Responsable:** web-interna-ubicacion. El proxy de teselas sería de Santiago.
+
+### SEC-J-05 · Bajo · A04 (DoS de caché; Redis compartido sin límite de memoria)
+**La caché `busquedas` tiene una clave por cada `q` distinto que mande el cliente, y Redis no tiene `maxmemory`.**
+
+- **Archivos:** `servicio-consulta-publica/.../service/CriterioBusquedaPublica.java` (`claveCache()`), `.../service/ConsultaFichasService.java` (`@Cacheable` de `busquedas`), `deploy/backend/docker-compose.yml:166` y `docker-compose.yml:94` (solo `appendonly yes` y `requirepass`).
+- **Problema:** con miles de `q` únicos por segundo, cada uno con una página de hasta 50 resúmenes, Redis crece sin límite durante el TTL de 60 s. Es el mismo Redis del rate limit del gateway, así que el efecto alcanza también al limitador. El rate limit por IP (pendiente de Santiago, R5) es lo único que lo acota.
+- **Cómo corregirlo:**
+  - Santiago: `maxmemory 256mb` y `maxmemory-policy volatile-lru` en el `redis.conf` generado (todas las claves de caché tienen TTL).
+  - Opcional en consulta-pública: cachear las búsquedas solo para `page <= 2`, o con `q` ya visto (evita guardar consultas que nadie repite).
+- **Esfuerzo:** S.
+- **Responsable:** Santiago (recomendación) y consulta-pública (opcional).
+
+### SEC-J-06 · Bajo · A05 / A04 (configuración de llaves: `.env.example` incompleto y modo efímero)
+**`UBICACION_CLAVES` y `UBICACION_CLAVE_ACTIVA` no están en `.env.example` (lo exige §J3.3) ni en `deploy/`. La única vía documentada para arrancar sin ellas es la llave efímera.**
+
+- **Archivos:** `.env.example:68-74` (solo variables de consulta-pública), `servicio-cientifico/src/main/resources/application.yml:62-66`, `.../ubicacion/infrastructure/ConfiguracionUbicacion.java:24-27` y `ProveedorDeLlavesEntorno.java:39-43`.
+- **Problema:**
+  - El modo efímero está bien protegido: exige `UBICACION_LLAVE_EFIMERA_DEV=true` **y** el perfil `dev`, y ningún archivo de `deploy/` activa perfiles (comprobado). Aun así, quien levante el servicio tras el merge encuentra un fallo de arranque sin plantilla de variables y tiene a mano la "solución rápida". Si esa combinación llega a una VM, las coordenadas reales se cifran con una llave que desaparece al reiniciar: pérdida irreversible (R1).
+  - La llave efímera usa el id `v1`, el mismo que la primera llave real, así que las filas cifradas con ella aparecen después como fallos de `INTEGRIDAD` y no como llave desconocida, lo que confunde el diagnóstico.
+- **Cómo corregirlo:**
+  1. Añadir a `.env.example` (vacías):
+     ```
+     # Llaves AES-256 de ubicación (D20). Generar cada una con: openssl rand -base64 32
+     # Formato: v1:<base64>,v2:<base64>  · Sin ellas servicio-cientifico NO arranca
+     UBICACION_CLAVES=
+     UBICACION_CLAVE_ACTIVA=
+     ```
+     Santiago debe añadirlas también a `deploy/generar-env.sh` (generación idempotente) y al compose del backend (J12.6).
+  2. En el modo efímero, registrar un ERROR en lugar de WARN y negarse si el datasource no es local:
+     ```java
+     String url = entorno.getProperty("spring.datasource.url", "");
+     if (!url.contains("//localhost") && !url.contains("//127.0.0.1")) {
+         throw new IllegalStateException("UBICACION_LLAVE_EFIMERA_DEV solo se permite con una BD local");
+     }
+     ```
+     Usar un id que no pueda coincidir con una llave real, por ejemplo `v9999`.
+- **Esfuerzo:** S.
+- **Responsable:** ubicación (`.env.example`, modo efímero) y Santiago (`deploy/`).
+
+### SEC-J-07 · Bajo · A05 (sin CSP ni cabeceras de seguridad en las webs; SEC-16 sigue abierto)
+- **Archivos:** `web-publica/index.html` (sin CSP), `web-publica/` sin `vercel.json`, y el mismo caso en web-interna.
+- **Problema:** el portal ahora muestra texto que viene de la BD (fichas). React lo escapa y no hay `dangerouslySetInnerHTML` (comprobado), pero no hay una segunda barrera ante una regresión o ante una dependencia comprometida. Tampoco hay `frame-ancestors` (clickjacking) ni `Referrer-Policy`.
+- **Cómo corregirlo:** `vercel.json` en cada web. Para web-publica:
+  ```json
+  { "headers": [{ "source": "/(.*)", "headers": [
+    { "key": "Content-Security-Policy", "value": "default-src 'self'; connect-src 'self' https://<gateway>; img-src 'self' data:; style-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" },
+    { "key": "X-Content-Type-Options", "value": "nosniff" },
+    { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+    { "key": "Strict-Transport-Security", "value": "max-age=31536000" } ]}],
+    "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }] }
   ```
-  (En los servicios Java. En MySQL/RabbitMQ/Redis, solo `no-new-privileges`.) Fijar `FROM eclipse-temurin:21-jre@sha256:...` y renovarlo con Dependabot/Renovate. Escanear las imágenes con `trivy image` en CI (SEC-15).
-- **Esfuerzo:** S · **Responsable:** devops.
+  En web-interna (Leaflet), además: `img-src 'self' data: https://tile.openstreetmap.org`, `style-src 'self' 'unsafe-inline'` (Leaflet usa estilos en línea) y `Referrer-Policy: no-referrer`.
+- **Esfuerzo:** S.
+- **Responsable:** web-publica, y Santiago para web-interna y Vercel.
 
-### SEC-D-09 · Bajo · A07 (llave de administración sin passphrase)
-- **Archivo:** `deploy/vms/crear-vms.sh:20-21` (`ssh-keygen ... -N ""`).
-- **Problema:** `~/.ssh/biohub_vms` (600, correcto) da root en las dos VMs y no tiene passphrase: cualquier proceso del usuario del anfitrión que la lea obtiene ese acceso.
-- **Cómo corregirlo:** `ssh-keygen -p -f ~/.ssh/biohub_vms` y usar `ssh-agent` (`desplegar.sh` funciona igual con el agente: `BatchMode=yes` acepta llaves del agente).
-- **Esfuerzo:** S · **Responsable:** dueña.
+### SEC-J-08 · Bajo · A09 (huecos en la auditoría D28)
+- **Archivos:** `servicio-cientifico/.../ubicacion/controller/UbicacionExceptionHandler.java:170-172` y `.../service/AuditoriaAccesoUbicacion.java:14-17`.
+- **Problema:**
+  1. Los 403 de `POST /recifrado` no se auditan, por la excepción explícita `!endsWith("/recifrado")`. Un intento de un no administrador sobre la operación criptográfica es justo lo que conviene ver.
+  2. El campo `endpoint` (que sale de `getRequestURI()`) no pasa por `limpiar()`, a diferencia de `usuario` y `filtros`. Hoy no es explotable porque Tomcat no admite CR/LF en la línea de petición y la URI queda codificada, pero es inconsistente.
+  3. La auditoría es solo un log. Se puede apagar con `logging.level.biohub.auditoria.ubicacion=OFF` y se pierde con la rotación.
+- **Cómo corregirlo:** auditar también el 403 de re-cifrado con `permitido=false`, aplicar `limpiar(endpoint, 200)` y enviar el logger `biohub.auditoria.ubicacion` a un appender propio, persistente y de solo anexado. Más adelante, la tabla `ubicacion_acceso_log` (Could).
+- **Esfuerzo:** S.
+- **Responsable:** ubicación.
 
-### SEC-D-10 · Bajo · A09 / A04 (IP de origen perdida en el backend)
-- **Archivo:** `deploy/vms/crear-vms.sh:33` y `deploy/vms/user-data.tpl:37-42` (`userland-proxy: true` en backend).
-- **Problema:** con `docker-proxy`, el gateway ve todas las conexiones como si vinieran de la IP del bridge (172.x). El registro de auditoría por IP y cualquier rate limiting por IP (SEC-05) no sirven: todos los clientes comparten IP. El comentario de `user-data.tpl:38-39` ("Keycloak (sslRequired=external)...") quedó obsoleto con D13.
-- **Cómo corregirlo:** con D13 aplicada ya no hace falta `docker-proxy` en backend. Poner `"userland-proxy": false` también ahí (como en datos) y actualizar el comentario. Si se mantiene, limitar por API key o `sub`, nunca por IP.
-- **Esfuerzo:** S · **Responsable:** devops.
-
-### SEC-D-11 · Bajo · A02 (definitions.json legible por todos)
-- **Archivo:** `deploy/backend/rabbitmq/generar-definitions.sh:54` (modo 644). Se copia a la VM con `rsync -a`.
-- **Problema:** contiene los hashes de los 4 usuarios RabbitMQ en `rabbit_password_hashing_sha256`: una sola iteración, sal de 4 bytes. Con contraseñas aleatorias de 24 caracteres (~143 bits) el riesgo real es despreciable, pero el archivo no debería ser legible por todos.
-- **Cómo corregirlo:** `0o640` y, en la VM, `chgrp 999` (gid de `rabbitmq` en la imagen oficial) o montarlo como `configs:`/`secrets:` de compose con `uid: "999"`, `mode: 0400`.
-- **Esfuerzo:** S · **Responsable:** devops.
+### SEC-J-09 · Bajo · A07 (identidad: revocación de rol y MFA; lado de Santiago)
+- **Problema:**
+  - RF19 pide que una revocación de rol se refleje "de inmediato", pero un token de `cientifico_alto_rango` revocado sigue sirviendo hasta 5 minutos (R4).
+  - Sigue sin MFA para `cientifico_alto_rango`, que es el único rol que ve coordenadas.
+- **Cómo corregirlo (Santiago):** bajar el `accessTokenLifespan` a 1-2 minutos, o introspección o lista de revocación en el gateway solo para `/api/cientifico/ubicacion/mapa` y `/hallazgos`. Para MFA, OTP condicional por rol en Keycloak.
+- **Esfuerzo:** M.
+- **Responsable:** Santiago (recomendación).
 
 ### Informativos
-- **SEC-D-I1 · JDBC sin verificación de TLS.** Las URL `jdbc:mysql://...` no fijan `sslMode`, así que Connector/J usa `PREFERRED`: cifra, pero no verifica el certificado. Es aceptable porque el tráfico backend→datos va por WireGuard y la ACL solo permite `tag:backend -> tag:datos:3307-3310`. Si algún día MySQL sale de la tailnet, usar `sslMode=VERIFY_IDENTITY`.
-- **SEC-D-I2 · Contraseñas de aplicación en el entorno de los contenedores MySQL.** `MYSQL_*_PASSWORD`/`APP_PASSWORD` solo se usan en el primer arranque (init), pero quedan para siempre en `docker inspect`. Mejora futura: archivos `secrets:` montados y que el init lea `*_FILE`.
-- **SEC-D-I3 · Usuarios MySQL con `GRANT ALL` sobre su esquema** (`deploy/datos/init/01-transaccional.sh:19-20`, `01-usuario-unico.sh:16`): sigue pendiente SEC-11 (usuario Flyway separado y usuario de ejecución con DML solamente). En especial, `consulta_app` (lectura) no debería tener DDL una vez creadas las tablas.
-- **SEC-D-I4 · Cliente `biohub-pruebas` (password grant) y contraseña única para los 5 usuarios de prueba, incluido `admin1` (`administrador`)**, compartida con todo el equipo: aceptado en 4a. Se debe eliminar antes de cualquier exposición fuera de la tailnet (ya previsto en "Logs y despliegue", punto 2).
+- **SEC-J-I1:** J3.1 dice que una colisión del `UNIQUE (clave_version, coord_nonce)` "se reintenta una vez con otro nonce", pero no está implementado: el registro fallaría y se revertiría. La probabilidad con nonces aleatorios de 96 bits es despreciable y el fallo es seguro (nunca reutiliza un nonce). Basta con ajustar el texto de J3.1.
+- **SEC-J-I2:** las llaves viven en el heap (el `String` de `PropiedadesCifrado` y los bytes decodificados no se borran). No se debe activar `-XX:+HeapDumpOnOutOfMemoryError` hacia disco compartido ni exponer `heapdump`/`env`/`configprops` en actuator (hoy solo `health,info`, correcto).
+- **SEC-J-I3:** la ficha pública muestra `fechaRecoleccion` exacta y el departamento también para `EN_PELIGRO`. Combinado con expediciones conocidas puede ayudar a acotar la zona. Propuesta de producto: para especies en peligro, publicar solo mes y año (práctica de datos sensibles de GBIF).
+- **SEC-J-I4:** la búsqueda interna muestra `investigador` (`preferred_username`) a los 5 roles internos y permite filtrar por él. Es coherente con el contrato. Conviene confirmar con la dueña del producto que `analista_ambiental` lo necesita (minimización).
+- **SEC-J-I5 (Hernando):** los campos personalizados de ASR5 (columnas JSON/EAV) no deben admitir coordenadas en claro. Si no, se salta RNF9 por fuera del módulo de ubicación. Sus DTOs de entrada con latitud/longitud deben enmascarar `toString()` (`04` §6, obligación 2), porque con `logging.level.org.springframework.web=DEBUG` Spring registra el cuerpo leído usando `toString()`.
+- **SEC-J-I6:** con dos instancias, el `AtomicBoolean` del re-cifrado es por instancia. `FOR UPDATE SKIP LOCKED` evita el doble procesamiento (correcto). Las filas bloqueadas por un registro en curso se saltan y quedan en `pendientesPorVersion`, así que hay que repetir el re-cifrado hasta que llegue a 0 antes de retirar la llave vieja (ya está en J3.5, paso 3).
 
 ---
 
 ## Bien hecho
-- **Secretos fuera de git:** `deploy/**/.env`, `definitions.json` y la copia del realm están ignorados (`.gitignore:44-46`). Los `.env` son 600 y se generan con 24 caracteres de `/dev/urandom` (`generar-env.sh`). Se suben a la VM con `umask 077` y por stdin (no por argumentos). `rsync` excluye `.env`. El realm versionado (`infra/keycloak/realm-biohub.json`) usa el placeholder `${KEYCLOAK_TEST_USERS_PASSWORD}`, sin secretos. 0 coincidencias de valores secretos en los archivos versionables.
-- **`.dockerignore` mínimo:** excluye `.env*`, `.git`, `deploy/`, `docs/`, `src/` y las webs; las imágenes solo copian el jar.
-- **Dockerfiles:** usuario no root (`uid 10001`, shell `nologin`), JRE en lugar de JDK, `HEALTHCHECK`, `ExitOnOutOfMemoryError`.
-- **Exposición de red:** todos los `ports:` ligados a la IP de Tailscale (y el compose falla con `:?` si falta, así nunca cae en `0.0.0.0`). AMQP 5672, Redis, puertos de clúster de RabbitMQ (4369/25672), la gestión de Keycloak (9000) y los servicios 8081-8084 no se publican. El riesgo de que Docker se salte ufw está documentado y mitigado.
-- **SEC-12 corregido:** cada servicio recibe solo sus variables (sin `env_file` compartido), comprobado en el compose resuelto.
-- **SEC-04 corregido (con el ajuste de SEC-D-03):** usuarios RabbitMQ por servicio, sin `guest`, hashes en vez de contraseñas en claro, `cientifico_mq` sin lectura, definiciones reproducibles con `load_definitions`.
-- **MySQL:** usuarios de aplicación limitados a `@100.76.214.94` (nunca `%`), root solo local, `skip-name-resolve`, `userland-proxy=false` en datos para conservar la IP de origen, validación de caracteres en los scripts de init (evita inyección SQL en el heredoc), `MYSQL_PWD` en lugar de `-p`.
-- **SEC-10 mantenido en el compose:** healthchecks con `MYSQL_PWD`/`REDISCLI_AUTH`; la contraseña de Redis va a un `.conf` interno.
-- **VMs:** `ssh_pwauth: false`, `disable_root`, `lock_passwd`, ufw que deniega todo lo entrante (SSH solo desde la red NAT), actualizaciones automáticas, repos oficiales con keyring firmado, `StrictHostKeyChecking=accept-new`.
-- **Código de eventos:** endpoints con `@PreAuthorize("hasRole('administrador')")` más una regla explícita en `SecurityConfig` de consulta-pública, antes del `permitAll` de `GET /api/publica/**` (el orden es correcto), con tests de 403. Validación en el publicador (`@Size(max=200)`) y en el consumidor (tamaño ≤ 64 KB, sobre completo, lista blanca de tipos, routing key = tipo). Deserialización a un `record` fijo sin `__TypeId__` ni tipado polimórfico (cumple el requisito 3 de "Eventos"). Errores `problem+json` sin detalles internos (503 genérico). Los logs y el `MessageRecoverer` registran solo id/tipo/origen, nunca el cuerpo. Publisher confirms y mensajes persistentes. `default-requeue-rejected: false` y reintentos acotados (sin bucle de reencolado). Almacén en memoria acotado a 20.
-- **D13 documentada** con su justificación y la condición para revertirla, en el script y en la guía, junto con la advertencia "no publicar fuera de Tailscale".
+- **Cifrado:**
+  - AES/GCM/NoPadding con tag de 128 bits, nonce de 12 B de `SecureRandom` nuevo en **cada** cifrado (también al re-cifrar) y AAD = UUID canónico.
+  - Se valida la longitud del nonce y del texto plano. `AEADBadTagException` y cualquier `GeneralSecurityException` se convierten en `INTEGRIDAD` sin propagar la causa.
+  - Se borra el texto plano (`Arrays.fill`).
+  - El texto plano de `recifrar` no sale del cifrador.
+  - Hay `CHECK` de longitud y `UNIQUE (clave_version, coord_nonce)` en la BD.
+  - No existen columnas en claro.
+- **Llaves:**
+  - Se validan al arrancar (32 bytes, id `^v[1-9][0-9]{0,3}$`, sin repetidos y con la activa presente).
+  - Los mensajes nombran la variable, nunca el valor (con test).
+  - `toString()` enmascarado.
+  - Se usan en todos los perfiles.
+  - El modo efímero exige perfil y bandera a la vez (con test).
+- **Autorización centralizada:**
+  - `PoliticaAccesoUbicacion` excluye explícitamente `AnonymousAuthenticationToken`.
+  - El mapa tiene `@PreAuthorize` más `exigirCoordenadas` en el servicio.
+  - `ServicioDescifrado` vuelve a exigir el rol antes de tocar el cifrador.
+  - Para roles sin permiso, la consulta **ni siquiera selecciona** `coord_*` (minimización).
+  - `bbox` responde 403 o 400 según el rol.
+  - El re-cifrado es solo para `administrador` y nunca devuelve coordenadas.
+  - No hay forma de llegar a las coordenadas por `hallazgoId`, parámetros o re-cifrado sin el rol.
+- **Sin filtraciones:**
+  - `toString()` enmascarado en `Coordenadas`, `CoordenadasCifradas`, `UbicacionHallazgo`, `FilaHallazgo`, `RegistroUbicacionComando` y los DTOs de respuesta (también en el `toString` anidado de los records contenedores). Por eso el log DEBUG "Writing [...]" de Spring MVC no las muestra.
+  - Un test captura los logs en DEBUG, incluido el SQL.
+  - Los errores son `problem+json` sin trazas.
+  - Todas las respuestas internas, incluidos los errores, llevan `Cache-Control: no-store`.
+  - Actuator expone solo `health,info`.
+- **Inyección:**
+  - JPQL y SQL con parámetros enlazados. Solo se añaden fragmentos fijos según los filtros.
+  - `LIKE` escapado (`!` en la búsqueda interna y `\` en la pública).
+  - En el FULLTEXT se eliminan todos los caracteres que no son letra ni número, así que no quedan operadores.
+  - Orden fijo, sin ordenamiento controlado por el cliente.
+  - Las claves de caché se codifican por componente (sin colisiones por `|`/`=`).
+  - Probado con `' OR '1'='1`.
+- **Eventos:**
+  - Límite de 64 KB y `datos` como `Map` sin tipado polimórfico.
+  - `__TypeId__` ignorado.
+  - Mapeo estricto (sin coerción de escalares) y Bean Validation.
+  - Búsqueda recursiva de claves prohibidas, sin distinguir mayúsculas.
+  - Valor de estado desconocido → `EN_PELIGRO`.
+  - `usuario` del sobre nunca guardado.
+  - UPSERT atómico `WHERE version < ?`.
+  - Invalidación de caché después del commit.
+- **Caché:** `Jackson2JsonRedisSerializer` tipado a los DTOs públicos (sin `activateDefaultTyping`), prefijo `biohub:publica:`, Redis caído tratado como miss y probado con el contenedor detenido. No se cachean 404 ni errores.
+- **Disponibilidad:**
+  - `size` ≤ 50 en la pública y ≤ 100 en la interna; `(page+1)*size ≤ 10.000`.
+  - Mapa limitado a 1.000 elementos, con `truncado`.
+  - Descifrado limitado a la página.
+  - Hikari a 2 s y Redis a 300 ms.
+- **Frontend:**
+  - Listas blancas en los dos adaptadores: `aHallazgo` descarta latitud y longitud si el rol no es alto rango, aunque lleguen.
+  - El mapa no llama a la API sin el rol.
+  - Las coordenadas viven solo en el estado del componente y se descartan con 401/403.
+  - `credentials: 'omit'` y `cache: 'no-store'`.
+  - Sin storage, sin `console.*` y sin `dangerouslySetInnerHTML`.
+  - El `title` del marcador se asigna como atributo, sin HTML.
+  - `state.volver` se valida (`startsWith('?')`): no hay redirección abierta.
+  - Un 404 y un 400 se muestran igual en la ficha.
+- **Pruebas:** con Testcontainers efímeros. No se tocaron las VMs (D30).
 
-## Estado de los pendientes anteriores
-| ID | Estado tras esta iteración |
-|---|---|
-| SEC-04 | **Corregido** en despliegue (ajuste de permisos de escritura en SEC-D-03) |
-| SEC-12 | **Corregido** en `deploy/backend/docker-compose.yml` |
-| SEC-10 | Mantenido en el compose; regresión puntual en `desplegar.sh:100` (SEC-D-05) |
-| SEC-11 | Sigue pendiente (SEC-D-I3) |
-| SEC-15 | Sigue pendiente: no hay escaneo de CVE de Maven ni de imágenes |
-| SEC-02, SEC-05 | Sin cambios (fuera de esta iteración) |
-
-## Veredicto (iteración despliegue)
-**APROBADO CON OBSERVACIONES.** No hay Críticos ni Altos dentro del alcance 4a.
-
-Condiciones:
-1. **Antes del evento real `hallazgo.registrado`:** SEC-D-03 (permisos `write` de consumidores y validación de `user_id`) y SEC-D-07 (límites de la DLQ).
-2. **Antes de datos reales, de invitar a alguien más a la tailnet o de activar Funnel/serve:** SEC-D-01 (separar el acceso root), SEC-D-04 (ACL con grupos, sin `member:*` ni MySQL para miembros) y SEC-D-02 (volver `sslRequired` a `external`/`all` con HTTPS). Ya hoy, a bajo costo: activar fuerza bruta en `master`.
-3. Los Bajos se pueden resolver en la próxima tarea de devops. SEC-D-05, SEC-D-09 y SEC-D-10 son de esfuerzo S.
-
----
-
-# Iteración 14 – cierre de Tailscale
-
-**Revisor:** ciberseguridad · **Fecha:** 2026-10-26 · **Rama:** `feature/despliegue` · **Commit revisado:** `14b77e9` (más `git diff 5a8d206..HEAD -- deploy docs`) · **Alcance:** ACL versionada (`deploy/tailscale/`), usuario `equipo` y `biohub-estado`, usuario MySQL `lectura_equipo`, HTTPS con `tailscale serve` y el estado de SEC-D-01..11 y D13.
-
-## Resumen
-
-| Severidad | Nuevos (SEC-T) |
-|---|---|
-| Crítico | 0 |
-| Alto | 0 |
-| Medio | 2 |
-| Bajo | 6 |
-| Informativo | 4 |
-
-**Veredicto: APROBADO CON OBSERVACIONES.** El commit cumple lo que promete en lo técnico: separa root del equipo, la ACL es de mínimo privilegio, el usuario de solo lectura está bien acotado y HTTPS por `serve` está bien diseñado (sin Funnel, 8080/8180 en loopback e issuer no falsificable). Quedan dos Medios: la shell `equipo` en la VM backend hereda la posición de red de `tag:backend` (SEC-T-01), y la guía sigue repartiendo al equipo las credenciales de administrador de Keycloak y RabbitMQ (SEC-T-02). Por eso **SEC-D-01 queda "resuelto en infraestructura, parcial en credenciales"**. **Es seguro que Juanita pegue la política y active HTTPS en el orden documentado** (detalle en "Orden de aplicación").
-
-### Cómo se revisó
-- **Estático:** todos los archivos del commit `14b77e9` (`policy.hujson`, README, `biohub-estado`, `instalar-equipo.sh`, `tailscale-https.sh`, `02-lectura-equipo.sh`, `aplicar-lectura-equipo.sh`, `desplegar.sh`, `generar-env.sh`, ambos compose y `.env.example`), `09-despliegue.md` §4.1-4.2, `guia-tailscale.md`, `03-arquitectura.md` D11-D13 y el código del gateway relacionado (`ProxyService`, `SecurityConfig` de los 5 servicios).
-- **Secretos:** `git check-ignore` de `deploy/**/.env`, `definitions.json` y `deploy/backend/keycloak/` (ignorados). Se buscaron con `git grep -F` los **valores** de las 22 contraseñas de `deploy/backend/.env` y `deploy/datos/.env` en **todo el historial** (`git rev-list --all`), sin imprimirlas: **0 coincidencias**. Ningún `.env` local conserva valores `cambiar_*`; todos tienen 24 caracteres y permisos 600.
-- **VMs (solo lectura; no se cambió ni reinició nada):** por la red NAT (`biohub-backend` 192.168.122.234, `biohub-datos` 192.168.122.81):
-  - `id`/`passwd -S equipo`, permisos de `/home/biohub`, `/home/equipo` y `/usr/local/bin/biohub-estado`;
-  - `/etc/sudoers.d/biohub-equipo`, `sudo -l -U equipo` y los `Defaults` de sudo;
-  - pruebas como `equipo` (`sudo -u equipo`): `ps`, argumentos no permitidos (`--help`, `-f`, `../x`), acceso a Docker, `/home/biohub`, `/etc/shadow`, `tailscale status`, `ps -eo args` buscando secretos, alcance de red con conexiones TCP con `/dev/tcp`;
-  - `SHOW GRANTS` y `mysql.user` en las 4 instancias; realms `master`/`biohub` con `kcadm get` (lectura);
-  - `tailscale debug netmap` (filtro de paquetes y política SSH **vigentes**), `CertDomains`, `serve status`, `ss -ltnp`, `ufw status`, `sshd -T`;
-  - prueba de falsificación de `X-Forwarded-*` contra el discovery de Keycloak.
-- **Política ACL:** revisada en papel. No hay acceso a la consola: los `tests` se razonaron, no se ejecutaron.
-
----
-
-## Estado de SEC-D-01..11
-
-| ID | Estado | Evidencia |
+## Condicionado a otros integrantes (recomendaciones)
+| Quién | Qué | Antes de |
 |---|---|---|
-| **SEC-D-01** (todos root) | **Resuelto en infraestructura; parcial en credenciales; pendiente de aplicar la ACL** | `equipo` existe en ambas VMs: bloqueado (`L`), solo en el grupo `equipo` (sin `sudo`/`docker`/`adm`/`lxd`). `/home/biohub` es 750, así que `equipo` recibe *Permission denied* al leer `.env` y `definitions.json`. El sudoers coincide con el repositorio: 13 comandos exactos, `env_reset` y `secure_path`. `-f`, `--help` y argumentos inventados son rechazados por sudo. Sin acceso al socket Docker. **Pero:** la política vigente (netmap) sigue siendo la antigua (`accept` como `biohub`, sin `check`), y la guía reparte las credenciales de admin de Keycloak/RabbitMQ (SEC-T-02). La shell de `equipo` en backend alcanza MySQL y la red Docker (SEC-T-01). |
-| **SEC-D-02** (Keycloak sin TLS) | **Parcial.** Fuerza bruta en `master`: **resuelto**. `sslRequired`: **pendiente de activar HTTPS** | `master`: `bruteForceProtected=true`, `failureFactor=5`, `maxFailureWaitSeconds=900` (verificado). Hoy `sslRequired=none` en ambos realms porque el despliegue está en modo HTTP (`TS_HTTPS=0`, sin `serve`). El mecanismo para pasar a `external` está implementado y es correcto. Los certificados de la tailnet ya están activos (`CertDomains` = `biohub-backend.tailcfd75e.ts.net`). |
-| **D13** | **Vigente hasta ejecutar `BIOHUB_HTTPS=1`**; condiciones de D13 cumplidas hoy | 8080/8180 solo en `100.76.214.94` (comprobado con `ss`). Sin Funnel ni `serve`. Hoy la única fuente del filtro es el nodo de Juanita. |
-| **SEC-D-03** (falsificación de eventos) | **Pendiente** | `generar-definitions.sh:38-41` sin cambios: `consulta_mq`/`reportes_mq` siguen con `write` sobre `biohub.eventos`. No hay `user_id`. Agravado por SEC-T-02: el admin de RabbitMQ en manos del equipo también puede publicar. |
-| **SEC-D-04** (ACL amplia) | **Resuelto en el repositorio; pendiente de pegar** | `policy.hujson` cumple lo pedido (ver "Bien hecho"). El filtro vigente en la VM aún es `22,8080,8180,15672` desde el nodo de Juanita, sin grupos ni `check`. |
-| **SEC-D-05** (secreto en argumentos) | **Resuelto** | `desplegar.sh:160` usa `KC_CLI_PASSWORD`. Verificado que `kcadm` 26.8.1 autentica así. `ps -eo args` como `equipo`: sin secretos. |
-| **SEC-D-06** (backups) | **Pendiente y peor de lo supuesto** | `systemctl list-timers biohub-backup.timer` → 0 timers; `/var/backups/biohub` no existe: **hoy no hay ningún backup**. |
-| **SEC-D-07** (DLQ) | Pendiente | Sin `maxLength`/TTL. |
-| **SEC-D-08** (endurecimiento) | Pendiente | Sin `no-new-privileges`/`cap_drop`. |
-| **SEC-D-09** (llave sin passphrase) | Pendiente | `ssh-keygen -y -P ""` sobre `~/.ssh/biohub_vms` funciona, así que la llave no tiene passphrase. |
-| **SEC-D-10** (IP de origen) | Pendiente | `userland-proxy: true` en backend. En modo HTTPS el gateway ve `172.18.0.1` y `ProxyService:153` sobrescribe `X-Forwarded-For` con esa IP, con lo que se pierde también la IP que aporta `serve`. |
-| **SEC-D-11** (`definitions.json` 644) | **Mitigado** (sigue en 644) | `equipo` no puede leerlo porque `/home/biohub` es 750. |
+| Santiago | SEC-D-03 (permisos `write` y `setUserId`) → SEC-J-01 | Desplegar el publicador real en las VMs |
+| Santiago | `UBICACION_CLAVES`/`UBICACION_CLAVE_ACTIVA` en `generar-env.sh` y en el compose, con copia de custodia fuera de la VM (R1) y nunca junto a los respaldos de la BD (SEC-D-06) → SEC-J-06 | Desplegar el módulo `ubicacion` |
+| Santiago | Rate limit por IP en `/api/publica/**` y `maxmemory` en Redis → SEC-J-05; SEC-D-07 (TTL en las DLQ) → SEC-J-03 | Exponer el portal a internet |
+| Santiago | CSP en web-interna, montar `rutasUbicacion` sin exponer el mapa a otros roles, MFA y vida del token → SEC-J-07, SEC-J-09 | Datos reales |
+| Hernando | Validar el JSON Schema antes de publicar, sin coordenadas en texto libre ni en campos ASR5, outbox y `version` creciente → SEC-J-02, SEC-J-03, SEC-J-I5 | Su primera publicación de `hallazgo.*` |
+| Nicolás | Misma regla de descarte de eventos con coordenadas en `reportes` → SEC-J-03 | Consumir `hallazgo.*` |
 
----
-
-## Hallazgos nuevos
-
-### SEC-T-01 · Medio · A01 / A05 (segmentación de red)
-**La shell de `equipo` en `biohub-backend` hereda la posición de red de `tag:backend` y de la red Docker: el "nadie del equipo llega a MySQL" de la ACL no se cumple en la práctica.**
-
-- **Archivos:** `deploy/tailscale/policy.hujson:35` (`tag:backend -> tag:datos:3307-3310`), `:51-53` (comentario "MySQL SOLO la admin"), `:64-65` (SSH del equipo a `tag:backend`). `deploy/backend/docker-compose.yml:227-229` (red `biohub-interna`). `servicio-consulta-publica/.../SecurityConfig.java:35` (`permitAll` en `/api/publica/**`; la API key y el rate limit están solo en el gateway, en `ApiKeyRateLimitFilter`).
-- **Problema (verificado como `sudo -u equipo` en backend):** con conexiones TCP abiertas desde la shell de `equipo` llegan a estar **ABIERTOS**:
-  - MySQL en datos `100.94.121.117:3307` y `:3310`;
-  - Redis `172.18.0.2:6379`;
-  - AMQP `172.18.0.9:5672`;
-  - Keycloak directo `172.18.0.4:8180` y la gestión `:9000`;
-  - los servicios `172.18.0.6:8081` (el ping sin token responde 401) y el gateway `:8080`;
-  - SSH por NAT de la otra VM (`192.168.122.81:22`).
-
-  Hoy ninguna credencial está al alcance de `equipo`: los `.env` no son legibles, no hay secretos en `ps` y `/proc/<pid>/environ` de otros usuarios está protegido. Las contraseñas son aleatorias de 24 caracteres. Aun así:
-  1. La ACL deja de ser la barrera de MySQL: queda solo la contraseña. `lectura_equipo@100.64.0.0/10` acepta además la IP del backend (`100.76.214.94`).
-  2. Desde la shell se puede llamar `servicio-consulta-publica:8083/api/publica/**` **sin API key ni rate limit**, porque esos controles solo existen en el gateway.
-  3. Tailscale SSH permite reenvío de puertos por defecto (la política SSH vigente muestra `allowLocalPortForwarding: true`). Con `ssh -L 13307:100.94.121.117:3307 equipo@biohub-backend` el compañero lleva MySQL y la red Docker a su portátil. Ese reenvío lo hace `tailscaled` (root), así que un filtro `iptables --uid-owner equipo` **no** lo bloquearía. Verificarlo cuando la política nueva esté aplicada.
-- **Por qué importa:** el modelo de amenaza de SEC-D-01/D-04 es "portátil de un compañero comprometido". Con este hallazgo, ese atacante queda dentro del perímetro del backend con acceso de red a todo. Basta que una sola credencial se filtre (logs, copia de un `.env`, `docker inspect` futuro) para llegar a los datos. Hoy son datos de prueba, por eso es Medio. **Pasa a Alto con datos reales** (ubicaciones protegidas).
-- **Cómo corregirlo (de menor a mayor esfuerzo):**
-  1. **Shell restringida como login de `equipo`.** Tailscale SSH ejecuta los comandos con la shell de login del usuario, así que funciona como un `ForceCommand`:
-     ```bash
-     # /usr/local/bin/biohub-equipo-shell (root:root 755) y: usermod -s /usr/local/bin/biohub-equipo-shell equipo
-     #!/bin/bash
-     set -euo pipefail
-     cmd="${2:-}"          # invocada como: shell -c "<comando>"
-     case "$cmd" in
-       "sudo biohub-estado ps"|"biohub-estado ps") exec sudo /usr/local/bin/biohub-estado ps ;;
-       "sudo biohub-estado logs "[a-z-]*|"biohub-estado logs "[a-z-]*)
-         exec sudo /usr/local/bin/biohub-estado logs "${cmd##* }" ;;
-       *) echo "Solo: biohub-estado ps | biohub-estado logs <servicio>"; exit 2 ;;
-     esac
-     ```
-     Así no queda shell interactiva ni `/dev/tcp`. Comprobar que `scp`/`sftp` también fallen.
-  2. **Reenvío de puertos:** si la versión de Tailscale lo admite en la política, desactivarlo para `group:biohub-equipo`. Si no, aceptar el riesgo de forma explícita y documentada, apoyado en el punto 1 y en las credenciales.
-  3. **API key en profundidad:** que `servicio-consulta-publica` no confíe en que solo el gateway lo llama. Por ejemplo, un secreto compartido gateway→servicio en una cabecera, o exigir JWT de servicio. Esto ya estaba previsto en "Requisitos de seguridad > API Keys".
-  4. `lectura_equipo`: limitar el host a las IP concretas de quienes lo usen en vez de `/10` (o como mínimo excluir la del backend).
-- **Esfuerzo:** S (shell restringida) / M (resto) · **Responsable:** devops.
-
-### SEC-T-02 · Medio · A01 / A07 (credenciales de administración compartidas)
-**La guía sigue repartiendo al equipo la contraseña del admin de Keycloak (`master`) y la del administrador de RabbitMQ: SEC-D-01 se corrige a nivel de sistema operativo, pero no a nivel de aplicación.**
-
-- **Archivos:** `docs/guia-tailscale.md:63` ("Las contraseñas (usuarios de prueba de Keycloak, **consola de Keycloak** y **panel de RabbitMQ**)… Pídelas"), `:117` (entrar al panel con el usuario `biohub`), `:49` (consola `/admin` por 8443). `policy.hujson:43-46` (15672 y 8443/8180 para todo `group:biohub-equipo`).
-- **Problema:**
-  - El admin bootstrap de `master` controla todo el IdP: puede crear usuarios con rol `administrador` en `biohub`, cambiar `sslRequired`, exportar claves y deshabilitar la protección contra fuerza bruta.
-  - El usuario `biohub` de RabbitMQ (tag `administrator`) puede leer y purgar colas, publicar eventos falsos (esto agrava SEC-D-03) y crear usuarios.
-  - Además, el realm `master` tiene `eventsEnabled=false` y `adminEventsEnabled=false` (verificado): los cambios de un admin compartido no quedan registrados.
-- **Por qué importa:** con un portátil comprometido ya no se obtiene root de la VM, pero sí el control total de la autenticación y de la mensajería de la aplicación, que es lo que protege los datos. Además no hay trazabilidad por persona.
-- **Cómo corregirlo:**
-  - **RabbitMQ:** crear un usuario de solo lectura para el equipo en `generar-definitions.sh` y dar el admin solo a Juanita:
-    ```python
-    ("equipo_mq", "RABBITMQ_EQUIPO_PASSWORD", "monitoring", ("^$", "^$", "^$")),  # ve el panel, no publica ni lee mensajes
-    ```
-    Y, en la ACL, 15672 solo para `group:biohub-admin` si el equipo no lo necesita.
-  - **Keycloak:** el equipo no necesita la consola de `master`. Para administrar usuarios de prueba, crear cuentas personales en el realm `biohub` con `realm-management: view-users, manage-users` (no `realm-admin`) y mantener el admin de `master` solo para Juanita. Activar eventos en `master` desde `desplegar.sh`:
-    ```bash
-    $K update realms/master --config $C -s eventsEnabled=true -s adminEventsEnabled=true -s adminEventsDetailsEnabled=false
-    ```
-    Opcional en modo HTTPS: publicar en 8443 solo `/realms` y `/resources` (`tailscale serve --https=8443 --set-path /realms http://127.0.0.1:8180/realms`, igual para `/resources`) y administrar por túnel SSH.
-  - **Guía:** cambiar `:63` y `:117` para que el equipo reciba solo la contraseña de los usuarios de prueba y la de `equipo_mq`.
-- **Esfuerzo:** S (guía + usuario monitoring + eventos) / M (cuentas personales en Keycloak) · **Responsable:** devops + dueña.
-
-### SEC-T-03 · Bajo · A07 (OpenSSH abierto a `equipo` por la red NAT)
-- **Archivos:** `deploy/vms/user-data.tpl` (ufw `22/tcp ALLOW 192.168.122.0/24`), `instalar-equipo.sh:69-71`.
-- **Problema:** `sshd` escucha en `0.0.0.0:22` con `pubkeyauthentication yes`. `passwd -l` no impide entrar con llave cuando `UsePAM yes`. `equipo` puede escribir su propio `~/.ssh/authorized_keys` y luego saltar de una VM a la otra por NAT (`192.168.122.81:22` es alcanzable desde backend, verificado) sin pasar por la ACL ni por el `check` de 12 h. El alcance es limitado: necesita una sesión previa en una de las VMs y no llega al anfitrión (`192.168.122.1:22` cerrado).
-- **Cómo corregirlo:** en `instalar-equipo.sh`:
-  ```bash
-  printf 'DenyUsers equipo\n' > /etc/ssh/sshd_config.d/10-biohub-equipo.conf && sshd -t && systemctl reload ssh
-  ```
-  (Tailscale SSH no usa `sshd`, así que `equipo` sigue entrando por Tailscale.) Mejor aún: `AllowUsers biohub`.
-- **Esfuerzo:** S · **Responsable:** devops.
-
-### SEC-T-04 · Bajo · A05 (`KC_PROXY_HEADERS=xforwarded` sin proxy de confianza en modo HTTP)
-- **Archivo:** `deploy/backend/docker-compose.yml:209-211`.
-- **Problema:** en modo HTTP, 8180 está en la IP Tailscale y Keycloak confía en `X-Forwarded-*` de **cualquier** cliente. Se verificó que **no** se puede falsificar el issuer: con `X-Forwarded-Host: evil.example`, `X-Forwarded-Proto: https` o `Host: evil.example`, el discovery sigue devolviendo `http://biohub-backend:8180/realms/biohub`, porque `KC_HOSTNAME` es una URL completa. Lo que sí se puede falsificar es `X-Forwarded-For`, es decir, la IP que se registra en los eventos del realm `biohub` (repudio). La protección contra fuerza bruta de Keycloak es por usuario, no por IP, así que no se puede evadir. En modo HTTPS, 8180 está en `127.0.0.1`: solo `serve` y los usuarios locales llegan (ver SEC-T-01). `serve` reescribe las cabeceras `X-Forwarded-*` de los clientes de la tailnet (comportamiento de `tailscale serve` según su implementación; no se probó en vivo porque el modo HTTPS no está activo).
-- **Cómo corregirlo:** activar la confianza en proxies solo en modo HTTPS:
-  ```yaml
-  KC_PROXY_HEADERS: ${KC_PROXY_HEADERS:-}        # desplegar.sh pone xforwarded solo con TS_HTTPS=1
-  ```
-  Con `userland-proxy: true` todo llega desde `172.18.0.1`, así que `KC_PROXY_TRUSTED_ADDRESSES` no distingue clientes. Resolver junto con SEC-D-10.
-- **Esfuerzo:** S · **Responsable:** devops.
-
-### SEC-T-05 · Bajo · A05 (pruebas de la ACL incompletas)
-- **Archivo:** `deploy/tailscale/policy.hujson:73-95`.
-- **Problema:** las únicas pruebas que verifican "un compañero **no** llega a MySQL ni al anfitrión" están comentadas hasta que haya correos reales. Tampoco hay pruebas activas de que `tag:backend`/`tag:datos` no lleguen al portátil de Juanita (`100.110.39.21`), que es justo el riesgo de mayor impacto (escape de VM → anfitrión KVM). Hoy no existe ninguna regla que lo permita, pero una edición futura podría abrirlo sin que la consola se queje.
-- **Cómo corregirlo:** añadir ya (no dependen de los correos):
-  ```hujson
-  {"src": "tag:backend", "deny": ["100.110.39.21:22", "100.110.39.21:80", "100.110.39.21:5173"]},
-  {"src": "tag:datos",   "deny": ["100.110.39.21:22", "tag:backend:15672", "tag:backend:8443"]},
-  ```
-  Y, tras completar los correos, descomentar la prueba del compañero (incluye `deny tag:datos:3307`).
-- **Esfuerzo:** S · **Responsable:** dueña.
-
-### SEC-T-06 · Bajo · A01 (roles de la consola de Tailscale)
-- **Archivo:** `deploy/tailscale/policy.hujson:28-31` (`tagOwners` incluye `autogroup:admin`).
-- **Problema:** si a un compañero se le da el rol *Admin* o *Network admin* en la consola, puede editar la política y etiquetar su portátil como `tag:backend`. Con eso obtiene el acceso a MySQL del backend y se salta todo lo anterior. La política no puede impedirlo; depende de la configuración de usuarios.
-- **Cómo corregirlo:** documentar en `deploy/tailscale/README.md` que los compañeros deben tener rol **Member**, y comprobarlo en https://login.tailscale.com/admin/users al invitarlos.
-- **Esfuerzo:** S · **Responsable:** dueña.
-
-### SEC-T-07 · Bajo · A01 (alcance futuro de `lectura_equipo`)
-- **Archivos:** `deploy/datos/docker-compose.yml:95,118,141,164`, `deploy/datos/init/02-lectura-equipo.sh:31-33`.
-- **Problema:** hoy los grants son exactamente los esperados (verificado en las 4 instancias): `USAGE` + `SELECT, SHOW VIEW` en el esquema de aplicación, `max_user_connections=5`, sin `Super/File/Process/Shutdown`, sin `GRANT OPTION`, sin `mysql`/`sys`. Los esquemas están casi vacíos. Pero los grants son **por esquema completo**: cuando existan tablas sensibles, `lectura_equipo` las leerá:
-  - `gateway`: hashes de API keys;
-  - `cientifico`: ubicaciones protegidas, cifradas o no;
-  - tablas de auditoría.
-
-  Además, es una sola cuenta compartida (sin trazabilidad por persona) y `require_secure_transport=OFF` (aceptable dentro de WireGuard).
-- **Cómo corregirlo:** al crear esas tablas, pasar de `GRANT ... ON esquema.*` a grants por tabla o a vistas sin las columnas sensibles (`GRANT SELECT ON cientifico.v_hallazgos_sin_ubicacion`). Añadirlo como criterio de aceptación de las historias de ubicaciones y API keys.
-- **Esfuerzo:** S (por historia) · **Responsable:** backend-senior + devops.
-
-### SEC-T-08 · Bajo · A05 / A09 (panel RabbitMQ en HTTP también en modo HTTPS)
-- **Archivos:** `deploy/backend/docker-compose.yml:181-182`, `policy.hujson:43,46`.
-- **Problema:** en modo HTTPS 15672 sigue en HTTP sobre la IP Tailscale. El cifrado lo da WireGuard, pero la cookie de sesión del panel no lleva `Secure`. Junto con SEC-T-02, esto deja una superficie de administración amplia para todo el equipo.
-- **Cómo corregirlo:** en modo HTTPS, ligar 15672 a `127.0.0.1` y publicarlo con `tailscale serve --bg --https=15672 http://127.0.0.1:15672` (o limitar 15672 a `group:biohub-admin` en la ACL).
-- **Esfuerzo:** S · **Responsable:** devops.
-
-### Informativos
-- **SEC-T-I1 · Fallo a medias al activar HTTPS.** `desplegar.sh:148-163` primero escribe `TS_HTTPS=1`/`HTTP_BIND_IP=127.0.0.1`, recrea los contenedores y pone `sslRequired=external`, y **después** ejecuta `tailscale-https.sh aplicar`. Si `tailscale cert` falla (timeout de 180 s), el backend queda sin acceso desde la tailnet hasta ejecutar `BIOHUB_HTTPS=0`. Es una falla segura (cierra, no abre), pero conviene pedir el certificado antes del `compose up` y documentar la recuperación en §4.1.
-- **SEC-T-I2 · Secuencias de escape en los logs.** `biohub-estado logs` muestra el log tal cual. Un nombre de usuario con secuencias ANSI en un login fallido (Keycloak lo registra) se interpreta en la terminal de quien lee. Filtrar con `| tr -d '\000-\010\013-\037\177'` o `sed 's/\x1b\[[0-9;]*[A-Za-z]//g'`.
-- **SEC-T-I3 · Metadatos de la tailnet visibles para `equipo`.** `tailscale status`/`debug prefs` funcionan sin root y muestran nodos, IP y el nombre del portátil de Juanita. Es inofensivo, pero si se quiere evitar, se cubre con la shell restringida de SEC-T-01.
-- **SEC-T-I4 · Marcadores de correo.** `COMPANERO_n-PENDIENTE@invalido.example` usa el TLD reservado `.example` (RFC 2606): nadie puede autenticarse con esa identidad, así que es inofensivo. Si la consola rechazara un usuario desconocido, simplemente no guarda: falla de forma segura.
-
----
-
-## Bien hecho (iteración 14)
-- **ACL de mínimo privilegio y versionada:**
-  - grupos con nombre y sin `autogroup:member`;
-  - **ninguna regla con destino en portátiles** (el anfitrión queda fuera de alcance);
-  - MySQL solo para `group:biohub-admin`;
-  - `tag:datos` sin salida;
-  - SSH en modo `check` 12 h: el equipo como `equipo` y solo la admin como `biohub`; ni `root` ni `autogroup:nonroot`;
-  - sin `nodeAttrs` de Funnel;
-  - `tests`/`sshTests` que impiden que la admin se quede fuera.
-- **`biohub-estado` + sudoers:**
-  - ruta y argumentos exactos (sin comodines) y validación repetida en el script;
-  - `PATH`/`LANG` fijos y `unset` de las variables `DOCKER_*`/`COMPOSE_*`;
-  - `--project-directory` y `-f` absolutos;
-  - sin `-f`/`exec`/`inspect`, con `--tail 200`;
-  - `visudo -cf` antes de instalar, 0440 root:root;
-  - script 0755 root:root (idéntico al del repositorio).
-
-  No se encontró ninguna escalada: no hay inyección de argumentos, rutas relativas, herencia de entorno ni symlinks controlables por `equipo` (su `HOME` no interviene y `/home/biohub` no es escribible por él).
-- **`lectura_equipo`:**
-  - validación estricta de caracteres, que evita inyección SQL en el heredoc;
-  - lista negra de `mysql/sys/information_schema/performance_schema`;
-  - `REVOKE ALL` + `GRANT` idempotente que corrige desviaciones;
-  - `MAX_USER_CONNECTIONS 5`;
-  - contraseña por `MYSQL_PWD` y por nombre de variable en `docker exec -e` (nunca en argumentos).
-- **HTTPS:**
-  - 8080/8180 a `127.0.0.1` en modo HTTPS (nunca `0.0.0.0`);
-  - JWKS por la red interna, con validación de `iss` y `aud`;
-  - issuer no falsificable (verificado);
-  - comprobación de Funnel después de `serve`;
-  - FQDN validado con regex;
-  - la clave del certificado de prueba en un `mktemp -d` que se borra;
-  - rollback `BIOHUB_HTTPS=0` que quita `serve` antes de devolver los puertos a la IP Tailscale;
-  - `sslRequired` ligado al modo.
-- **Secretos:**
-  - `generar-env.sh` idempotente, sin regenerar ni filtrar contraseñas existentes;
-  - `.env` 600 y subidos por stdin con `umask 077`;
-  - `KC_CLI_PASSWORD` en lugar de `--password` (SEC-D-05 resuelto);
-  - 0 secretos en el historial de git.
-
-## Orden de aplicación: ¿es seguro pegar la política y activar HTTPS?
-**Sí, en el orden del README.** Los certificados ya están activos, así que el paso 1 está hecho. El orden es: pegar la política, comprobar el acceso y después `BIOHUB_HTTPS=1`.
-- **Política antes que HTTPS (lo documentado):** el equipo sigue entrando por 8080/8180, porque la política nueva los mantiene. Juanita no pierde el acceso: sus `tests` lo garantizan y, además, tiene la llave por NAT. Correcto.
-- **HTTPS antes que la política (error de orden):** la política vieja no abre 443/8443, así que el equipo pierde el acceso a la app, pero nadie gana acceso indebido. Juanita conserva SSH por Tailscale (política vieja) y por NAT. Se arregla pegando la política o con `BIOHUB_HTTPS=0`. Falla de forma segura.
-- **Olvidar el paso 6 (quitar 8080/8180 de la ACL):** inofensivo, porque en modo HTTPS nada escucha en la IP Tailscale en esos puertos.
-- **Antes de pegarla:** confirmar que la identidad de Juanita en la consola es exactamente `JuaniMP@github` y que los compañeros tendrán rol *Member* (SEC-T-06). Se recomienda añadir las pruebas de SEC-T-05.
-
-## Veredicto (iteración 14)
-**APROBADO CON OBSERVACIONES.** No hay Críticos ni Altos.
-- **SEC-D-04:** resuelto en el repositorio; se cierra al pegar la política.
-- **SEC-D-01:** resuelto en el sistema operativo y en sudo (verificado en las VMs). Para cerrarlo del todo hace falta SEC-T-02 (no repartir los admin de Keycloak/RabbitMQ) y, antes de que los compañeros entren por SSH, SEC-T-01 (shell restringida) y SEC-T-03 (`DenyUsers equipo`).
-- **SEC-D-02:** fuerza bruta en `master` resuelta. `sslRequired=external` queda listo y se aplica al ejecutar `BIOHUB_HTTPS=1`.
-- **D13:** se retira en ese mismo momento. Hasta entonces sus condiciones se cumplen.
-
-Condiciones:
-1. **Antes de invitar a los compañeros a la tailnet:** SEC-T-01 (punto 1), SEC-T-02, SEC-T-03 y SEC-T-06.
-2. **Antes de datos reales:** SEC-T-01 completo (pasa a Alto), SEC-T-07, SEC-D-03 y SEC-D-06 (instalar el timer de backup: hoy no existe ningún backup).
-3. Los Bajos y los Informativos, en la próxima tarea de devops.
+## Veredicto (parte de Juanita)
+**APROBADO CON OBSERVACIONES.** No hay Críticos ni Altos. La confidencialidad de las coordenadas dentro del alcance revisado es sólida: el cifrado es correcto, el control de rol está centralizado y tiene doble barrera, y no hay fugas por logs, errores, caché ni eventos salientes. Condiciones:
+1. **Antes de desplegar el publicador de `hallazgo.*` en las VMs:** SEC-J-01 (cambiar el valor por defecto a `true` y poner el tope de versión, más SEC-D-03 de Santiago). Si no se cumple, SEC-J-01 pasa a **Alto**.
+2. **Antes de datos reales:** SEC-J-02 y SEC-J-03.
+3. Los Bajos (SEC-J-04 a SEC-J-09), en la siguiente iteración de cada responsable.

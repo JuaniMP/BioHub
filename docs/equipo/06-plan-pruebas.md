@@ -146,51 +146,11 @@ Los scripts de Playwright viven fuera del repo (scratchpad de la sesión: `e2e.m
 
 Los tests opt-in se omiten si `QA_RMQ_PORT` no está definido (no afectan a `mvn verify`).
 
-## 8. Casos de artefactos de despliegue (verificación estática)
-| ID | Descripción | Comando | Esperado |
-|---|---|---|---|
-| DP-01 | Sintaxis de scripts | `for f in $(find deploy -name '*.sh'); do bash -n $f; done` | sin errores |
-| DP-02 | Compose backend válido | `docker compose --env-file <env ficticio> -f deploy/backend/docker-compose.yml config` | rc 0 |
-| DP-03 | Compose datos válido | idem datos | rc 0 |
-| DP-04 | Ningún `ports:` a 0.0.0.0 | revisar `host_ip` en `config` | todos con IP Tailscale |
-| DP-05 | Servicios sin puertos publicados | `config` | solo api-gateway, keycloak, rabbitmq(15672) |
-| DP-06 | Variables por servicio (SEC-12) | comparar `environment` de cada servicio; sin `env_file` | cada uno solo con las suyas |
-| DP-07 | Variables obligatorias | quitar `TS_IP_BACKEND` o `RABBITMQ_REPORTES_PASSWORD` del env | `config` falla con mensaje claro |
-| DP-08 | Imágenes | `mvn -DskipTests package` y `docker build -f <svc>/Dockerfile .` (contexto = raíz) | 5 imágenes, usuario uid 10001, `curl` presente |
-| DP-09 | `generar-env.sh` (en copia fuera del repo) | ejecutar y analizar | permisos 600, 16 contraseñas únicas, MySQL idéntico en ambos, sin comentarios/espacios, no sobrescribe sin `--forzar` |
-| DP-10 | `generar-definitions.sh` + RabbitMQ real | cargar `definitions.json` generado en `rabbitmq:4.1-management` | 4 usuarios, sin `guest`, login AMQP de cada usuario, permisos EV-23/24 |
+## 8 y 9. Artefactos de despliegue en VMs y procedimiento E2E contra las VMs
 
-## 9. Procedimiento E2E contra las VMs (para repetir)
-Requisitos: equipo en la tailnet, `biohub-backend` resolviendo a la IP Tailscale (MagicDNS o `/etc/hosts`). La contraseña se lee del `.env` sin imprimirla.
+Sección retirada en la iteración 15 (Tailscale eliminado; ver 09-despliegue.md).
 
-```bash
-set -a; . deploy/backend/.env; set +a      # carga KEYCLOAK_TEST_USERS_PASSWORD (no hacer echo)
-KC=http://biohub-backend:8180/realms/biohub/protocol/openid-connect/token
-GW=http://biohub-backend:8080
-tok() { curl -s -X POST "$KC" -d grant_type=password -d client_id=biohub-pruebas -d "username=$1" \
-          --data-urlencode "password=$KEYCLOAK_TEST_USERS_PASSWORD" | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])'; }
-ADMIN=$(tok admin1); INV=$(tok investigador1)
-
-# E2E-V1 Sin token -> 401           (esperado 401)
-curl -s -o /dev/null -w '%{http_code}\n' -X POST $GW/api/cientifico/eventos/prueba
-# E2E-V2 investigador1 -> 403       (esperado 403)
-curl -s -o /dev/null -w '%{http_code}\n' -X POST -H "Authorization: Bearer $INV" $GW/api/cientifico/eventos/prueba
-# E2E-V3 mensaje > 200 -> 400       (esperado 400)
-curl -s -o /dev/null -w '%{http_code}\n' -X POST -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
-     -d "{\"mensaje\":\"$(printf 'a%.0s' $(seq 201))\"}" $GW/api/cientifico/eventos/prueba
-# E2E-V4 admin1 publica -> 202 con sobre (guardar el id)
-curl -s -w '\n%{http_code}\n' -X POST -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
-     -d '{"mensaje":"e2e-vm"}' $GW/api/cientifico/eventos/prueba
-# E2E-V5 recibido en ambos consumidores (esperado 200, el id de V4 es el primero de la lista)
-for r in publica reportes; do curl -s -H "Authorization: Bearer $ADMIN" $GW/api/$r/eventos/recibidos | python3 -m json.tool | head -20; done
-# E2E-V6 consumidores sin token / con investigador1 (esperado 401 y 403, incluido /api/publica)
-for r in publica reportes; do
-  curl -s -o /dev/null -w "$r sin token %{http_code}\n" $GW/api/$r/eventos/recibidos
-  curl -s -o /dev/null -w "$r investigador %{http_code}\n" -H "Authorization: Bearer $INV" $GW/api/$r/eventos/recibidos
-done
-# E2E-V7 DLQ vacías y colas vacías (panel http://<IP TS backend>:15672, usuario biohub): reportes.eventos.dlq y consulta-publica.eventos.dlq con 0 mensajes
-```
-Opcional (503): detener `biohub-rabbitmq` en la VM y repetir V4 (esperado 503 problem+json); volver a levantarlo. Requiere autorización de la dueña.
+---
 
 ---
 ---
@@ -217,7 +177,7 @@ Fuentes (en orden de precedencia): `01-requisitos.md` §9 (D14, D15, D16, D17, P
    - Todo identificador creado lleva el prefijo `qa_tmp_` (nombre científico `qa_tmp_Especie_<aleatorio>`, usuario no se crea). Se registra cada id creado en un archivo temporal para limpiar.
    - **Paso de limpieza obligatorio** en `finally`: borrar solo lo creado y **verificar estado final idéntico al inicial** (conteos antes/después de `ficha_publica`, `ubicacion_hallazgo`, mensajes en colas y DLQ de `consulta-publica.eventos` y `reportes.eventos`, claves `biohub:publica:*` en Redis). Si el conteo final difiere, la prueba se declara **FALLIDA** y se escala a la dueña antes de seguir.
    - Como `servicio-cientifico` no tiene (por diseño) un endpoint de borrado de hallazgos (`eliminado_en` siempre NULL) y consulta-publica no tiene `DELETE`, **no se puede limpiar por API**. Por tanto el humo en las VMs queda limitado a **lecturas** y a casos negativos que no persisten nada (DX-01..DX-04). Está **prohibido** publicar un `hallazgo.registrado` válido en las VMs. Si se necesitara, la limpieza sería con SQL por `hallazgo_id` `qa_tmp_` realizada por la dueña (decisión pendiente, ver RQ-13).
-   - Credenciales leídas de `deploy/backend/.env` sin imprimir; ni tokens ni contraseñas en scripts ni en el reporte.
+   - Credenciales leídas de del `.env` del servicio sin imprimir; ni tokens ni contraseñas en scripts ni en el reporte.
 4. **Datos de prueba:** coordenadas centinela únicas y reconocibles (para poder buscarlas): `4.6097, -74.0817` y `5.1234567, -73.1234567`. Si alguna aparece en una respuesta pública, log, caché o evento, el caso falla. Se generan fixtures con UUID aleatorio por test.
 5. **Tokens simulados:** `@WebMvcTest` con `jwt()`; para integración HTTP real, un emisor de JWT local (JWKS en memoria) o `MockOAuth2Server`, con `iss`, `aud=biohub-api`, `exp`. Los 5 roles: `investigador_campo`, `auditor_cientifico`, `cientifico_alto_rango`, `analista_ambiental`, `administrador` (usuarios `investigador1`, `auditor1`, `cientifico1`, `analista1`, `admin1`).
 6. **Comandos previstos** (se confirmarán al ejecutar): `mvn -B -pl servicio-cientifico,servicio-consulta-publica verify` (unitarias + integración con Testcontainers; requiere Docker), `mvn -pl servicio-consulta-publica test -Dgroups=rendimiento`, `cd web-publica && npm test`, `cd web-interna && npm test`, `npx playwright test` (e2e), `k6 run pruebas-carga/<script>.js`.
@@ -574,7 +534,7 @@ FROM information_schema.columns WHERE table_schema IN ('cientifico','consulta_pu
 | SG-13 | Recorrido de directorios | `/api/publica/fichas/%2e%2e/%2e%2e/actuator/env`, `/api/cientifico/ubicacion/%2e%2e/…` | 4xx del gateway; no sale del prefijo | SEG | SE-20 |
 | SG-14 | Secretos | `git grep`, `.env.example`, `docker history`, `/actuator/env` y `/actuator/configprops` | Sin llaves; actuator solo `health,info` | SEG | HU-UBI-02 |
 | SG-15 | Aislamiento de BD | Usuario `cientifico_app` sobre `consulta_publica.*` y usuario de lectura sobre `cientifico.*` | Ambos ERROR 1142 | SEG | HU-06.1 |
-| SG-16 | Acceso directo a servicios internos | `8081`/`8083` desde fuera de loopback/Tailscale (en local: `ss -ltn`) | Solo loopback | SEG | IN-12 |
+| SG-16 | Acceso directo a servicios internos | `8081`/`8083` desde fuera de loopback (en local: `ss -ltn`) | Solo loopback | SEG | IN-12 |
 | SG-17 | Rate limit `/api/publica/**` **[BLOQ]** | 130 peticiones en un minuto desde una IP | Tras 120: 429 `LIMITE_EXCEDIDO` con `Retry-After`; cuerpo problem+json; el límite se libera al pasar la ventana | SEG | HU-08.J |
 | SG-18 | Rate limit detrás de proxy **[BLOQ]** | `X-Forwarded-For` falsificado | No elude el límite (solo se confía en el proxy propio) | SEG | R5 |
 | SG-19 | Rate limit no aplica a `/api/cientifico/ubicacion/**` con JWT válido **[BLOQ]** | 130 peticiones | Sin 429 inesperado (o límite documentado) | SEG | `04` §8 |
@@ -697,8 +657,8 @@ Casos sobre componentes (Vitest + Testing Library, `fetch` y rol simulados) llev
 
 **Protocolo RNF7 (resumen de `02` §10):** 5 a 10 participantes (idealmente 10) sin relación con el proyecto, ni ver la ficha antes; teléfono y escritorio. Tarea: "Busca la especie *Atelopus ebenoides* y abre su ficha. Dime dónde se encontró." Pregunta posterior, sin ayuda ni pistas: "¿Por qué crees que no ves el punto exacto en el mapa o las coordenadas?". **Correcta:** menciona proteger la especie, evitar que la cacen/capturen/dañen, tráfico ilegal o que está en peligro. **Incorrecta:** "falla del sistema", "no cargó", "no tienen el dato", "no sé". Éxito: >= 90 % de correctas (con 10 participantes, hasta 1 error; con 5, **ninguno**: 4/5 = 80 % no cumple). Se registran edad aproximada, dispositivo, tiempo, respuesta literal y quién clasificó (dos evaluadores independientes; desempate por QA). No se les dan credenciales ni datos reales; usan el entorno efímero o un build local con datos de prueba. Los resultados se guardan sin datos personales.
 
-## P11. Humo contra las VMs (única excepción, con autorización)
-Solo lectura y negativos que no persisten datos; ver P1 punto 3. Requiere que Juanita esté desplegada y que la dueña autorice.
+## P11. Humo contra el entorno desplegado (única excepción, con autorización)
+Solo lectura y negativos que no persisten datos; ver P1 punto 3. Requiere que Juanita esté desplegada (perfil `aiven`, ver 09-despliegue.md) y que la dueña autorice.
 | ID | Descripción | Pasos | Esperado | Nivel | Criterio |
 |---|---|---|---|---|---|
 | DX-01 | Estado inicial | Registrar (sin imprimir secretos) conteos de `ficha_publica`, `ubicacion_hallazgo`, mensajes en `consulta-publica.eventos` y `.dlq`, claves `biohub:publica:*` | Conteos guardados en archivo temporal fuera del repo | E2E | regla de datos |

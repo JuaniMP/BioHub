@@ -2,7 +2,7 @@
 # Pasos (desde la RAIZ del monorepo):
 #   mvn -B -DskipTests package
 #   docker build -f api-gateway/Dockerfile -t biohub/api-gateway .
-# deploy/desplegar.sh hace ambos pasos.
+# (Solo para ejecucion en contenedores; ver docs/equipo/09-despliegue.md.)
 FROM eclipse-temurin:21-jre
 RUN groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app

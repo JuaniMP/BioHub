@@ -45,9 +45,9 @@ Arquitectura basada en servicios + API Gateway propio (Spring Boot, sin Spring C
 | 8d | Corrección de hallazgos QA/seguridad + re-verificación desde cero | Tech Lead | Hecho |
 | 9 | Git: main, develop, ramas feature, push | Tech Lead | Hecho |
 | 10 | Protección de main/develop: solo por pull request, sin aprobación obligatoria, sin force push ni borrado | Tech Lead | Hecho |
-| 11 | Decisión de despliegue: webs en Vercel; backend on-premise en 2 VMs (backend y datos) con contenedores Docker; Tailscale entre VMs, para el equipo y Funnel para publicar (D11) | Equipo | Decidido |
+| 11 | Decisión de despliegue: webs en Vercel; backend on-premise en 2 VMs (D11) | Equipo | Reemplazada en la iteración 15 (MySQL en Aiven) |
 | 12 | Reparto de ramas por persona en el README (Juanita: ubicación/consulta pública; Santiago: seguridad/acceso + infra compartida; Hernando: registro; Nicolás: reportes/equipos) | Tech Lead | Hecho |
-| 13 | Preparar despliegue (2 VMs, Tailscale + ACLs por etiquetas, Dockerfiles, compose prod, reverse proxy, Funnel, Keycloak prod, Vercel) | devops | Pendiente (antes de la primera entrega en línea) |
+| 13 | Preparar despliegue (Dockerfiles, compose prod, Keycloak prod) | devops | Reemplazada por la iteración 15 |
 
 ## Agentes no usados y por qué
 product-owner, ux-ui-designer, dba, arquitecto-software, devops (compose lo hizo el Tech Lead; CI/CD y dockerizar servicios quedan pendientes): no hay requisitos ni modelo de datos todavía y la arquitectura ya está decidida.
@@ -65,55 +65,42 @@ Entrarán con cada historia de usuario.
 - CI/CD (GitHub Actions) y Dockerfiles de los servicios (devops) – no pedidos en el esqueleto; ver tarea 13 y D11.
 
 ---
-# Iteración: despliegue en 2 VMs + Tailscale + RabbitMQ (tarea 13, alcance 4a)
+# Iteraciones 13 y 14 (retiradas)
 
-**Alcance acordado con Juanita (2026-10-21):** VMs nuevas en KVM local (1a); Tailscale con `tailscale up` y aprobación por enlace (2b); RabbitMQ desplegado con usuarios por servicio y evento de prueba de punta a punta (3a); sin Funnel, sin Keycloak en modo producción, sin Vercel (4a). Rama `feature/despliegue` → PR a `develop`.
-
-**Decisiones del Tech Lead (D12)**
-- VMs: `biohub-backend` (4 vCPU, 6 GB, 30 GB) y `biohub-datos` (2 vCPU, 4 GB, 40 GB), Ubuntu 24.04 cloud image, usuario `biohub`, red NAT `default` de libvirt.
-- Acceso del equipo solo por la tailnet (IP 100.x de cada VM). VM datos publica MySQL en 3307-3310 sobre su IP de Tailscale. VM backend publica gateway 8080, Keycloak 8180 y panel RabbitMQ 15672 sobre su IP de Tailscale; el resto queda en la red Docker interna.
-- Keycloak sigue en `start-dev` (H2) con `KC_HOSTNAME=http://biohub-backend:8180`; los contenedores resuelven `biohub-backend` con `extra_hosts`.
-- RabbitMQ: exchange topic `biohub.eventos`, DLX `biohub.eventos.dlx`, colas `consulta-publica.eventos` y `reportes.eventos` (con `.dlq`) enlazadas a `prueba.#` y `hallazgo.#`. La topología la declara el código (Spring). Usuarios: `cientifico_mq` (solo publica), `consulta_mq` y `reportes_mq` (consumen su cola), `biohub` (administrador del panel). En local se sigue usando un único usuario.
-
-| # | Tarea | Responsable | Estado |
-|---|---|---|---|
-| 13a | Dockerfiles, compose de backend y de datos, scripts de creación de VMs, VMs creadas | devops | Hecho |
-| 13b | RabbitMQ: topología, evento de prueba publicado por científico y consumido por consulta-publica y reportes, tests | backend-senior | Hecho (71 tests; E2E local OK; nota: consumidores necesitan READ sobre biohub.eventos y biohub.eventos.dlx para los bindings) |
-| 13c | Unir VMs a Tailscale (aprobación por enlace) + ACLs | Tech Lead + Juanita | Hecho (backend 100.76.214.94 tag:backend, datos 100.94.121.117 tag:datos) |
-| 13d | Despliegue en las VMs y verificación de punta a punta | Tech Lead | Desplegado: 4 MySQL + 9 contenedores healthy; Hecho. Verificación final tras D13 (corrida por Juanita, 2026-10-22): token OK; 5 pings 200; sin token 401; evento con investigador1 403; evento con admin1 202 y recibido en consulta-publica y reportes; consola Keycloak y panel RabbitMQ 200 |
-| 13e | QA del despliegue y del flujo de eventos | qa-tester | Hecho – Aprobado con observaciones (BUG-04 Bajo corregido) |
-| 13f | Auditoría de seguridad del despliegue | ciberseguridad | Hecho – Aprobado con observaciones (0 Críticos/Altos; 4 Medios, 7 Bajos). SEC-D-05 y SEC-D-10 corregidos; SEC-D-11 aceptado (definitions.json debe ser 644 para el uid de rabbitmq; protegido por el home 750) |
-
-**Verificación final del Tech Lead (2026-10-22):** `mvn -B verify` OK – 75 tests (73 ejecutados, 2 opt-in omitidos), 0 fallos; web-interna 2/2 y web-publica 2/2; E2E por Tailscale OK (ver 13d).
-
-**Pendientes de seguridad (antes de datos reales, nuevos integrantes o Funnel; pasan a Alto si cambia alguna de esas condiciones)**
-- SEC-D-01 (Medio): cualquier miembro con SSH es root en las VMs y puede leer los `.env` → usuario `equipo` sin sudo/docker, Tailscale SSH en modo `check`, usuario MySQL de solo lectura.
-- SEC-D-02 (Medio): D13 + realm `master` sin protección de fuerza bruta → `bruteForceProtected=true`; volver a `sslRequired=external` con HTTPS.
-- SEC-D-03 (Medio): consumidores con `write` sobre `biohub.eventos` (pueden falsificar eventos) → limitar `write` y validar `user_id` del mensaje. Hacer antes de `hallazgo.registrado`.
-- SEC-D-04 (Medio): ACL amplia (`autogroup:member:*`, MySQL abierto a miembros) → grupos con nombre y política versionada en `deploy/tailscale/policy.hujson`.
-- Bajos: SEC-D-06 backups sin cifrar ni copia externa (instalar timer), SEC-D-07 DLQ sin límite, SEC-D-08 endurecimiento de contenedores, SEC-D-09 llave SSH sin passphrase. Detalle en `08-reporte-seguridad.md`.
-| 13g | Guía de uso de Tailscale y del despliegue para el equipo | documentador-tecnico | Hecho (`docs/guia-tailscale.md`, README 10b, CHANGELOG) |
-
-**Ajustes del Tech Lead durante el despliegue**
-- `desplegar.sh`: corregido `trap RETURN` que rompía `subir_env`.
-- VM datos: `userland-proxy: false` para conservar la IP de origen en MySQL (parametrizado por VM en `user-data.tpl`/`crear-vms.sh`).
-- VM backend: alias de red `biohub-backend` en Keycloak (`KC_HTTP_PORT=8180`) en lugar de `extra_hosts`.
-- D13 (aprobada por Juanita): `sslRequired=NONE` en Keycloak, solo accesible por la tailnet. Registrada en `03-arquitectura.md`.
+Despliegue de bases, Redis y RabbitMQ en VMs locales con una VPN de malla, y su endurecimiento. **Retirado en la iteración 15**: la VPN se eliminó del proyecto y MySQL pasa a Aiven. Se conserva de esas iteraciones:
+- PR #2 fusionado a `develop` (5a8d206): eventos RabbitMQ de punta a punta, usuarios RabbitMQ por servicio; `mvn -B verify` 75 tests, 0 fallos.
+- Contrato del evento `hallazgo.registrado` (registro/Hernando publica, Juanita y Nicolás consumen) en `04-contrato-api.md`.
+- Cada integrante conserva sus responsabilidades: no se toca código de registro, equipos/reportes ni seguridad/acceso.
 
 ---
-# Iteración 14: cierre de Tailscale (alcance 1b), prueba de bases de datos y parte de Juanita
+# Iteración 15: retiro de Tailscale, MySQL en Aiven, CI y cierre de la parte de Juanita
 
-**Alcance acordado con Juanita (2026-10-26):**
-- PR #2 fusionado a `develop` (5a8d206) tras `mvn -B verify`: 75 tests, 0 fallos (2 opt-in omitidos).
-- Tailscale 1b: SEC-D-04 (ACL con grupos y versionada), SEC-D-01 (usuario `equipo` sin sudo/docker, SSH `check`, MySQL solo lectura) y HTTPS con `tailscale serve`, con Keycloak de vuelta a `sslRequired=external` (se retira D13). **Sin Funnel ni Vercel.**
-- Pruebas de infraestructura: los 4 MySQL, Redis y RabbitMQ de las VMs. **Al terminar no debe quedar ningún dato de prueba:** esquemas solo con su estructura base, colas vacías y Redis sin claves de prueba. Cada integrante arranca limpio.
-- Parte de Juanita (`feature/ubicacion-consulta-publica`): espera las historias de usuario (Word). Se adelanta el contrato del evento `hallazgo.registrado` (lo publica registro/Hernando y lo consume Juanita). Cada integrante conserva sus responsabilidades: no se toca código de registro, equipos/reportes ni seguridad/acceso.
+**Fecha:** 2026-11-03 · **Rama:** `feature/ubicacion-consulta-publica` (en `~/biohub`; se retiró el worktree `~/biohub-ubicacion`) · **Modo de presupuesto:** equilibrado, sin tope.
 
-| # | Tarea | Responsable | Estado |
-|---|---|---|---|
-| 14a | Fusionar PR #2 | Tech Lead | Hecho |
-| 14b | Tailscale 1b (ACL versionada, usuario equipo, SSH check, MySQL lectura, HTTPS serve, Keycloak external) | devops | En curso |
-| 14c | Activar certificados HTTPS en la consola de Tailscale y pegar la política ACL | Juanita | Pendiente |
-| 14d | Prueba de MySQL x4, Redis y RabbitMQ en VMs, con limpieza total | qa-tester | Pendiente (tras 14b) |
-| 14e | Auditoría de los cambios de Tailscale | ciberseguridad | Pendiente (tras 14b) |
-| 14f | Requisitos de ubicación/consulta pública/web-publica desde el Word | product-owner | Esperando el documento |
+**Objetivo:** quitar Tailscale de todo el repo; conectar los servicios de Juanita a MySQL en Aiven (SSL) con perfil `local` (Docker) y perfil `aiven`; Flyway trazable; GitHub Actions (build web-publica, JUnit, Bruno); completar y verificar la parte de Juanita contra SRS/SAD.
+
+**Alcance:** solo la parte de Juanita: `servicio-cientifico` módulo `ubicacion`, `servicio-consulta-publica`, `web-publica`. Otros servicios solo se tocan lo mínimo para que el de Juanita funcione, y se marca en la matriz. Tailscale se retira de todo el repo (autorizado por Juanita).
+
+**Fuentes de verdad:** `docs/entregas/` (SRS, SAD y C4 en PDF + texto extraído; no versionado, excluido en `.git/info/exclude`).
+
+**Decisiones**
+- D-I15-1: se mantiene la convención de Flyway por fecha (`V1__base.sql`, `VAAAAMMDD_HHMM__...`, `out-of-order`) porque el esquema `cientifico` lo comparten dos integrantes. Bases de Aiven nuevas: sin baseline.
+- D-I15-2: Aiven con un servicio MySQL y una base + usuario por servicio; URL configurable para poder separar escritura y lectura en servicios distintos (riesgo ASR2/ASR4, lo documenta arquitectura).
+- D-I15-3: RabbitMQ, Redis y Keycloak siguen en Docker local; en CI, como contenedores.
+- D-I15-4: commits solo a nombre de Juanita, sin Co-Authored-By; sin push/merge.
+
+| # | Tarea | Responsable | Modelo | Estado |
+|---|---|---|---|---|
+| 15a | Reconocimiento, documentos a `docs/entregas/`, línea base de tests | Tech Lead | opus/medium | Hecho |
+| 15b | Matriz de trazabilidad `trazabilidad.md` | product-owner | sonnet/medium | Hecho (13 de Juanita: 4 Cumple, 9 Parcial; 14 ambigüedades A1–A14) |
+| 15c | Verificación del código contra el SAD; impacto de Aiven/Flyway en ASR; quitar Tailscale de `03-arquitectura.md` | arquitecto-software | opus/high | Pendiente |
+| 15d | Quitar Tailscale (resto del repo); perfiles local/aiven con SSL; `.env.example` | devops | sonnet/medium | Pendiente |
+| 15e | Migraciones compatibles con Aiven; convención en README de cada servicio | dba | sonnet/high | Pendiente |
+| 15f | GitHub Actions + colecciones Bruno | devops + qa-tester | sonnet/medium | Pendiente |
+| 15g | Completar la parte de Juanita (SEC-J-01..03 y faltantes) | backend-senior / frontend-senior | sonnet/high · sonnet/medium | Pendiente |
+| 15h | Verificación final: build, tests, k6, auditoría, ASR en código | qa-tester · ciberseguridad · arquitecto | sonnet/medium · opus/high · opus/high | Pendiente |
+
+## Modelos y consumo
+| Fase | USD acumulado | Agente que más consumió | Cambios de modelo (motivo) |
+|---|---:|---|---|
+| 15a Reconocimiento | 0.80 | sesión principal (opus) | — |
