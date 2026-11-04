@@ -175,3 +175,39 @@ test.describe('SEC-J-07 · CSP', () => {
     expect(bloqueado).toBe(true);
   });
 });
+
+test.describe('QA 15h · WP-14 y WP-08', () => {
+  test('WP-14: texto malicioso en los datos se muestra como texto y no se ejecuta', async ({ page }) => {
+    const malicioso = {
+      ...FICHA_PELIGRO,
+      nombreCientifico: '<img src=x onerror="window.__xss=1"> Atelopus',
+      nombreComun: '<script>window.__xss=2</script>Rana',
+      descripcion: '"><svg onload="window.__xss=3">',
+    };
+    let dialogo = false;
+    page.on('dialog', (d) => { dialogo = true; d.dismiss(); });
+    await page.route('**/api/publica/fichas/*', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(malicioso) }));
+    await page.goto(`/especies/${ID_PELIGRO}`);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.getByText('<script>window.__xss=2</script>Rana')).toBeVisible();
+    expect(await page.evaluate(() => window.__xss)).toBeUndefined();
+    expect(await page.locator('main img[src="x"], main svg[onload], main script').count()).toBe(0);
+    expect(dialogo).toBe(false);
+  });
+
+  test('WP-08: recorrer búsqueda y ficha no guarda nada en el navegador ni envía Authorization', async ({ page }) => {
+    const cabeceras = [];
+    page.on('request', (r) => { if (r.url().includes('/api/')) cabeceras.push(r.headers()); });
+    await simularApi(page);
+    await page.goto('/');
+    await page.getByLabel('Nombre científico o común').fill('atelopus');
+    await page.getByRole('button', { name: 'Buscar' }).click();
+    await page.getByRole('link', { name: /Atelopus ebenoides/ }).click();
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    expect(cabeceras.length).toBeGreaterThan(0);
+    expect(cabeceras.every((h) => !('authorization' in h))).toBe(true);
+    const almacenado = await page.evaluate(() => ({ l: localStorage.length, s: sessionStorage.length, c: document.cookie }));
+    expect(almacenado).toEqual({ l: 0, s: 0, c: '' });
+  });
+});
