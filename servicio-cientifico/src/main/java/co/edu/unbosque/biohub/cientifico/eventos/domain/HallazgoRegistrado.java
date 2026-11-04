@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 /**
  * Se registró un hallazgo nuevo. Cómo publicarlo (registro, Hernando): dentro de la misma transacción en que
  * inserta el hallazgo y DESPUÉS de insertarlo:
@@ -19,7 +21,10 @@ import java.util.UUID;
  *
  * <p>Las coordenadas viajan SOLO en memoria, dentro de este evento en proceso, y solo para que ubicacion las cifre:
  * no las copies a logs, historial ni al {@code EventoSobre} del broker (D14, RNF9). {@code toString()} las enmascara.
- * Ambas o ninguna ({@code null} = hallazgo sin coordenadas).
+ * Ambas o ninguna ({@code null} = hallazgo sin coordenadas). {@code latitud} y {@code longitud} llevan
+ * {@code @JsonIgnore}: si alguien serializa el record (por ejemplo {@code objectMapper.convertValue(evento, Map.class)}
+ * para armar el {@code datos} del sobre) las coordenadas no salen (SEC-J-13). {@code PublicadorEventos.publicar} lo
+ * vuelve a comprobar y rechaza cualquier {@code hallazgo.*} con coordenadas.
  *
  * @param estadoConservacion {@code EN_PELIGRO}, {@code NO_AMENAZADA} o {@code SIN_EVALUAR} (como texto para no
  *                           acoplar este paquete al módulo ubicacion)
@@ -34,8 +39,8 @@ public record HallazgoRegistrado(
         String investigador,
         String departamento,
         String estadoConservacion,
-        Double latitud,
-        Double longitud,
+        @JsonIgnore Double latitud,
+        @JsonIgnore Double longitud,
         Instant ocurridoEn) implements EventoDominio {
 
     @Override

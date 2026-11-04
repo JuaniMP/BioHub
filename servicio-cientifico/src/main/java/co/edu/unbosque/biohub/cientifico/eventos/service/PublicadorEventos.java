@@ -22,6 +22,7 @@ import co.edu.unbosque.biohub.cientifico.eventos.domain.EventoSobre;
 public class PublicadorEventos {
 
     static final String ORIGEN = "servicio-cientifico";
+    private static final String PREFIJO_HALLAZGO = "hallazgo.";
     private static final Logger log = LoggerFactory.getLogger(PublicadorEventos.class);
 
     private final RabbitTemplate rabbitTemplate;
@@ -59,9 +60,17 @@ public class PublicadorEventos {
     /**
      * Publica un evento con routing key = tipo.
      *
+     * <p>Los {@code hallazgo.*} nunca llevan coordenadas (D14, RNF9, SEC-J-13, D46): se revisan claves y textos, en
+     * cualquier profundidad, ANTES de armar el sobre. Esta es la última barrera que impide que el mensaje exista.
+     *
+     * @throws IllegalArgumentException   si {@code tipo} es {@code hallazgo.*} y {@code datos} contiene coordenadas
      * @throws EventoNoPublicadoException si el broker no responde o no confirma
      */
     public EventoSobre publicar(String tipo, String usuario, Map<String, Object> datos) {
+        if (tipo != null && tipo.startsWith(PREFIJO_HALLAZGO) && DetectorCoordenadas.contiene(datos)) {
+            // Sin datos en el mensaje: ni el valor ni la clave que coincidió deben llegar al log
+            throw new IllegalArgumentException("hallazgo.* no puede llevar coordenadas (D14)");
+        }
         EventoSobre evento = new EventoSobre(UUID.randomUUID(), tipo, ORIGEN, Instant.now(reloj), usuario, datos);
         try {
             rabbitTemplate.invoke(operaciones -> {

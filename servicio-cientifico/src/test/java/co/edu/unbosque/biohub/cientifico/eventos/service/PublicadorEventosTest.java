@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -14,6 +15,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -135,5 +137,57 @@ class PublicadorEventosTest {
 
         assertThatThrownBy(() -> publicador.publicar("prueba.ping", "admin1", Map.of()))
                 .isInstanceOf(EventoNoPublicadoException.class);
+    }
+
+    // ---- SEC-J-13 / D46: hallazgo.* nunca lleva coordenadas ----
+
+    @Test
+    void hallazgoConClaveDeCoordenadasSeRechazaSinPublicar() {
+        for (String clave : new String[] {"latitud", "Longitud", "lat", "lng", "coordenadas", "geometry"}) {
+            assertThatThrownBy(() -> publicador.publicar("hallazgo.registrado", "admin1", Map.of(clave, 5.5)))
+                    .as(clave).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("hallazgo.* no puede llevar coordenadas (D14)");
+        }
+        verify(template, never()).invoke(any(RabbitOperations.OperationsCallback.class));
+    }
+
+    @Test
+    void hallazgoConCoordenadasAnidadasSeRechaza() {
+        Map<String, Object> datos = Map.of("detalle", Map.of("sitio", List.of(Map.of("Latitud", 5.5))));
+
+        assertThatThrownBy(() -> publicador.publicar("hallazgo.reclasificado", "admin1", datos))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(template, never()).invoke(any(RabbitOperations.OperationsCallback.class));
+    }
+
+    @Test
+    void hallazgoConCoordenadasEnTextoSeRechazaYElMensajeNoFiltraElValor() {
+        for (String texto : List.of("colectado en 5.53214, -73.36712", "5°31'55\"N 73°22'02\"W", "lat: 5.53 lon: -73.36")) {
+            assertThatThrownBy(() -> publicador.publicar("hallazgo.registrado", "admin1",
+                    Map.of("descripcion", texto)))
+                    .as(texto).isInstanceOf(IllegalArgumentException.class)
+                    .satisfies(e -> assertThat(e.getMessage()).doesNotContain("5.53"));
+        }
+        verify(template, never()).invoke(any(RabbitOperations.OperationsCallback.class));
+    }
+
+    @Test
+    void hallazgoSinCoordenadasSePublica() {
+        EventoSobre evento = publicador.publicar("hallazgo.registrado", "admin1", Map.of(
+                "hallazgoId", "7b1e0d0e-5d6c-4b0e-9a55-1f2a6f0c1111", "version", 1,
+                "nombreCientifico", "Atelopus ebenoides", "fechaRecoleccion", "2026-03-14",
+                "estadoConservacion", "EN_PELIGRO", "departamento", "15",
+                "descripcion", "Anfibio de páramo, altitud entre 3.200, 3.500 msnm, medía 12,5 cm"));
+
+        assertThat(evento.tipo()).isEqualTo("hallazgo.registrado");
+        verify(operaciones).waitForConfirmsOrDie(5000L);
+    }
+
+    @Test
+    void otrosTiposNoSeRevisanPorEstaGuarda() {
+        // La guarda es solo para hallazgo.*: "prueba.ping" conserva el comportamiento anterior
+        EventoSobre evento = publicador.publicar("prueba.ping", "admin1", Map.of("lat", 5.5));
+
+        assertThat(evento.tipo()).isEqualTo("prueba.ping");
     }
 }
