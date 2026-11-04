@@ -710,3 +710,6 @@ Total bloqueados o condicionados: **14 firmes/autorización + 10 de carga por he
 | RQ-12 | Pruebas con Testcontainers requieren Docker en el agente de CI; Playwright solo tiene Chromium; k6 no instalado | Cobertura incompleta o pruebas omitidas en silencio | Declarar en el reporte qué se omitió (nunca marcar "aprobado" lo que no corrió) |
 | RQ-13 | Sin endpoint de borrado, los datos de prueba en las VMs no se pueden limpiar por API | Contaminación del portal público real | P1.3: humo limitado a lectura/negativos; los positivos solo en entornos efímeros |
 | RQ-14 | Teselas OSM revelan al proveedor la zona consultada (R6) y `web-interna` cargará un recurso externo | Fuga de intención de búsqueda | WI-14 y revisión de la política CSP con Santiago |
+
+## P13. Actualización QA 15h (2026-11-04)
+WP-14 (texto malicioso en datos) y WP-08 (sin tokens ni almacenamiento, sin `Authorization`) quedaron automatizados en `web-publica/e2e/portal.spec.js` (bloque "QA 15h"; Chromium y Firefox). Siguen sin automatizar: CF-06, WP-15, WP-16, WP-18, CG-02/06/07/08/09/10 y parcialmente LG-01/02, WP-10/12/13. Detalle y resultados en `07-reporte-qa.md`, iteración 15h.

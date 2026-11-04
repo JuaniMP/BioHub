@@ -167,3 +167,106 @@ BUG-04 (`.env.example` de `deploy/`): sección retirada en la iteración 15 (Tai
 
 ## Veredicto: APROBADO CON OBSERVACIONES
 El código de RabbitMQ cumple el contrato (73/73 tests con broker real, 0 omitidos) y los permisos por usuario funcionan contra un RabbitMQ real con las definitions generadas. La verificación de los artefactos de despliegue en VMs fue retirada en la iteración 15 (Tailscale eliminado; ver 09-despliegue.md).
+
+---
+# Iteración 15h – verificación final (2026-11-04)
+Rama `feature/ubicacion-consulta-publica`, con los cambios sin commit del árbol de trabajo (refactor de patrones en ubicación, degradación automática, verificación del publicador AMQP activa por defecto, `pruebas-carga/`). Todo se ejecutó en esta sesión; no se confió en el reporte de backend.
+
+## 1. Backend (`mvn -o test`, Docker disponible, Testcontainers reales)
+| Módulo | Tests | Fallos | Errores | Omitidos | Resultado |
+|---|---|---|---|---|---|
+| servicio-cientifico | **229** | 0 | 0 | **1** | BUILD SUCCESS (1 min 41 s) |
+| servicio-consulta-publica | **190** | 0 | 0 | 0 | BUILD SUCCESS (1 min 37 s) |
+
+- Coinciden exactamente con lo reportado por backend-senior. El omitido es `PublicadorBrokerDesplegadoTest` (opt-in: requiere `QA_RMQ_PORT/USER/PASS`); no es un fallo.
+- Corridos con el cambio del Tech Lead ya aplicado (`verificar-publicador:true` por defecto en `ConsumidorEventos`); `PublicadorNoPermitidoIntegracionTest` (4) pasa.
+- No se midió cobertura (el proyecto no tiene JaCoCo).
+
+## 2. web-publica (como CI)
+| Paso | Resultado |
+|---|---|
+| `npm run build` | OK (121 módulos) |
+| `npm test` (Vitest) | **32/32** (3 archivos) |
+| `npm audit --omit=dev --audit-level=high` | 0 vulnerabilidades |
+| E2E Playwright, Chromium + Firefox | **28/28** con la suite original; con los 2 tests nuevos de QA (abajo) quedan 15 tests x 2 navegadores = 30 |
+| E2E Playwright, WebKit | **No ejecutable en esta máquina**: 14/14 fallan en `browserType.launch: Host system is missing dependencies` (faltan librerías del sistema; `sudo npx playwright install-deps webkit`). Es limitación del entorno, no de la app; CI sí instala `--with-deps`. Se corrió con `E2E_SIN_WEBKIT=1`, que la propia config prevé. RNF13 en Safari queda sin verificar localmente |
+| `web-interna` `npm test` (páginas de ubicación, fuera de CI) | 9 pasan, **2 archivos no cargan** (`PaginaBusqueda.test.jsx`, `PaginaMapa.test.jsx`): `@testing-library/user-event` está en `package.json` pero no instalado en este `node_modules`. Es de entorno (falta `npm ci`), no un bug de código; no se corrigió. Nota: CI no corre los tests de web-interna |
+
+Tests agregados por QA (solo `web-publica/e2e/portal.spec.js`, bloque "QA 15h"): **WP-14** (texto malicioso `<img onerror>`, `<script>`, `<svg onload>` en los datos se muestra como texto, no se ejecuta, sin diálogos) y **WP-08** (búsqueda y ficha sin `Authorization`, `localStorage`/`sessionStorage`/cookies vacíos). Ambos pasan en Chromium y Firefox.
+
+## 3. Colección Bruno (viable y ejecutada)
+Se reprodujo el job de CI con la infraestructura del compose del repo ya levantada (Keycloak, RabbitMQ, Redis) y un MySQL 8.4 **efímero** en el puerto 3399 (`qa-mysql-bruno`, creado con `infra/ci/init-mysql.sql`; ya eliminado), sin tocar los MySQL de desarrollo. Los dos servicios se arrancaron con los jar recién empaquetados, perfil `local`, llave ficticia de CI y `BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO` = usuario de RabbitMQ (`rabbitUser` del entorno `local` de Bruno), es decir verificación activa. Se sembró con `infra/ci/SembrarHallazgos.java`.
+- `bru run --env local`: **44/44 requests, 77/77 tests, PASS** (10,5 s). Incluye los 4 eventos `setup/` con `user_id`, el caso de coordenadas (el servicio registró el incidente SEC-J-03 y lo descartó, esperado) y recifrado 401/403/200.
+- Servicios detenidos y contenedor eliminado al terminar. Con `--env ci` no se corrió (usa el usuario `biohub_ci`, que no existe en este broker); el entorno `local` es el equivalente.
+- Aviso menor: pasé `--reporter-junit` a un directorio inexistente y bru devolvió código 2 después de pasar todo; no es un fallo de la colección (CI usa `resultados/`, que se crea).
+
+## 4. `pruebas-carga/`
+- Sintaxis de los `.sh` correcta (`bash -n`). Humo ejecutado con `construir-imagen.sh` + `compose-carga.yml` (1 réplica + NGINX) + `datos/sembrar.sh` (2000 fichas) + `correr-k6.sh k6/consulta-publica-pico.js -e N=2 -e MULT=5` con tiempos cortos: 168 peticiones, 0 % no-200, 0 % 5xx, p95 10,6 ms. Los scripts de pico **funcionan y son reproducibles** con esos comandos. Después: `down -v`, `limpiar.sh` (0 fichas) y borrado del JSON de humo. No se interpreta contra el ASR (lo hace el arquitecto).
+- Se probó también `carga-cientifica-simultanea.js` (CIENTIFICA=1, 15 s): ver BUG-J2.
+- BUG-J3: el README está desactualizado (abajo).
+
+## 5. Bugs
+**BUG-J2 – Media – responsable: backend (carga) / Tech Lead.** La prueba `carga-cientifica-simultanea.js` (ASR4/RNF5, CG-04) ya no mide lo que dice: con la verificación del publicador activa por defecto, consulta-publica rechaza todos sus eventos.
+- Pasos: `./construir-imagen.sh`; `docker compose -p biohub-carga -f compose-carga.yml --env-file ../.env up -d --scale consulta-publica=1`; `./datos/sembrar.sh`; `./correr-k6.sh k6/carga-cientifica-simultanea.js -e CIENTIFICA=1 -e R=10 -e EV=5 -e DUR=15s`.
+- Esperado: los eventos se procesan (SELECT ... FOR UPDATE + INSERT, invalidación de caché) mientras se mide la lectura pública; DLQ vacía (CG-04).
+- Obtenido: k6 reporta `eventos=76 ok=100 %` (solo mide que el broker enrutó), pero el servicio registró 228 veces `Evento hallazgo.* con publicador no permitido` y la DLQ `consulta-publica.eventos.dlq` quedó con 76 mensajes. La carga de escritura nunca llega a la BD, así que la medición ASR4 sería optimista y engañosa.
+- Causa: la publicación por la API de management (`k6/carga-cientifica-simultanea.js`, ~línea 104) no pone `user_id` en `properties` y `compose-carga.yml` no define `BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO`. Arreglo: poner `user_id: RMQ_USER` en las propiedades (RabbitMQ solo lo acepta si coincide con el usuario autenticado) y pasar `BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO: ${RABBITMQ_USER}` al servicio en el compose. Además el script debería comprobar `cola_dlq == 0` y fichas resultantes, no solo `routed`.
+- Efecto secundario de mi prueba: dejé 76 mensajes en la DLQ del RabbitMQ de desarrollo; intenté purgarla y el permiso fue denegado, así que **queda pendiente purgar `consulta-publica.eventos.dlq`** (borrar contenido desde la UI de management o `rabbitmqctl purge_queue`).
+
+**BUG-J3 – Bajo – responsable: backend / Tech Lead.** `pruebas-carga/README.md` sigue diciendo "Carpeta reservada... Hoy está vacía: no hay scripts implementados" y no explica construir imagen, compose efímero, siembra, `correr-k6.sh` ni los parámetros. Los scripts no son reproducibles "según su README" porque el README no los describe (sí lo son leyendo las cabeceras de los scripts y del compose). `docs/equipo/trazabilidad.md` (líneas 9 y 111) también afirma que no hay scripts de carga ni colección Bruno.
+
+Observaciones (no bugs):
+- O-11: con el `.env` de desarrollo (`RABBITMQ_USER=biohub`), si se arranca consulta-publica sin `BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO=biohub` (el default es `cientifico_mq`), todo evento de cientifico se rechaza. `.env` no define esa variable ni `.env.example` explica el caso local. Documentarlo en el README de consulta-publica / 09-despliegue.
+- O-12: no hay bugs de severidad Crítica o Alta. Sin cobertura medida (JaCoCo).
+
+## 6. Casos del plan 06 (parte de Juanita, P3–P9) sin test automatizado propio
+Los tests no citan los IDs del plan (`CF-01`, etc.), así que no existe trazabilidad mecánica; el mapeo se hizo por área y contenido de las clases de test (229 + 190 + 32 + 15 E2E + 44 requests Bruno). Cobertura por área: cifrado/llaves, `UbicacionService`, cifrado en reposo, búsqueda interna, mapa, recifrado, JWT, auditoría, inyección/límites, consumo de eventos, DLQ, búsqueda pública, caché, Redis caído y degradación (automática y forzada) tienen tests. Sin cobertura automatizada o con cobertura solo parcial:
+- **CF-06** (UUID en mayúsculas en el AAD): no se encontró test explícito.
+- **LG-01/LG-02** (fuga por logs a nivel TRACE/DEBUG con captura de log): cobertura solo parcial (auditoría y "sin filtraciones", no barrido TRACE de Hibernate).
+- **CG-01..CG-11** (carga): solo hay k6 para pico x60 (≈CG-03/05), carga científica simultánea (CG-04, afectado por BUG-J2) y registro; sin script para CG-02, CG-06 (Redis caído en pico), CG-07 (degradado en pico), CG-08 (`-Dgroups=rendimiento`: no existe ese grupo), CG-09, CG-10; CG-11 bloqueado por rate limit.
+- **WP-15** (axe-core), **WP-16** (responsive), **WP-18** (humo real con compose), **WP-11** (matriz de navegadores incl. móvil real y Edge) y **UX-01..UX-05** (usabilidad, manuales): sin automatizar; WP-11 en WebKit además no ejecutable aquí. WP-10 (consola limpia) y WP-12/WP-13 solo parcialmente (Vitest y `erroresCsp`, no E2E completo).
+- Ahora **cubiertos por QA 15h**: WP-14, WP-08.
+- Bloqueados por dependencias de otros equipos (sin cambios): IE-01..IE-04, SG-17..SG-19, CG-11, WI-13, DX-01..DX-04 (requieren autorización y despliegue; Tailscale/VMs ya retirado, estos casos están obsoletos).
+- Casos de `web-interna` (WI-*, WC-*): 9 tests pasan, 2 archivos no ejecutables por dependencia no instalada (ver §2); no verificados.
+
+## Veredicto 15h: APROBADO CON OBSERVACIONES
+Backend 229 + 190 tests verdes (0 fallos, 1 omitido opt-in), web-publica 32 unitarios + 30 E2E (Chromium/Firefox) + build + audit verdes, Bruno 44/44 (77/77 tests) con la verificación del publicador activa, y el humo de la carga de pico funciona. No hay bugs Críticos ni Altos. Se aprueba con reservas porque: BUG-J2 (Medio) invalida la prueba de carga científica simultánea tal como está (y dejó 76 mensajes en la DLQ de desarrollo por purgar), BUG-J3 (documentación de carga), WebKit no verificado localmente, y los casos sin automatizar de §6. BUG-J2 debe corregirse antes de usar `carga-cientifica-simultanea.js` como evidencia del ASR4.
+
+---
+
+## Re-verificación ciclo 1 (2026-11-04)
+
+Todo lo de abajo se ejecutó en esta sesión (no se tomó del reporte de backend). Sin commits; solo se añadió un test opt-in de QA.
+
+### Resultados
+
+| Verificación | Resultado |
+|---|---|
+| `mvn -o test` servicio-cientifico | **239 tests, 0 fallos, 0 errores, 1 omitido** (el opt-in de broker desplegado). BUILD SUCCESS. Coincide con el reporte. |
+| `mvn -o test` servicio-consulta-publica | **190 tests, 0 fallos, 0 errores, 0 omitidos**. BUILD SUCCESS. Coincide. |
+| Humo `carga-cientifica-simultanea.js` (`CIENTIFICA=1 R=10 EV=5 DUR=15s`, 2 réplicas, siguiendo solo el README) | Públicas 151 (p95 19,7 ms, 0 % no-200, 0 % 5xx). **Eventos 76 publicados, 76 procesados, cola pendiente 0, DLQ de carga 0.** Logs de las 2 réplicas: **0** apariciones de "publicador no permitido" y 0 de "descart". |
+| Aislamiento de la cola de desarrollo | `consulta-publica.eventos` = 0 y `consulta-publica.eventos.dlq` = 76 (los viejos), **sin cambios** antes y después. Las réplicas de carga consumían `consulta-publica.carga.eventos` (2 consumidores). |
+| Limpieza | `down -v` y `datos/limpiar.sh`: 0 fichas de carga; el JSON de humo se borró; la cola/DLQ/exchange de carga ya no existen en RabbitMQ. |
+| E2E real científico -> consulta-publica (ARQ-26) | **OK**, ver abajo. |
+| Bruno `--env local` (CLI 4.3.0, MySQL efímero 3399, ambos servicios con los jar actuales y `BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO=biohub`, verificación activa) | **44/44 requests, 77/77 tests, PASS** (9,4 s). Servicios detenidos y contenedor eliminado. |
+
+### E2E ARQ-26 (sin inyectar `user_id` a mano)
+No existe flujo real que publique `hallazgo.*` desde servicio-cientifico: el único endpoint que usa `PublicadorEventos` es `POST /api/cientifico/eventos/prueba` (`prueba.ping`, solo administrador), y el módulo de registro (HU-01) es de otro equipo. Se usó entonces el `PublicadorEventos` REAL (el mismo bean, con su `user_id` tomado de la conexión) desde un test opt-in nuevo: `servicio-cientifico/src/test/java/co/edu/unbosque/biohub/cientifico/eventos/PublicadorHallazgoE2ETest.java` (se activa con `QA_HALLAZGO_ID` + `QA_RMQ_PORT/USER/PASS`; sin esas variables se omite, por lo que no altera los 239 tests).
+- Se arrancó consulta-publica (jar actual, perfil `local`, MySQL de desarrollo, `BIOHUB_EVENTOS_VERIFICAR_PUBLICADOR=true`, `BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO=biohub`, valores de `.env.example`) y se publicó un `hallazgo.registrado` con UUID único.
+- Resultado: `GET /api/publica/fichas/{id}` devolvió 200 con la ficha completa (`ubicacionProtegida: true`, sin coordenadas); `consulta-publica.eventos` quedó en 0 y la DLQ de desarrollo siguió en 76 (no la usé para medir). Log del servicio sin WARN/ERROR de publicador. Con esto la cadena `user_id` AMQP del publicador -> verificación del consumidor funciona sin Bruno. Se eliminó la ficha de prueba de la BD de desarrollo.
+- Límite: no se ejercitó el endpoint HTTP de servicio-cientifico con un JWT de administrador (publica `prueba.ping`, que no es `hallazgo.*`); la cobertura de ese camino es `EventosPruebaControllerTest` y `PublicadorEventosIntegracionTest`, que pasan.
+
+### Estado de los hallazgos
+- **BUG-J2: CORREGIDO.** El humo reproduce lo que describía el bug (antes 228 rechazos y 76 mensajes en DLQ) y ahora da 76/76 procesados, DLQ de carga 0, 0 rechazos por publicador, sin tocar las colas de desarrollo. El script además comprueba la DLQ de carga y reporta procesados/pendientes.
+- **BUG-J3: CORREGIDO (parcial en otro documento).** Seguí `pruebas-carga/README.md` tal cual (construir jar e imagen, compose con `--scale`, siembra, k6, apagar y limpiar) sin conocimiento previo y funcionó a la primera; el orden `down -v` antes de `limpiar.sh` está explicado. Pendiente menor (no bloquea): `docs/equipo/trazabilidad.md` (líneas 9 y 176) sigue diciendo que `pruebas-carga/` solo tiene README y que no existen `.github/` ni la colección Bruno; es un documento ajeno al README.
+- **O-11: CERRADA.** `.env.example` raíz trae `BIOHUB_EVENTOS_VERIFICAR_PUBLICADOR=true` y `BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO=biohub` (igual a `RABBITMQ_USER`); con esos valores el E2E y Bruno pasan con verificación activa.
+- **Pendiente de usuario (heredado):** purgar `consulta-publica.eventos.dlq` (76 mensajes de mi prueba anterior).
+
+### Bugs nuevos
+Ninguno (sin BUG-J4). Observación de entorno: los jar de `target/` se reescribieron al empaquetar (no afecta a nada en ejecución).
+
+### No ejecutado
+WebKit local (limitación de librerías del sistema, igual que antes), web-publica/web-interna (fuera del alcance del ciclo, sin cambios), pico x60 y par `CIENTIFICA=0/1` completo (solo humo, por instrucción), y el endpoint HTTP de publicación con JWT de administrador sobre el servicio científico en ejecución.
+
+### Veredicto ciclo 1: APROBADO
+Los tres hallazgos (BUG-J2, BUG-J3, O-11) quedan cerrados con evidencia ejecutada, 239 + 190 tests en verde, Bruno 44/44, humo de carga limpio y ARQ-26 validado de punta a punta con el publicador real. Sin bugs nuevos.

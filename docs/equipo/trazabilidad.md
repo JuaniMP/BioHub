@@ -7,6 +7,7 @@ Método y límites de la evidencia:
 - El estado sale de lo que existe en el repositorio (código y tests) y de lo ya ejecutado y reportado en `08-reporte-seguridad.md` (2026-10-26: `mvn -B -pl servicio-cientifico,servicio-consulta-publica -am verify` BUILD SUCCESS con 157 tests en científico y 128 en consulta-pública; `vitest` web-publica 32/32 y web-interna 45/45). Yo no volví a ejecutar los tests al escribir esta matriz.
 - Los tests de `.../ubicacion/qa/` y `.../consultapublica/qa/` están sin versionar (`git status`: `??`). Cuentan como evidencia solo cuando se hagan commit.
 - `pruebas-carga/` solo tiene un `README.md` (sin scripts) y no existen `.github/` ni colección Bruno. Por eso ningún RNF medible pasa de Parcial.
+- **Actualización 2026-11-04 (15h):** esta matriz es la línea base del inicio de la iteración 15. Ya existen `.github/workflows/ci.yml` (IT-04), la colección `bruno/` y los scripts de `pruebas-carga/`; el estado vigente de RNF/ASR está en `10-verificacion-sad.md` §15h y `07-reporte-qa.md` §15h.
 - No se encontró NGINX, circuit breaker (Resilience4j) ni varias instancias en `deploy/` ni en los `pom.xml`/`application.yml`, aunque el SAD §5.1 y §5.3 los describen.
 - Regla de estado: Cumple = código y prueba. Parcial = código sin prueba suficiente, o prueba sin medición exigida por el SRS. No cumple = sin código. Fuera de mi alcance = lo implementa otro integrante; en la columna Evidencia indico si el código actual parece hecho, parcial o sin empezar.
 

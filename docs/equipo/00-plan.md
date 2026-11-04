@@ -96,12 +96,22 @@ Despliegue de bases, Redis y RabbitMQ en VMs locales con una VPN de malla, y su 
 | 15c | Verificación del código contra el SAD; impacto de Aiven/Flyway en ASR; quitar Tailscale de `03-arquitectura.md` | arquitecto-software | opus/high | Hecho (504a36f; 25 hallazgos: de Juanita 2 Altos ARQ-05, ARQ-06 y 11 Medios/Bajos; ARQ-12 y ARQ-15 corregidos en 8bdac84) |
 | 15d | Quitar Tailscale (resto del repo); perfiles local/aiven con SSL; `.env.example` | devops | sonnet/medium | Hecho (fe1bb43, 52ac256; perfil aiven probado con SSL contra MySQL local, falta Aiven real) |
 | 15e | Migraciones compatibles con Aiven; convención en README de cada servicio | dba | sonnet/high | Hecho (6d64b9e, 62f304c; 6 migraciones compatibles, sin baseline) |
-| 15f | GitHub Actions + colecciones Bruno | devops + qa-tester | sonnet/medium | En curso |
-| 15g | Completar la parte de Juanita (SEC-J-01..03 y faltantes) | backend-senior / frontend-senior | sonnet/high · sonnet/medium | En curso (BUG-J1, SEC-J-01..03, 06, 08) |
-| 15h | Verificación final: build, tests, k6, auditoría, ASR en código | qa-tester · ciberseguridad · arquitecto | sonnet/medium · opus/high · opus/high | Pendiente |
+| 15f | GitHub Actions + colecciones Bruno | devops + qa-tester | sonnet/medium | Hecho (Bruno 44/44 requests, 77/77 tests en local; actionlint OK; job en GitHub sin ejecutar aún) |
+| 15g | Completar la parte de Juanita (SEC-J-01..03 y faltantes) | backend-senior / frontend-senior | sonnet/high · sonnet/medium | Hecho (d92c920, 31fd86b, 98e0021, 0e959d2; 2 ciclos de corrección: ARQ-26 Alto + SEC-J-10/11/14/15/16, BUG-J2/J3) |
+| 15h | Verificación final: build, tests, k6, auditoría, ASR en código | qa-tester · ciberseguridad · arquitecto | sonnet/medium · opus/high · opus/high | Hecho (QA APROBADO; seguridad APROBADO CON OBSERVACIONES, 0 Crít/Alt; ASR1 y ASR4 Parciales por D42; cientifico 241/0/2 omitidos opt-in, consulta-publica 190/0) |
 
 ## Modelos y consumo
 | Fase | USD acumulado | Agente que más consumió | Cambios de modelo (motivo) |
 |---|---:|---|---|
 | 15a Reconocimiento | 0.80 | sesión principal (opus) | — |
 | 15b–15e Diseño, Tailscale, Aiven, Flyway | 9.36 | arquitecto-software (opus, 3.45) | — (todos según matriz equilibrado) |
+| 15f–15g (sesión 2026-11-03, sin medir aparte) | — | — | — |
+| 15h verificación + 2 ciclos (sesión 2026-11-04) | 10.89 en esta sesión (≥ 20.25 acumulado; 15f–15g no se midió) | ciberseguridad (opus, 4.08 en 2 tareas) | backend ciclo 2 sonnet/**medium** (matriz: high): solo reglas ArchUnit ya diseñadas por seguridad |
+| 15h ciclo 1 re-verificación | (incluido en la fila anterior) | — | ciberseguridad opus/**medium** (matriz: high): solo re-verifica un diff acotado de su propia auditoría |
+
+## Pendientes tras la 15h
+- Corridas k6 que exige D42: degradación activa, 1 vs 2 réplicas en saturación (ARQ-30, ARQ-31) y par ASR4 `CIENTIFICA=0/1` (ARQ-32).
+- SEC-J-12, SEC-J-13 (guarda de coordenadas en el publicador, sube de prioridad), SEC-J-04/05/07/08(3)/09, SEC-04/SEC-D-03 (un usuario AMQP por servicio, Santiago).
+- ARQ-05 (segundo servicio Aiven sin evidencia), ARQ-07 (Hernando), ARQ-28/29/33, Aiven real sin probar, job de CI sin ejecutar en GitHub.
+- Condición D44: nada de registro (Hernando) entra sin pasar las reglas ArchUnit actuales.
+- Usuario: purgar `consulta-publica.eventos.dlq` (76 mensajes de prueba de QA) y copiar las 2 líneas `BIOHUB_EVENTOS_*` de `.env.example` al `.env`.
