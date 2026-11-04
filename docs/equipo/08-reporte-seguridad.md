@@ -822,11 +822,11 @@ Sección retirada en la iteración 15 (VPN de malla eliminada; ver 09-despliegue
 | SEC-J-01 | **Parcial**: cerrado en código, abierto en configuración y en el publicador | Cerrado: `consulta-publica/.../application.yml:92` (`verificar-publicador: ...:true`), `ConsumidorEventos.java:43` (valor por defecto `true` al cierre), `:46` (`STRICT_DUPLICATE_DETECTION`), `:125-129` (rechazo si `receivedUserId` ≠ esperado), `DatosHallazgo.java:19,33` (`@Max(1_000_000)`) y `ProcesadorHallazgos.java:27,49-55` (alertas de salto anómalo). Abierto: `.env.example:72` de la raíz sigue en `false` (SEC-J-11); `cientifico/.../PublicadorEventos.java:50-56` no fija `user_id`; SEC-D-03 y SEC-04 (usuario de RabbitMQ compartido) siguen abiertos |
 | SEC-J-02 | **Cerrado** (lado de Juanita) | `DetectorCoordenadas.java:57-66` (decimal, hemisferio, grados-minutos y palabra clave), aplicado de forma recursiva a claves y valores en `ConsumidorEventos.java:67,77-89`. Del lado de científico: `DetectorCoordenadasEnTexto` y `UbicacionServiceImpl.java:93-95` (`nombreCientifico`). La validación en origen (Hernando) sigue pendiente |
 | SEC-J-03 | **Cerrado** (lado de Juanita) | `ConsumidorEventos.java:62-74,91-106`: el evento con coordenadas se descarta con ack, se registra el incidente sin valores y no pasa por la DLQ. Sigue abierto SEC-D-07 (`RabbitConfig.java:58`, DLQ sin TTL ni `max-length`) para los demás rechazos |
-| SEC-J-04 | **Abierto** | `web-interna/src/ubicacion/componentes/MapaHallazgos.jsx:10,27` (`maxZoom` 12 también con un solo punto) y `:45` (`TileLayer` sin `referrerPolicy`) |
+| SEC-J-04 | **Abierto** → **Iteración 16: Parcial** (zoom 8/10 y `no-referrer` hechos; falta el proxy de Santiago) | `web-interna/src/ubicacion/componentes/MapaHallazgos.jsx:10,27` (`maxZoom` 12 también con un solo punto) y `:45` (`TileLayer` sin `referrerPolicy`) |
 | SEC-J-05 | **Abierto** | `docker-compose.yml:94`: el `redis.conf` generado solo tiene `appendonly` y `requirepass`, sin `maxmemory` |
 | SEC-J-06 | **Cerrado** | `servicio-cientifico/.env.example:58-62` (variables y aviso). `ConfiguracionUbicacion.java:47-58` exige el perfil `dev`, la bandera **y** una BD local. `:63-70` (`esBaseLocal` con regex anclada: rechaza `localhost.evil`, multi-host `localhost:3306,otro` y `loadbalance`). `ProveedorDeLlavesEntorno.java:26` (id `v9999`). Con el proveedor `keystore` la llave efímera no se puede activar (`ConfiguracionUbicacion.java:34-42` retorna antes) |
 | SEC-J-07 | **Parcial** | `web-publica/index.html:9-12`: CSP en `<meta>` y `referrer`. `frame-ancestors` y HSTS no se pueden fijar por `<meta>` y siguen faltando como cabeceras. `web-interna/index.html` sigue sin CSP |
-| SEC-J-08 | **Parcial** (puntos 1 y 2 cerrados, 3 abierto) | (1) `UbicacionExceptionHandler.java:62-65` audita todos los 403, también `POST /recifrado`. (2) `AuditoriaAccesoUbicacion.java:17` pasa `endpoint` por `limpiar(..., 200)`. (3) No hay appender dedicado ni de solo anexado: no existe `logback-spring.xml` en `servicio-cientifico/src/main/resources/`, así que la auditoría se apaga con el nivel de log |
+| SEC-J-08 | **Parcial** (puntos 1 y 2 cerrados, 3 abierto) → **Iteración 16: Parcial** (appender propio hecho; falla abierto, SEC-J-18) | (1) `UbicacionExceptionHandler.java:62-65` audita todos los 403, también `POST /recifrado`. (2) `AuditoriaAccesoUbicacion.java:17` pasa `endpoint` por `limpiar(..., 200)`. (3) No hay appender dedicado ni de solo anexado: no existe `logback-spring.xml` en `servicio-cientifico/src/main/resources/`, así que la auditoría se apaga con el nivel de log |
 | SEC-J-09 | **Abierto** (Santiago, fuera de alcance) | `infra/keycloak/realm-biohub.json:18` (`accessTokenLifespan: 300`), sin OTP condicional |
 | SEC-D-03 / SEC-D-07 | **Abiertos** | Ver SEC-J-11 y SEC-J-03 |
 
@@ -1041,9 +1041,9 @@ Sección retirada en la iteración 15 (VPN de malla eliminada; ver 09-despliegue
 | **SEC-J-11** (ARQ-26) | **Cerrado** (riesgo residual en SEC-04 / SEC-D-03 punto 1, que es de Santiago) | `PublicadorEventos.java:42,50-57`: `user_id` sale de `rabbitTemplate.getConnectionFactory().getUsername()` y falla al construir si no se puede determinar. `:74`: `setUserId(usuarioAmqp)` en cada mensaje. Tests: `PublicadorEventosTest.java:85` (fija el `user_id`), `:98` (no es constante) y `:116` (falla cerrado). `PublicadorEventosIntegracionTest.java:90`: el broker real lo acepta y lo entrega como `receivedUserId`. `.env.example:74` (raíz) `BIOHUB_EVENTOS_VERIFICAR_PUBLICADOR=true`. `:78` `BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO=biohub`, igual al `RABBITMQ_USER` del Compose. Consumidor: `application.yml:92-93` y `ConsumidorEventos.java:43-44,125-126`, ambos con `true` por defecto. CI conserva la verificación (`ci.yml:168-171`). **Residual:** mientras todos los servicios compartan el usuario administrador `biohub` (SEC-04), el `user_id` prueba que "quien publica tiene las credenciales del broker", no que sea servicio-cientifico. Ver también SEC-J-I10 |
 | **SEC-J-10** (ARQ-27, D43, D44) | **Parcial**: los puntos 2 y 3 y la auditoría de cualquier excepción están cerrados; las reglas ArchUnit se pueden esquivar (SEC-J-15 y SEC-J-16, Bajos) | **Cerrado:** (3) eslabones *package-private*: `DecoradorAuditoriaAcceso.java:17,23`, `DecoradorCifradoCoordenadas.java:19,24`, `DecoradorRepositorioUbicaciones.java:18,22` (constructor `protected` en una clase privada del paquete) y `RepositorioUbicacionesJpa.java:25,38`. Solo los construye `ConfiguracionUbicacion.java:86-89`. (Auditoría) `DecoradorAuditoriaAcceso.java:34-38` audita toda `RuntimeException` solo con usuario y `hallazgoId`, sin excepción ni valores. Lo prueba `DecoradoresRepositorioUbicacionesTest.java:164`. (2) Reglas sobre todo `cientifico`: `ArquitecturaUbicacionTest.java:31-33` y `:51-128`. (1) Lo sustituye D44 (ver la evaluación abajo). **Pendiente:** `ArquitecturaUbicacionTest.java:70-71,79-80` (exclusiones por patrón de paquete y por nombre simple), `:81` (`callMethodWhere` no ve las referencias a método) y falta una regla para `ProveedorDeLlaves`/`PropiedadesCifrado` |
 | **SEC-J-14** | **Cerrado** (queda un comentario desactualizado, ver SEC-J-I11) | `correr-k6.sh:14`: `grafana/k6:2.3.0` fija, presente en local con digest `sha256:2dd4756e…`. `:17-22,30,37-38`: `RMQ_USER`/`RMQ_PASS`/`TOKEN` se pasan con `-e NOMBRE`, sin valor en `argv`. `limpiar.sh:13,16`: `MYSQL_PWD`/`REDISCLI_AUTH` por entorno. `:18-23`: credenciales de curl por stdin (`-K -`), escapando `\` y `"`. `sembrar.sh:7`: `MYSQL_PWD` por entorno. `compose-carga.yml:31-32` mantiene la verificación **activa** con el publicador esperado igual a `RABBITMQ_USER`, y `:35` usa una cola propia de carga. `carga-cientifica-simultanea.js:123`: `user_id: __ENV.RMQ_USER`. `:40,105,110`: `version` acotada a `VERSION_MAXIMA = 1000000` |
-| SEC-J-12 | **Abierto** (fuera de este ciclo) | `ConfiguracionUbicacion.java:40-41` sigue sin borrar el `char[]`. Sigue sin comprobarse el permiso del `.p12` |
-| SEC-J-13 | **Abierto** (fuera de este ciclo) | `HallazgoRegistrado.java:37-38` sin `@JsonIgnore`. `PublicadorEventos.publicar` (`:64`) sigue sin guarda de coordenadas. Ahora es **más urgente**: con `user_id` correcto, un `hallazgo.*` con coordenadas que salga de cientifico ya no se rechaza por publicador (consulta-pública lo descarta por SEC-J-03, pero reportes no) |
-| SEC-J-04, 05, 07, 08 (3), 09 | Sin cambios | Ver la tabla de la iteración 15h |
+| SEC-J-12 | **Abierto** (fuera de este ciclo) → **Iteración 16: Cerrado** | `ConfiguracionUbicacion.java:40-41` sigue sin borrar el `char[]`. Sigue sin comprobarse el permiso del `.p12` |
+| SEC-J-13 | **Abierto** (fuera de este ciclo) → **Iteración 16: Parcial** (`@JsonIgnore` y guarda hechos; guarda eludible, SEC-J-17) | `HallazgoRegistrado.java:37-38` sin `@JsonIgnore`. `PublicadorEventos.publicar` (`:64`) sigue sin guarda de coordenadas. Ahora es **más urgente**: con `user_id` correcto, un `hallazgo.*` con coordenadas que salga de cientifico ya no se rechaza por publicador (consulta-pública lo descarta por SEC-J-03, pero reportes no) |
+| SEC-J-04, 05, 07, 08 (3), 09 | Sin cambios (en la iteración 16, SEC-J-04 y SEC-J-08 (3) pasan a Parcial; ver esa sección) | Ver la tabla de la iteración 15h |
 
 ### Evaluación de D44 (decisión tomada; opinión de ciberseguridad)
 - **La garantía es suficiente para la amenaza que motivó SEC-J-10.** Esa amenaza es un **error de un desarrollador** del mismo servicio, por ejemplo registro reutilizando el repositorio. En ese caso una regla de build que falla es igual de efectiva que una comprobación en tiempo de ejecución, y además avisa antes.
@@ -1126,3 +1126,201 @@ Sección retirada en la iteración 15 (VPN de malla eliminada; ver 09-despliegue
 - **SEC-J-10** queda **parcial**, con un riesgo residual que baja de Medio a **Bajo** (SEC-J-15 y SEC-J-16).
 - D44 es aceptable con esta condición: **SEC-J-15 y SEC-J-16 deben estar corregidos antes de que registro (Hernando) integre código en servicio-cientifico**. Si entra código de registro sin esas reglas, SEC-J-10 vuelve a **Medio**.
 - **SEC-J-13** pasa a ser **condición previa a publicar `hallazgo.*` reales**, porque con el `user_id` correcto el publicador ya no actúa como filtro.
+
+---
+
+# Iteración 16 – re-auditoría (2026-11-04)
+
+**Revisor:** ciberseguridad · **Rama:** `feature/ubicacion-consulta-publica` (HEAD `aeb67d8`) · **Alcance:** `git diff 9c8982b..HEAD` (commits `81f4e28` a `aeb67d8`): SEC-J-13 (D46), SEC-J-12, SEC-J-08.3, SEC-J-04, el refactor ARQ-28, la regla ARQ-29 (D45) y los secretos del diff. No se repiten las auditorías anteriores.
+
+## Resumen
+
+| Severidad | Cantidad (nuevos) |
+|---|---|
+| Crítico | 0 |
+| Alto | 0 |
+| Medio | 0 |
+| Bajo | 2 (SEC-J-17, SEC-J-18) |
+| Informativo | 3 (SEC-J-I13 a SEC-J-I15) |
+
+**Veredicto: APROBADO CON OBSERVACIONES.** No hay Críticos ni Altos. Las cuatro correcciones están bien hechas y probadas. El refactor ARQ-28 y la regla ARQ-29 **no** rompen D44: cada descifrado y cada 403 siguen auditados. No se versionó ningún secreto. Quedan dos Bajos:
+- **SEC-J-17:** la guarda del publicador se puede eludir con valores numéricos, objetos o arrays.
+- **SEC-J-18:** la auditoría D28 todavía falla abierta si se baja el nivel del logger o si el archivo no se puede escribir.
+
+## Cómo se revisó
+- **Documentación:** D44, D45 y D46 (`03-arquitectura.md:95-97`), contrato §6 (nota D45) y §7.3, plan de la iteración 16 (`00-plan.md:124-135`) y las fichas SEC-J-04, 08, 12 y 13 de este reporte.
+- **Código (estático):** el diff completo, más una lectura completa de:
+  - eventos: `DetectorCoordenadas` (cientifico y consulta-pública), `PublicadorEventos`, `HallazgoRegistrado`, `RabbitConfig` (`Jackson2JsonMessageConverter`);
+  - ubicación: `ProveedorDeLlavesKeyStore`, `ConfiguracionUbicacion`, `AuditoriaAccesoUbicacion` (puerto), `AuditoriaAccesoUbicacionLog`, `DecoradorAuditoriaAcceso`;
+  - configuración, pruebas y web: `logback-spring.xml`, `Dockerfile`, `ArquitecturaUbicacionTest`, `ModuloRegistroNoDependeDeUbicacionInternaTest`, `UmbralesDegradacion`/`MonitorCarga` y `MapaHallazgos.jsx`.
+- **Prueba del detector (solo en el scratchpad, fuera del repositorio):** se copió `eventos/service/DetectorCoordenadas.java` sin cambios y se le pasaron 33 casos: 21 de evasión y 12 de posibles falsos positivos. Resultados en SEC-J-17. Los patrones son **idénticos** a los del consumidor de consulta-pública (comparados con `diff`). La única diferencia es `CLAVE_JSON_PROHIBIDA` del análisis en bruto, que el publicador no necesita.
+- **Pruebas:** sobre una copia de `HEAD` (`git archive`) en el scratchpad, para no chocar con el build de QA, se ejecutó `mvn -o -pl servicio-cientifico -am test` con `Arquitectura*`, `ModuloRegistro*`, `Publicador*Test`, `DetectorCoordenadas*`, `HallazgoRegistrado*`, `ProveedorDeLlavesKeyStore*`, `AuditoriaLogback*`, `AuditoriaAccesoUbicacionLog*`, `Decorador*` y `AuditoriaYSinFiltraciones*`. Resultado: **75 tests, 0 fallos, 2 omitidos**, los que necesitan un broker desplegado. `PublicadorEventosIntegracionTest` corrió con un RabbitMQ real (Testcontainers).
+- **Secretos:**
+  - Se buscaron patrones de contraseña, token, llave y base64 largo en las líneas añadidas del diff: solo aparecen nombres de variables y texto de documentación, ningún valor.
+  - `git ls-files` no contiene `.env`, `*.p12`, `*.jks`, `*.log` ni `logs/`.
+  - `servicio-cientifico/logs/` existe en local y Git lo ignora (`.gitignore:5`, `!!` en `git status --ignored`).
+  - No se abrió ningún `.env`.
+
+## Estado de los hallazgos
+
+| ID | Estado | Evidencia |
+|---|---|---|
+| **SEC-J-13** (D46) | **Parcial**: punto 1 cerrado; punto 2 implementado pero eludible (SEC-J-17) | (1) `HallazgoRegistrado.java:42-43`: `@JsonIgnore` en `latitud`/`longitud`, probado por `HallazgoRegistradoSerializacionTest` (4/4, incluye `convertValue(evento, Map.class)`). `toString()` sigue enmascarado (`:47-49`). (2) `PublicadorEventos.java:70-73`: rechaza el `hallazgo.*` **antes** de construir el sobre, con un mensaje que no incluye ni la clave ni el valor. `DetectorCoordenadas.java:74-99` recorre mapas y colecciones a cualquier profundidad, revisa claves (sin distinguir mayúsculas) y texto, y trata como sospechosa una estructura de más de 64 niveles. Detecta pares decimales con coma o punto, hemisferio, DMS con símbolos, `lat:`/`lng=` y GeoJSON anidado. **No** inspecciona `Number`, records/POJO ni arrays, y le faltan variantes de clave como `decimalLatitude` (ver SEC-J-17) |
+| **SEC-J-12** | **Cerrado** (residual aceptado: SEC-J-I2) | `ConfiguracionUbicacion.java:41-49`: el `char[]` se borra en `finally`, también cuando falla. `ProveedorDeLlavesKeyStore.java:48,64-81`: falla cerrado ante **cualquier** bit de grupo u otros, no solo lectura. Si no puede leer los permisos (`IOException`) tampoco arranca. Los mensajes no incluyen la ruta y no hay `cause` (`ProveedorDeLlavesKeyStoreTest`: 644, 640, 604 y 660 rechazados con `hasMessageNotContaining(ruta)` y `hasNoCause`; 600 aceptado; `ConfiguracionUbicacion` propaga el rechazo). `.env.example:71-72` y el README recomiendan pasar la contraseña por otro canal. Ver la nota sobre el `String` más abajo |
+| **SEC-J-08** | **Parcial**: puntos 1 y 2 cerrados (15h); punto 3 casi cerrado, queda el fallo abierto (SEC-J-18) | `logback-spring.xml:24-41`: `RollingFileAppender` propio con `append=true`, rotación diaria y por tamaño (50 MB), retención de 365 días con tope de 10 GB, nivel `INFO` fijo y `additivity=true` (también sale por consola). `Dockerfile:11`: `/app/logs` pertenece a `app:app` (UID 10001, no root). `AuditoriaLogbackTest` (3/3) comprueba que la línea llega al archivo y no al log general. **Pendiente:** `logging.level.biohub.auditoria.ubicacion` (o `LOGGING_LEVEL_BIOHUB_AUDITORIA_UBICACION`) sigue apagándola en silencio. Si `logs/` no se puede escribir, Logback solo avisa y la auditoría sale solo por consola. No hay ningún compose de despliegue de servicio-cientifico en el repositorio que monte un volumen en `/app/logs`, así que, tal como está, el archivo se pierde al recrear el contenedor |
+| **SEC-J-04** | **Parcial**: la parte de web-interna está cerrada; el proxy de teselas (Santiago) sigue abierto | `MapaHallazgos.jsx:12-13,30`: `fitBounds` con `maxZoom` 8 (un punto) o 10 (varios). `:48`: `referrerPolicy="no-referrer"` en `TileLayer`, opción que Leaflet 1.9.4 admite (`node_modules/leaflet` 1.9.4). Probado en `PaginaMapa.test.jsx:92-101`. No hay otros `setView`/`flyTo`/`panTo` en `web-interna/src`. Riesgo residual: OSMF sigue viendo la IP, la hora y teselas de unos 150 km alrededor del punto. El usuario puede acercar a mano hasta 12 (R6, aceptado). Ver SEC-J-I14 |
+
+**¿Es aceptable que la contraseña del keystore siga como `String` (SEC-J-I2)?** Sí, como riesgo residual. El valor ya está en el entorno del proceso (`/proc/<pid>/environ`, legible por el mismo UID y por root) y en el `Environment` de Spring. Quien puede volcar el heap o leer el entorno del proceso también puede leer el `.p12`, porque son el mismo usuario. Borrar el `char[]` reduce las copias, pero no cambia esa frontera. Condiciones que siguen vigentes:
+- actuator solo con `health,info` (`application.yml:58-59`, sin cambios);
+- sin `-XX:+HeapDumpOnOutOfMemoryError` hacia un disco compartido;
+- la contraseña fuera del `.env` de la ruta.
+
+Si en el futuro se quiere quitar también el `String`, la opción es leer la contraseña de un archivo de secreto (`UBICACION_KEYSTORE_PASSWORD_FILE`) directamente a `char[]` y no enlazarla en `PropiedadesCifrado`.
+
+### Verificación de ARQ-28, ARQ-29 y D44
+
+**Auditoría como puerto** (`ubicacion/domain/AuditoriaAccesoUbicacion.java:8-19`, implementado por `infrastructure/AuditoriaAccesoUbicacionLog.java:20-41`):
+- Hay una sola implementación en `src/main`.
+- El cuerpo de `registrar` y `limpiar` es igual al de antes: `endpoint`, `usuario` y `filtros` se sanean y se truncan.
+- La cadena sigue siendo auditoría → cifrado → JPA (`ConfiguracionUbicacion.java:91-97`).
+- `DecoradorAuditoriaAcceso.java:29-39` audita el éxito y **cualquier** `RuntimeException`.
+- El manejador de 403 solo cambió el import.
+- `DecoradorAuditoriaIntegracionTest` (2/2) y `AuditoriaYSinFiltracionesTest` (5/5) pasan.
+- Si `registrar` lanzara, el decorador no devuelve las coordenadas: falla cerrado en el camino de descifrado.
+
+**`EstadoConservacion` movido a `domain`:** es un enum sin lógica de seguridad. Lo cambiado fueron imports.
+
+**Reglas de D44:** se conservan las seis, sin relajar ninguna:
+- `cifradorSoloEnInfraestructuraYRecifrado`;
+- `soloServicioDescifradoPideCoordenadasExactas`, con `accessTargetWhere` y nombre completo;
+- `llavesSoloEnInfraestructuraYRecifrado`;
+- `servicioDescifradoExigeElRol`;
+- eslabones *package-private*;
+- `soloLaConfiguracionArmaLaCadena`.
+
+Las tres reglas nuevas de ARQ-28 (`layeredArchitecture`, `domain` sin dependencias externas, `infrastructure` sin depender de `service`) solo añaden restricciones.
+
+**ARQ-29 (D45):** `ModuloRegistroNoDependeDeUbicacionInternaTest` ahora prohíbe **todo** `co.edu.unbosque.biohub.cientifico.ubicacion` en `registro`, tanto en las fuentes como en el bytecode (con `allowEmptyShould`, porque hoy `registro` solo tiene `package-info`). Es **más estricta** que antes y refuerza D44: registro ya no puede ni siquiera nombrar `RepositorioUbicaciones` ni `ProveedorDeLlaves`.
+
+**consulta-pública:** `UmbralesDegradacion` conserva todas las validaciones del record anterior (`:42-57`). `MonitorCarga` lee `biohub.publica.modo-degradado` con la misma clave. No cambia nada de seguridad.
+
+**Conclusión:** D44 y la garantía "cada descifrado y cada 403 quedan auditados" siguen en pie **en el código**. El hueco que queda es operativo: el nivel del logger y el destino del archivo (SEC-J-18).
+
+## Hallazgos nuevos
+
+### SEC-J-17 · Bajo · A04 (la guarda de coordenadas del publicador se elude con números, objetos o arrays)
+**`DetectorCoordenadas` solo recorre `Map`, `Collection` y `String`. Cualquier otro valor se considera limpio, aunque `Jackson2JsonMessageConverter` lo serialice al broker.**
+
+- **Archivos:**
+  - `servicio-cientifico/src/main/java/co/edu/unbosque/biohub/cientifico/eventos/service/DetectorCoordenadas.java:78-98`: `contiene(...)` devuelve `false` para `Double`, `BigDecimal`, records/POJO/entidades y `Object[]`/`double[]`.
+  - `:28-29`: lista de claves cerrada, sin `decimalLatitude`, `decimalLongitude`, `verbatimCoordinates`, `verbatimLatitude`/`verbatimLongitude` (Darwin Core, el estándar habitual en biodiversidad), ni `lat_dec`, `x`/`y`, `punto`, `location`.
+  - `PublicadorEventos.java:70`: la guarda solo se aplica si `tipo.startsWith("hallazgo.")`, que distingue mayúsculas.
+  - `config/RabbitConfig.java:30-31`: `Jackson2JsonMessageConverter` serializa cualquier objeto que haya en `datos`.
+- **Problema (comprobado en el scratchpad):** estas cargas **pasan** la guarda y llegarían a `biohub.eventos`:
+
+  | Carga `datos` | Resultado |
+  |---|---|
+  | `{"punto": [4.6097, -74.0817]}` (Double) | pasa |
+  | `{"x": -74.0817, "y": 4.6097}` | pasa |
+  | `{"decimalLatitude": 4.6097, "decimalLongitude": -74.0817}` | pasa |
+  | `{"decimalLatitude": "4.6097"}` (un solo valor como texto) | pasa |
+  | `{"ubicacion": <record con latitud/longitud>}` | pasa (Jackson lo serializa con `latitud`/`longitud`) |
+  | `{"p": new Object[]{"4.6097, -74.0817"}}` | pasa |
+  | `"4.6097° -74.0817°"` (grados sin hemisferio) | pasa |
+  | `"POINT(-74.081 4.609)"`, `"-74.081, 4.609"` (orden lon,lat, 3 decimales ≈ 110 m) | pasa |
+  | `"4.6097 n, 74.0817 w"` (hemisferio en minúscula) | pasa |
+  | `"4 36 35 N 74 04 54 W"` (DMS sin símbolos) | pasa |
+
+  Lo que más probablemente se escape por error es poner una entidad u objeto en `datos` (`Map.of("hallazgo", hallazgo)`) o usar nombres Darwin Core. El consumidor de consulta-pública lo detecta en parte, porque parsea el JSON a mapas y ve `latitud` en el objeto anidado. Pero **no** detecta números bajo claves neutras, y `reportes.eventos` no tiene ninguna barrera. Además, el mensaje ya existe en el broker.
+
+  **Falsos positivos** (iguales en el consumidor, porque los patrones son los mismos), que rompen eventos legítimos:
+  - `"segmento lat. 3 con setas"` (abreviatura de *lateral*) y `"antenas long 2 mm"` (`CLAVE_Y_NUMERO`);
+  - `"pendiente 5° 30'"` (`GRADOS_MINUTOS`);
+  - `"25° N"`;
+  - `"peso 1.2345 2.3456 g"`;
+  - `"entre 1.200 -3.400 msnm"`.
+
+  No son frecuentes. Con la guarda en `PublicadorEventos`, un falso positivo hace fallar `publicar`. Si registro publica en un `@TransactionalEventListener(AFTER_COMMIT)`, el hallazgo ya quedó guardado y la ficha pública no se crea. Esa inconsistencia es silenciosa: el publicador no registra el incidente.
+- **Por qué importa:** D46 presenta la guarda como "la única barrera que impide que el mensaje exista". Hoy cubre el error de serializar `HallazgoRegistrado`, gracias a `@JsonIgnore`, pero no otros errores igual de probables. No es explotable desde fuera hoy: registro no existe todavía.
+- **Corrección** (ubicación, S): normalizar `datos` con el mismo `ObjectMapper` que usa el conversor, para que POJO, records y arrays se conviertan en `Map`/`List`/`Number`. Después, aplicar una **lista permitida** de §7.3 en lugar de solo una lista negra:
+  ```java
+  // PublicadorEventos
+  private static final Set<String> CAMPOS_HALLAZGO = Set.of("hallazgoId", "version", "nombreCientifico", "nombreComun",
+          "familia", "tipoEspecimen", "fechaRecoleccion", "estadoConservacion", "departamento", "descripcion");
+
+  if (tipo != null && tipo.toLowerCase(Locale.ROOT).startsWith(PREFIJO_HALLAZGO)) {
+      Object normalizado = objectMapper.convertValue(datos, Object.class);   // POJO/record/array -> Map/List/Number
+      if (!(normalizado instanceof Map<?, ?> m) || !CAMPOS_HALLAZGO.containsAll(m.keySet())
+              || DetectorCoordenadas.contiene(normalizado)) {
+          log.warn("INCIDENTE: hallazgo.* rechazado antes de publicar (D14) tipo={}", tipo);   // sin valores ni claves
+          throw new IllegalArgumentException("hallazgo.* no puede llevar coordenadas ni campos fuera de 04 §7.3 (D14)");
+      }
+  }
+
+  // DetectorCoordenadas.contiene: un número no entero en cualquier nivel es sospechoso (en §7.3 solo `version` es numérico)
+  } else if (nodo instanceof Double || nodo instanceof Float || nodo instanceof java.math.BigDecimal) {
+      return true;
+  }
+  ```
+  La lista permitida evita tener que adivinar nombres de clave (Darwin Core, `x`/`y`...) y cumple el contrato, que ya es cerrado. Para los falsos positivos: dejar documentado en `04` §7.3 que `lat.`/`long` seguidos de un número se rechazan, y pedir a registro (Hernando) que ejecute el **mismo** detector **antes del commit** y devuelva un 422 con el campo. Así el usuario reescribe el texto y no se llega a la inconsistencia posterior al commit. Opcional: rechazar en `publicar` cualquier `tipo` que no esté en la lista de §7.1.
+- **Responsable sugerido:** ubicación (Juanita), por D46. La validación antes del commit es de Hernando. **Esfuerzo:** S.
+
+### SEC-J-18 · Bajo · A09 (la auditoría D28 sigue fallando abierta ante un nivel de log bajado o un archivo que no se puede escribir)
+- **Archivos:**
+  - `servicio-cientifico/src/main/resources/logback-spring.xml:14-16,39-41`: el nivel `INFO` está fijado, pero Spring Boot aplica después `logging.level.*`.
+  - `AuditoriaAccesoUbicacionLog.java:46-50`: escribe con `info(...)` sin comprobar nada.
+  - `Dockerfile:10-11`: `/app/logs` sin volumen declarado.
+  - En el repositorio no hay ningún compose de despliegue de servicio-cientifico que monte `/app/logs`. `deploy/` solo tiene `aiven/`.
+- **Problema:**
+  1. `LOGGING_LEVEL_BIOHUB_AUDITORIA_UBICACION=OFF` en el entorno (o en el `.env`), o un `logging.level.root=WARN` sin excepción explícita, apagan la auditoría sin ningún error. La limitación está documentada en el README y en `.env.example`, pero solo se controla por convención.
+  2. Si la carpeta del archivo no se puede escribir, Logback deja el appender sin iniciar y solo emite un aviso de estado. La auditoría sigue saliendo solo por consola, y el servicio arranca igual.
+  3. Sin volumen, el archivo vive en la capa escribible del contenedor y se pierde al recrearlo.
+  4. "Solo anexado" es `append=true`. El proceso (`app`) puede truncar o borrar el archivo, y la retención (365 días / 10 GB) también borra. Esto es aceptable para el alcance actual. La inmutabilidad real queda para `ubicacion_acceso_log` (Could) o para enviar el log a un colector externo.
+- **Por qué importa:** D28/RF11 exigen que **cada** descifrado y cada 403 dejen rastro. El código lo garantiza, pero un único ajuste de configuración lo anula sin que nadie lo note, y la auditoría es justo lo que debe sobrevivir a un operador descuidado.
+- **Corrección** (ubicación, S): fallar cerrado al arrancar si la auditoría no está activa. Opcionalmente, también en cada llamada: el decorador ya convierte ese fallo en "no se entregan coordenadas".
+  ```java
+  // ubicacion/infrastructure/VerificadorAuditoria.java
+  @Component
+  class VerificadorAuditoria implements ApplicationListener<ApplicationReadyEvent> {
+      @Override
+      public void onApplicationEvent(ApplicationReadyEvent e) {
+          var logger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger("biohub.auditoria.ubicacion");
+          var archivo = logger.getAppender("AUDITORIA_UBICACION");
+          if (!logger.isInfoEnabled() || archivo == null || !archivo.isStarted()) {
+              throw new IllegalStateException("Auditoría D28 inactiva (nivel o archivo): el servicio no arranca");
+          }
+      }
+  }
+  // AuditoriaAccesoUbicacionLog.registrar, al inicio (defensa ante un cambio de nivel en caliente)
+  if (!auditoria.isInfoEnabled()) {
+      throw new IllegalStateException("Auditoría D28 inactiva");
+  }
+  ```
+  Con un test que arranque con `logging.level.biohub.auditoria.ubicacion=OFF` y espere el fallo. Para Santiago: al crear el compose del backend, montar un volumen nombrado en `/app/logs` (propietario 10001) y, si es posible, enviar ese archivo a un colector fuera de la VM.
+- **Responsable sugerido:** ubicación (Juanita); el volumen es de Santiago. **Esfuerzo:** S.
+
+### Informativos
+- **SEC-J-I13 (puerto de auditoría sustituible):** con `AuditoriaAccesoUbicacion` como interfaz, un bean nuevo `@Primary` que la implemente (por ejemplo, un no-op "para pruebas" que termine en `src/main`) reemplazaría la auditoría en la cadena sin que falle ninguna regla. Conviene añadir a `ArquitecturaUbicacionTest`:
+  ```java
+  classes().that().implement(AuditoriaAccesoUbicacion.class)
+      .should().haveFullyQualifiedName(INFRA + ".AuditoriaAccesoUbicacionLog").check(CLASES);   // CLASES excluye tests
+  ```
+- **SEC-J-I14 (Referer y política de teselas de OSM):** con la política por defecto del navegador (`strict-origin-when-cross-origin`), una petición entre orígenes ya enviaba solo el **origen** de web-interna, no la ruta. Por eso `no-referrer` aporta poco a la privacidad del punto (oculta que la IP es de un científico de BioHub). La política de uso de `tile.openstreetmap.org` pide un `Referer` válido a las aplicaciones web y puede bloquear teselas sin él. Hay que verificarlo en el navegador. Si OSM las bloquea, `onTeselasFallidas` dejaría el mapa sin fondo. En ese caso, usar `referrerPolicy="strict-origin"` (solo el origen, sin la ruta), que mantiene la protección de SEC-J-04. La solución definitiva sigue siendo el proxy de Santiago.
+- **SEC-J-I15 (exclusiones por nombre simple que quedan):** `ArquitecturaUbicacionTest.java:161` (`doNotHaveSimpleName("ConfiguracionUbicacion")`, junto con `haveSimpleNameNotStartingWith("Decorador")`) y `:177-178` (`VisibilidadExacta`, `PoliticaAccesoUbicacion` y `ServicioDescifrado` por nombre simple) todavía permiten un homónimo en otro paquete, el mismo patrón que SEC-J-15. Con D45 (registro no puede nombrar nada de `ubicacion`), el riesgo práctico es despreciable. Si se toca el archivo, cambiarlo a `doNotHaveFullyQualifiedName(...)`.
+
+### Regresiones
+- **No se encontraron regresiones de seguridad.**
+- Los mensajes de error nuevos no incluyen ni rutas, ni valores, ni causas.
+- El Dockerfile sigue con `USER app` (UID 10001).
+- Los comentarios de `application-aiven.yml` (ARQ-33) ahora coinciden con el valor por defecto `VERIFY_IDENTITY`.
+- `.gitignore` añade `logs/`.
+
+## Veredicto (iteración 16)
+**APROBADO CON OBSERVACIONES.** No hay Críticos ni Altos.
+- **SEC-J-12:** **cerrado**.
+- **SEC-J-13:** **parcial**, porque la guarda existe pero se elude (SEC-J-17).
+- **SEC-J-08:** **parcial**, porque el punto 3 falla abierto (SEC-J-18).
+- **SEC-J-04:** **parcial**, porque falta el proxy de teselas de Santiago.
+- **D44:** se mantiene tras ARQ-28 y ARQ-29.
+- **Condición previa a publicar `hallazgo.*` reales (registro):** SEC-J-17, como mínimo la normalización con `ObjectMapper` y la lista permitida de §7.3.
+- **SEC-J-18:** en la siguiente iteración de ubicación, y antes del primer despliegue con datos reales (el volumen es de Santiago).
