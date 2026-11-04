@@ -15,7 +15,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 
 /** QA: HB-20/21/24/25, MP-16/20 e inyección en filtros de la búsqueda y el mapa internos. */
 class QaInyeccionYLimitesInternosTest extends QaBase {

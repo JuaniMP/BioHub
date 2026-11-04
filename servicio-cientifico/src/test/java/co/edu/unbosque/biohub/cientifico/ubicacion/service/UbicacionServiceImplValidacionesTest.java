@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Departamento;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.RepositorioUbicaciones;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgo;
 

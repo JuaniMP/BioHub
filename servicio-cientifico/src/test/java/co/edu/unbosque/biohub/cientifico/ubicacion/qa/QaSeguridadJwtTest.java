@@ -17,7 +17,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 
 /**
  * QA: SG-04..SG-09, MP-03..MP-09, HB-14/HB-15, RC-04 con JWT reales (firma RSA, JWKS local, emisor, audiencia,

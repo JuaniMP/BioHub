@@ -21,7 +21,7 @@ import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.AuditoriaAccesoUbicacion;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.AuditoriaAccesoUbicacion;
 import co.edu.unbosque.biohub.cientifico.ubicacion.service.ErrorCampo;
 import co.edu.unbosque.biohub.cientifico.ubicacion.service.FuncionNoSoportadaException;
 import co.edu.unbosque.biohub.cientifico.ubicacion.service.ParametroInvalidoException;

@@ -26,7 +26,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.MySQLContainer;
 
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 import co.edu.unbosque.biohub.cientifico.ubicacion.service.RegistroUbicacionComando;
 import co.edu.unbosque.biohub.cientifico.ubicacion.service.UbicacionService;
 

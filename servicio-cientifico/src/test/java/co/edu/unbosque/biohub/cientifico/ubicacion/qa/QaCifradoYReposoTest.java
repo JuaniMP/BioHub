@@ -27,7 +27,7 @@ import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CifradorCoordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Coordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CoordenadasCifradas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CoordenadasNoDescifrablesException;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 import co.edu.unbosque.biohub.cientifico.ubicacion.service.RegistroUbicacionComando;
 import co.edu.unbosque.biohub.cientifico.ubicacion.service.ResultadoUbicacion;
 import co.edu.unbosque.biohub.cientifico.ubicacion.service.UbicacionInvalidaException;

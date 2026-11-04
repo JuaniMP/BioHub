@@ -5,7 +5,7 @@ import java.util.UUID;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Coordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CoordenadasCifradas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.RepositorioUbicaciones;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.AuditoriaAccesoUbicacion;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.AuditoriaAccesoUbicacion;
 
 /**
  * Decorator de auditoría (SAD §6.3.2, D28): registra el usuario y el hallazgo de CADA consulta de coordenadas

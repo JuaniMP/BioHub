@@ -8,7 +8,6 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import co.edu.unbosque.biohub.consultapublica.config.PropiedadesPublica;
 import co.edu.unbosque.biohub.consultapublica.domain.Departamento;
 
 class ValidadorBusquedaTest {
@@ -18,7 +17,7 @@ class ValidadorBusquedaTest {
     private final ValidadorBusqueda validador = validador(false);
 
     private ValidadorBusqueda validador(boolean forzado) {
-        MonitorCarga monitor = new MonitorCarga(new PropiedadesPublica(forzado, PropiedadesPublica.Degradacion.porDefecto()));
+        MonitorCarga monitor = new MonitorCarga(UmbralesDegradacion.porDefecto(), forzado);
         return new ValidadorBusqueda(catalogo, new ElectorEstrategiaBusqueda(monitor));
     }
 

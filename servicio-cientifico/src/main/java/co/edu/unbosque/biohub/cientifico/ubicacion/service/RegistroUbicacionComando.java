@@ -3,6 +3,8 @@ package co.edu.unbosque.biohub.cientifico.ubicacion.service;
 import java.time.LocalDate;
 import java.util.UUID;
 
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
+
 /** latitud/longitud: ambas o ninguna (null = hallazgo sin coordenadas). */
 public record RegistroUbicacionComando(
         UUID hallazgoId,

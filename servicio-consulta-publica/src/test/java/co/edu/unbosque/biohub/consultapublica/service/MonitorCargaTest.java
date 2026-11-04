@@ -12,9 +12,6 @@ import java.time.ZoneOffset;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import co.edu.unbosque.biohub.consultapublica.config.PropiedadesPublica;
-import co.edu.unbosque.biohub.consultapublica.config.PropiedadesPublica.Degradacion;
-
 /** ARQ-06 (ASR1, RNF1, HU-06.4): el monitor decide la degradación con histéresis y el forzado manual manda. */
 class MonitorCargaTest {
 
@@ -45,12 +42,12 @@ class MonitorCargaTest {
     private final RelojManual reloj = new RelojManual();
 
     /** Entrada: 10 en curso o p95 ≥ 1000 ms; salida: ≤ 4 en curso y p95 ≤ 500 ms; ventana 10 s; permanencia 15 s. */
-    private static Degradacion umbrales() {
-        return new Degradacion(true, 10, 4, 1000, 500, Duration.ofSeconds(10), 20, Duration.ofSeconds(15), Duration.ofSeconds(1));
+    private static UmbralesDegradacion umbrales() {
+        return new UmbralesDegradacion(true, 10, 4, 1000, 500, Duration.ofSeconds(10), 20, Duration.ofSeconds(15), Duration.ofSeconds(1));
     }
 
-    private MonitorCarga monitor(boolean forzado, Degradacion d) {
-        return new MonitorCarga(new PropiedadesPublica(forzado, d), reloj);
+    private MonitorCarga monitor(boolean forzado, UmbralesDegradacion d) {
+        return new MonitorCarga(d, forzado, reloj);
     }
 
     private void peticiones(MonitorCarga m, int cuantas, long duracionMs) {
@@ -219,8 +216,8 @@ class MonitorCargaTest {
     @Test
     @DisplayName("ARQ-06: con la degradación automática desactivada solo el forzado puede degradar")
     void sinAutomatica() {
-        Degradacion u = umbrales();
-        MonitorCarga m = monitor(false, new Degradacion(false, u.enCursoEntrada(), u.enCursoSalida(), u.p95EntradaMs(),
+        UmbralesDegradacion u = umbrales();
+        MonitorCarga m = monitor(false, new UmbralesDegradacion(false, u.enCursoEntrada(), u.enCursoSalida(), u.p95EntradaMs(),
                 u.p95SalidaMs(), u.ventana(), u.muestrasMinimas(), u.permanenciaMinima(), u.intervaloEvaluacion()));
         for (int i = 0; i < 50; i++) {
             m.iniciarPeticion();
@@ -243,14 +240,14 @@ class MonitorCargaTest {
     @Test
     @DisplayName("ARQ-06: los umbrales incoherentes (salida ≥ entrada) se rechazan al arrancar")
     void umbralesIncoherentes() {
-        assertThatThrownBy(() -> new Degradacion(true, 10, 10, 1000, 500, Duration.ofSeconds(10), 20, Duration.ofSeconds(15), Duration.ofSeconds(1)))
+        assertThatThrownBy(() -> new UmbralesDegradacion(true, 10, 10, 1000, 500, Duration.ofSeconds(10), 20, Duration.ofSeconds(15), Duration.ofSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new Degradacion(true, 10, 4, 1000, 1000, Duration.ofSeconds(10), 20, Duration.ofSeconds(15), Duration.ofSeconds(1)))
+        assertThatThrownBy(() -> new UmbralesDegradacion(true, 10, 4, 1000, 1000, Duration.ofSeconds(10), 20, Duration.ofSeconds(15), Duration.ofSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new Degradacion(true, 10, 4, 1000, 500, Duration.ZERO, 20, Duration.ofSeconds(15), Duration.ofSeconds(1)))
+        assertThatThrownBy(() -> new UmbralesDegradacion(true, 10, 4, 1000, 500, Duration.ZERO, 20, Duration.ofSeconds(15), Duration.ofSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new Degradacion(true, 10, 4, 1000, 500, Duration.ofSeconds(10), 0, Duration.ofSeconds(15), Duration.ofSeconds(1)))
+        assertThatThrownBy(() -> new UmbralesDegradacion(true, 10, 4, 1000, 500, Duration.ofSeconds(10), 0, Duration.ofSeconds(15), Duration.ofSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThat(Degradacion.porDefecto().enCursoEntrada()).isGreaterThan(Degradacion.porDefecto().enCursoSalida());
+        assertThat(UmbralesDegradacion.porDefecto().enCursoEntrada()).isGreaterThan(UmbralesDegradacion.porDefecto().enCursoSalida());
     }
 }

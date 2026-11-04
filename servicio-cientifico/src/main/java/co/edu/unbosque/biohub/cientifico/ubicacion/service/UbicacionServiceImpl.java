@@ -13,8 +13,9 @@ import org.springframework.transaction.annotation.Transactional;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Coordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Departamento;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.DetectorCoordenadasEnTexto;
-import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgo;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.RepositorioUbicaciones;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgo;
 
 /** Implementación de {@link UbicacionService}: se ejecuta dentro de la transacción de registro. */
 @Service

@@ -15,7 +15,7 @@ import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CifradorCoordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.ProveedorDeLlaves;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.RepositorioUbicaciones;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgoRepository;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.AuditoriaAccesoUbicacion;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.AuditoriaAccesoUbicacion;
 import jakarta.persistence.EntityManager;
 
 /** Configuración propia del módulo (no se toca {@code cientifico.config}, zona compartida). */

@@ -19,13 +19,15 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import co.edu.unbosque.biohub.cientifico.ubicacion.BaseUbicacionMySqlTest;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.vista.RecifradoResponse;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.AuditoriaAccesoUbicacion;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CifradorCoordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Coordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CoordenadasCifradas;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgoRepository;
 import co.edu.unbosque.biohub.cientifico.ubicacion.infrastructure.CifradorAesGcm;
 import co.edu.unbosque.biohub.cientifico.ubicacion.infrastructure.ProveedorDeLlavesEntorno;
+import co.edu.unbosque.biohub.cientifico.ubicacion.service.vista.RecifradoResponse;
 import jakarta.persistence.EntityManager;
 
 /** Rotación de llave (v1 -> v2) y re-cifrado. La llave "activa" del contexto es v1; aquí se simula v2. */

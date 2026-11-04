@@ -18,6 +18,7 @@ import org.mockito.ArgumentCaptor;
 
 import co.edu.unbosque.biohub.cientifico.eventos.domain.HallazgoReclasificado;
 import co.edu.unbosque.biohub.cientifico.eventos.domain.HallazgoRegistrado;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 
 /** ARQ-08 (Observer, P-A3): el observador traduce los eventos de dominio en llamadas a UbicacionService. */
 class ObservadorUbicacionTest {

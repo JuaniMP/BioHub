@@ -76,7 +76,7 @@ class ProveedorDeLlavesEntornoTest {
             .withBean(co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgoRepository.class,
                     () -> org.mockito.Mockito.mock(co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgoRepository.class))
             .withBean(jakarta.persistence.EntityManager.class, () -> org.mockito.Mockito.mock(jakarta.persistence.EntityManager.class))
-            .withBean(co.edu.unbosque.biohub.cientifico.ubicacion.service.AuditoriaAccesoUbicacion.class);
+            .withBean(AuditoriaAccesoUbicacionLog.class);
 
     @Test
     void elContextoNoArrancaSinLlaves() {

@@ -19,7 +19,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
 import co.edu.unbosque.biohub.cientifico.ubicacion.BaseUbicacionMySqlTest;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 
 class BusquedaHallazgosApiTest extends BaseUbicacionMySqlTest {
 

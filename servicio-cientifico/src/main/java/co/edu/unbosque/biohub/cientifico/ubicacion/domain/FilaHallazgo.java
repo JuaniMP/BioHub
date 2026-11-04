@@ -3,8 +3,6 @@ package co.edu.unbosque.biohub.cientifico.ubicacion.domain;
 import java.time.LocalDate;
 import java.util.UUID;
 
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
-
 /** Fila leída de ubicacion_hallazgo + catálogo. {@code cifradas} solo viene si la consulta lo pidió. */
 public record FilaHallazgo(
         UUID id,

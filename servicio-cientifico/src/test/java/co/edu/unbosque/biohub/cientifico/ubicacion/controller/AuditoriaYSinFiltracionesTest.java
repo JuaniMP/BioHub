@@ -19,7 +19,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import co.edu.unbosque.biohub.cientifico.ubicacion.BaseUbicacionMySqlTest;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 import co.edu.unbosque.biohub.cientifico.ubicacion.service.RegistroUbicacionComando;
 
 /** Auditoría de accesos (D28) y garantía de que ningún log ni respuesta no autorizada contiene coordenadas. */

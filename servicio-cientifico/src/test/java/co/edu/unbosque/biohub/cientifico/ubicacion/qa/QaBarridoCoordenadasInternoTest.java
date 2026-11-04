@@ -17,7 +17,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 
 /** QA: barrido de coordenadas en TODAS las respuestas internas por rol (HB-07/08, MP-03, RC-04, RNF9). */
 class QaBarridoCoordenadasInternoTest extends QaBase {

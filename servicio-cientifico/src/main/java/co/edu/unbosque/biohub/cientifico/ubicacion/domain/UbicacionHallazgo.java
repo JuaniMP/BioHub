@@ -14,7 +14,6 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
 
 /**
  * Índice de búsqueda interno + coordenadas CIFRADAS de un hallazgo. No existen columnas de
