@@ -120,3 +120,16 @@ Despliegue de bases, Redis y RabbitMQ en VMs locales con una VPN de malla, y su 
 - Usuaria: agregar en Aiven (Allowed IP addresses) las IP que envíen Hernando, Nicolás y Santiago.
 - Corridas k6 (D42) pospuestas por decisión de la usuaria hasta que los servicios de todos estén completos; repetir todo sobre `develop` antes de la entrega.
 - Cuando `develop` esté estable: PR `develop` → `main`.
+
+# Iteración 16: pendientes propios de Juanita (seguridad y arquitectura)
+
+**Fecha:** 2026-11-04 · **Rama:** `feature/ubicacion-consulta-publica` · **Modo de presupuesto:** equilibrado, sin tope.
+
+**Alcance:** solo hallazgos cuyo responsable es Juanita. Fuera de alcance: SEC-J-05, SEC-J-07 (web-interna), SEC-J-09, SEC-04/SEC-D-03 (Santiago); ARQ-07 (Hernando); k6 de D42 (pospuesto por la usuaria); el proxy de teselas de SEC-J-04 (Santiago). Decisiones nuevas: D45 (ARQ-29) y D46 (SEC-J-13) en `03-arquitectura.md`.
+
+| # | Tarea | Responsable | Modelo | Estado |
+|---|---|---|---|---|
+| 16a | ARQ-33: comentarios de `application-aiven.yml` (cientifico y consulta-publica) | Tech Lead | opus/medium | Hecho |
+| 16b | SEC-J-13, SEC-J-12, SEC-J-08.3, ARQ-28, ARQ-29 en `servicio-cientifico` | backend-senior | sonnet/high | En curso |
+| 16c | SEC-J-04 (zoom con un punto y `referrerPolicy`) en `web-interna/src/ubicacion` | frontend-senior | sonnet/medium | En curso |
+| 16d | Verificación: tests y re-auditoría del diff | qa-tester · ciberseguridad | sonnet/medium · opus/medium | Pendiente |
