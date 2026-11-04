@@ -1,0 +1,12 @@
+docs {
+  # BioHub - colección de pruebas de API (parte de Juanita)
+  
+  Cubre `servicio-consulta-publica` (`/api/publica/**`) y el módulo `ubicacion` de `servicio-cientifico`
+  (`/api/cientifico/ubicacion/**`). Las peticiones van directo a cada servicio (8083 y 8081), no por el gateway.
+  
+  Orden: `auth` (tokens de Keycloak) -> `setup` (siembra eventos `hallazgo.*` por la API de management de RabbitMQ)
+  -> `consulta-publica` -> `ubicacion`.
+  
+  Secretos (no están en el repo): `passwordUsuarios` (usuarios de prueba del realm) y `rabbitPassword`.
+  Se pasan con `--env-var passwordUsuarios=... --env-var rabbitPassword=...`. Ver docs/equipo/09-despliegue.md (sección CI).
+}

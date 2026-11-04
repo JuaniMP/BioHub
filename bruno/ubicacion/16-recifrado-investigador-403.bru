@@ -1,0 +1,40 @@
+meta {
+  name: recifrado-investigador-403
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{baseCientifico}}/api/cientifico/ubicacion/recifrado
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_campo}}
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("403 ROL_INSUFICIENTE sin datos ni coordenadas", function () {
+    expect(res.getStatus()).to.equal(403);
+    expect(res.getBody().codigo).to.equal("ROL_INSUFICIENTE");
+    expect(clavesDeCoordenadas(res.getBody())).to.deep.equal([]);
+  });
+}
+
+docs {
+  Requisito: RNF9, ASR6, RF13.
+}

@@ -1,0 +1,6 @@
+{
+  "version": "1",
+  "name": "BioHub - parte de Juanita (ubicacion y consulta publica)",
+  "type": "collection",
+  "ignore": ["node_modules", ".git", "resultados"]
+}

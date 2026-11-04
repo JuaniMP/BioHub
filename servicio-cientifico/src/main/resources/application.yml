@@ -2,21 +2,34 @@ spring:
   application:
     name: servicio-cientifico
   config:
-    # Lee el .env de la raíz del monorepo (al ejecutar desde la carpeta del servicio)
-    import: optional:file:../.env[.properties]
+    # Lee el .env de la raíz del monorepo y el .env propio del servicio (el último gana), al ejecutar
+    # desde la carpeta del servicio. Ver servicio-cientifico/.env.example.
+    import: optional:file:../.env[.properties],optional:file:./.env[.properties]
   datasource:
-    url: jdbc:mysql://${MYSQL_TRANSACCIONAL_HOST:localhost}:${MYSQL_TRANSACCIONAL_PORT:3307}/cientifico
-    username: ${MYSQL_CIENTIFICO_USER}
-    password: ${MYSQL_CIENTIFICO_PASSWORD}
+    # Sin valores por defecto: la URL, el usuario y la contraseña salen del entorno.
+    # Los perfiles "local" y "aiven" (application-local.yml / application-aiven.yml) arman la URL.
+    # Sin perfil, hay que definir CIENTIFICO_DB_URL completa (jdbc:mysql://host:puerto/cientifico?...).
+    url: ${CIENTIFICO_DB_URL}
+    username: ${CIENTIFICO_DB_USER}
+    password: ${CIENTIFICO_DB_PASSWORD}
   jpa:
     open-in-view: false
     hibernate:
       ddl-auto: validate   # el esquema lo maneja Flyway, nunca Hibernate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC   # DATETIME(3) en UTC (05-modelo-datos §3)
+          batch_size: 100  # re-cifrado por lotes (ARQ-12); con rewriteBatchedStatements en el perfil aiven
+        order_updates: true
   flyway:
     enabled: true
     locations: classpath:db/migration
     # Versiones con fecha (V20261022_1430__...): acepta migraciones que llegan "tarde" al fusionar ramas
     out-of-order: true
+    # Opcional (SEC-11): usuario de migración distinto del de ejecución. Si no se define, usa el del datasource.
+    user: ${CIENTIFICO_MIGR_USER:${spring.datasource.username}}
+    password: ${CIENTIFICO_MIGR_PASSWORD:${spring.datasource.password}}
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
@@ -51,6 +64,20 @@ management:
         enabled: true
 
 biohub:
+  ubicacion:
+    cifrado:
+      # Llaves AES-256 versionadas: "v1:<base64 de 32 bytes>,v2:<...>" (openssl rand -base64 32).
+      # Sin llave activa válida el servicio NO arranca (D20). Nunca poner valores reales aquí.
+      claves: ${UBICACION_CLAVES:}
+      clave-activa: ${UBICACION_CLAVE_ACTIVA:}
+      # Solo con el perfil "dev": genera una llave efímera en memoria (las coordenadas guardadas
+      # se pierden al reiniciar). Desactivado por defecto; jamás activarlo en las VMs.
+      llave-efimera-dev: ${UBICACION_LLAVE_EFIMERA_DEV:false}
+      # Almacén de llaves (ARQ-11, Adapter): "entorno" (por defecto: UBICACION_CLAVES) o "keystore" (PKCS12 .p12
+      # con contraseña, ver README). Con "keystore", clave-activa es el alias de la llave que cifra.
+      proveedor: ${UBICACION_LLAVES_PROVEEDOR:entorno}
+      keystore-ruta: ${UBICACION_KEYSTORE_RUTA:}
+      keystore-password: ${UBICACION_KEYSTORE_PASSWORD:}
   eventos:
     exchange: biohub.eventos
     timeout-confirmacion: 5s

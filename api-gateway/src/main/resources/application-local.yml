@@ -1,0 +1,7 @@
+# Perfil "local": MySQL del docker-compose.yml de la raíz (docker compose up -d).
+# Activar:  SPRING_PROFILES_ACTIVE=local   (las credenciales vienen del .env de la raíz)
+spring:
+  datasource:
+    url: jdbc:mysql://${MYSQL_GATEWAY_HOST:localhost}:${MYSQL_GATEWAY_PORT:3310}/gateway
+    username: ${MYSQL_GATEWAY_USER}
+    password: ${MYSQL_GATEWAY_PASSWORD}

@@ -1,0 +1,46 @@
+meta {
+  name: eventos-recibidos-200-administrador
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{baseConsulta}}/api/publica/eventos/recibidos
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_admin}}
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("200 y los eventos sembrados no exponen coordenadas", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().servicio).to.equal("servicio-consulta-publica");
+    expect(res.getBody().eventos).to.be.an("array");
+  });
+  test("la respuesta NUNCA contiene claves de coordenadas (D14)", function () {
+    expect(clavesDeCoordenadas(res.getBody())).to.deep.equal([]);
+    const crudo = JSON.stringify(res.getBody());
+    expect(crudo).to.not.contain("5.1234567");
+    expect(crudo).to.not.contain("-73.1234567");
+  });
+}
+
+docs {
+  Requisito: RF13, RF4 (eventos hallazgo.*).
+}

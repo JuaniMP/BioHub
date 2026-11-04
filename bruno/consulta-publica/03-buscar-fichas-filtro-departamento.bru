@@ -1,0 +1,51 @@
+meta {
+  name: buscar-fichas-filtro-departamento
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseConsulta}}/api/publica/fichas?q=atelopus&departamento=15
+  body: none
+  auth: none
+}
+
+params:query {
+  q: atelopus
+  departamento: 15
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("solo fichas del departamento 15 (Boyacá)", function () {
+    expect(res.getStatus()).to.equal(200);
+    const c = res.getBody().content;
+    expect(c.length).to.be.at.least(1);
+    c.forEach(function (f) { expect(f.departamentoCodigo).to.equal("15"); expect(f.departamento).to.equal("Boyacá"); });
+    expect(c.map(function (f) { return f.id; })).to.include(bru.getEnvVar("hallazgoA"));
+    expect(c.map(function (f) { return f.id; })).to.not.include(bru.getEnvVar("hallazgoB"));
+  });
+  test("la respuesta NUNCA contiene claves de coordenadas (D14)", function () {
+    expect(clavesDeCoordenadas(res.getBody())).to.deep.equal([]);
+    const crudo = JSON.stringify(res.getBody());
+    expect(crudo).to.not.contain("5.1234567");
+    expect(crudo).to.not.contain("-73.1234567");
+  });
+}
+
+docs {
+  Filtro por código DANE. El hallazgo B (Cundinamarca, enviado por nombre en el evento) no debe aparecer.
+  Requisito: RF10, RF11, HU-06.2.
+}

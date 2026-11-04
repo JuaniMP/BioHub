@@ -1,0 +1,45 @@
+meta {
+  name: hallazgos-fechas-incoherentes-400
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseCientifico}}/api/cientifico/ubicacion/hallazgos?desde=2026-12-31&hasta=2026-01-01
+  body: none
+  auth: bearer
+}
+
+params:query {
+  desde: 2026-12-31
+  hasta: 2026-01-01
+}
+
+auth:bearer {
+  token: {{token_campo}}
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("400 PARAMETRO_INVALIDO sobre hasta", function () {
+    expect(res.getStatus()).to.equal(400);
+    expect(res.getBody().codigo).to.equal("PARAMETRO_INVALIDO");
+    expect(res.getBody().errores.map(function (e) { return e.campo; })).to.include("hasta");
+  });
+}
+
+docs {
+  Requisito: HU-13.
+}

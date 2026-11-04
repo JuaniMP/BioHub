@@ -1,0 +1,72 @@
+meta {
+  name: buscar-fichas-por-nombre
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseConsulta}}/api/publica/fichas?q=atelopus
+  body: none
+  auth: none
+}
+
+params:query {
+  q: atelopus
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("200 con la forma paginada", function () {
+    expect(res.getStatus()).to.equal(200);
+    const b = res.getBody();
+    expect(b.content).to.be.an("array");
+    expect(b).to.include.keys(["page", "size", "total", "totalPaginas", "modoDegradado", "filtrosIgnorados"]);
+    expect(b.page).to.equal(0);
+    expect(b.size).to.equal(20);
+  });
+  test("encuentra las dos fichas sembradas de Atelopus", function () {
+    const ids = res.getBody().content.map(function (f) { return f.id; });
+    expect(ids).to.include(bru.getEnvVar("hallazgoA"));
+    expect(ids).to.include(bru.getEnvVar("hallazgoB"));
+  });
+  test("cada ficha trae solo campos públicos", function () {
+    res.getBody().content.forEach(function (f) {
+      expect(f).to.include.keys(["id", "nombreCientifico", "familia", "estadoConservacion", "departamento", "departamentoCodigo", "region"]);
+      expect(f.nombreCientifico.toLowerCase()).to.contain("atelopus");
+      expect(f).to.not.have.any.keys("investigador", "usuario", "descripcion");
+    });
+  });
+  test("ordenado por nombre científico ascendente", function () {
+    const n = res.getBody().content.map(function (f) { return f.nombreCientifico; });
+    expect(n).to.deep.equal(n.slice().sort());
+  });
+  test("Cache-Control public, max-age=30", function () {
+    expect(res.getHeader("cache-control")).to.equal("public, max-age=30");
+  });
+  test("responde en <= 2 s (RNF5)", function () {
+    expect(res.getResponseTime()).to.be.below(2000);
+  });
+  test("la respuesta NUNCA contiene claves de coordenadas (D14)", function () {
+    expect(clavesDeCoordenadas(res.getBody())).to.deep.equal([]);
+    const crudo = JSON.stringify(res.getBody());
+    expect(crudo).to.not.contain("5.1234567");
+    expect(crudo).to.not.contain("-73.1234567");
+  });
+}
+
+docs {
+  Búsqueda pública por nombre (prefijo, sin tildes). Verifica forma, orden, caché, tiempo y ausencia de coordenadas.
+  Requisito: RF10, RF11, RNF5 (ASR4), HU-06.2.
+}

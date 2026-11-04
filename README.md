@@ -122,7 +122,15 @@ cd api-gateway
 mvn spring-boot:run
 ```
 
-Repite con `servicio-cientifico`, `servicio-equipos`, `servicio-consulta-publica` y `servicio-reportes`. Para usar el jar:
+Repite con `servicio-equipos` y `servicio-reportes`. `servicio-cientifico` y `servicio-consulta-publica` necesitan elegir **perfil de base de datos**:
+
+```bash
+cd servicio-cientifico
+SPRING_PROFILES_ACTIVE=local mvn spring-boot:run    # MySQL del docker-compose (puerto 3307)
+SPRING_PROFILES_ACTIVE=aiven mvn spring-boot:run    # MySQL en Aiven con SSL (ver 09-despliegue.md)
+```
+
+(`servicio-consulta-publica` igual: local usa el MySQL del puerto 3308.) Sin perfil no arrancan: no hay URL ni credenciales por defecto. Plantillas de variables: `servicio-*/.env.example`. Para usar el jar:
 
 ```bash
 cd servicio-cientifico
@@ -286,20 +294,13 @@ cd web-publica && npm test
 
 ## 10b. Despliegue (implementado)
 
-Estado: **implementado** en dos máquinas virtuales (KVM, en el portátil de Juanita) conectadas por Tailscale. La app solo está en línea cuando ese equipo y las VMs están encendidos.
+Topología actual (iteración 15):
 
-- **VM `biohub-backend`**: gateway (8080), Keycloak (8180, modo dev), panel de RabbitMQ (15672); servicios y Redis en red Docker interna.
-- **VM `biohub-datos`**: los 4 MySQL (3307-3310). Los usuarios de aplicación solo aceptan conexiones desde la VM backend.
-- **Tailscale**: los 4 integrantes entran por la tailnet (`http://biohub-backend:8080`, SSH con `ssh biohub@biohub-backend`). Nada se publica en internet.
-- Redespliegue (solo quien tenga la máquina anfitriona): `deploy/desplegar.sh backend|datos|todo`.
-- **Pendiente**: HTTPS/Funnel y webs en Vercel.
+- **MySQL**: administrado en **Aiven** (un servicio con una base y un usuario por servicio), con SSL y verificación del CA. Perfil Spring `aiven`.
+- **RabbitMQ, Redis y Keycloak**: en Docker local (`docker-compose.yml`). El compose también trae MySQL locales para el perfil `local`.
+- **Desarrollo sin internet**: perfil `local` (`SPRING_PROFILES_ACTIVE=local`) contra los MySQL del compose.
 
-Guías:
-- [docs/guia-tailscale.md](docs/guia-tailscale.md): cómo conectarte, probar y consultar (empieza aquí).
-- [docs/equipo/09-despliegue.md](docs/equipo/09-despliegue.md): detalle técnico, variables y operación.
-- [docs/equipo/03-arquitectura.md](docs/equipo/03-arquitectura.md): decisión D11.
-
-Las contraseñas (`deploy/*/.env`) no están en el repo: pídelas a Juanita por un canal privado.
+Guía completa (consola de Aiven, conversión del CA, variables, rollback, migración de los demás servicios): [docs/equipo/09-despliegue.md](docs/equipo/09-despliegue.md). Las credenciales (`.env`, `ca.pem`) no están en el repo: pídelas por un canal privado.
 
 ## 11. Solución de problemas
 

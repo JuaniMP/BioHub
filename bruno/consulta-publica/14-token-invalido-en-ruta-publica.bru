@@ -1,0 +1,43 @@
+meta {
+  name: token-invalido-en-ruta-publica
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{baseConsulta}}/api/publica/fichas?q=atelopus
+  body: none
+  auth: none
+}
+
+params:query {
+  q: atelopus
+}
+
+headers {
+  Authorization: Bearer esto.no.es.un.jwt
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("401 sin cuerpo si se envía un Authorization inválido", function () {
+    expect(res.getStatus()).to.equal(401);
+  });
+}
+
+docs {
+  Contrato 04 §4: la ruta es pública, pero un Bearer inválido da 401.
+  Requisito: RF18 (token inválido rechazado), RF10.
+}

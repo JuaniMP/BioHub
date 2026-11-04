@@ -24,6 +24,7 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.core.MessageProperties;
+import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitOperations;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
@@ -40,6 +41,9 @@ class PublicadorEventosTest {
     @BeforeEach
     void preparar() {
         template = mock(RabbitTemplate.class);
+        ConnectionFactory fabrica = mock(ConnectionFactory.class);
+        when(fabrica.getUsername()).thenReturn("cientifico_mq");
+        when(template.getConnectionFactory()).thenReturn(fabrica);
         operaciones = mock(RabbitOperations.class);
         when(template.invoke(any(RabbitOperations.OperationsCallback.class))).thenAnswer(inv -> {
             RabbitOperations.OperationsCallback<?> cb = inv.getArgument(0);
@@ -75,6 +79,45 @@ class PublicadorEventosTest {
 
         assertThat(mensaje.getMessageProperties().getDeliveryMode()).isEqualTo(MessageDeliveryMode.PERSISTENT);
         assertThat(mensaje.getMessageProperties().getMessageId()).isEqualTo(evento.id().toString());
+    }
+
+    @Test
+    void elMensajeFijaElUserIdConElUsuarioAmqpDeLaConexion() throws Exception {
+        EventoSobre evento = publicador.publicar("hallazgo.registrado", "admin1", Map.of());
+
+        ArgumentCaptor<MessagePostProcessor> captor = ArgumentCaptor.forClass(MessagePostProcessor.class);
+        verify(operaciones).convertAndSend(eq("biohub.eventos"), eq("hallazgo.registrado"), eq(evento),
+                captor.capture());
+        Message mensaje = new Message(new byte[0], new MessageProperties());
+        captor.getValue().postProcessMessage(mensaje);
+
+        assertThat(mensaje.getMessageProperties().getUserId()).isEqualTo("cientifico_mq");
+    }
+
+    @Test
+    void elUserIdSigueAlUsuarioConfiguradoYNoEsUnaConstante() throws Exception {
+        ConnectionFactory otra = mock(ConnectionFactory.class);
+        when(otra.getUsername()).thenReturn("otro_usuario");
+        when(template.getConnectionFactory()).thenReturn(otra);
+        PublicadorEventos otroPublicador = new PublicadorEventos(template, "biohub.eventos",
+                Duration.ofSeconds(5), Clock.fixed(AHORA, ZoneOffset.UTC));
+
+        EventoSobre evento = otroPublicador.publicar("hallazgo.registrado", "admin1", Map.of());
+
+        ArgumentCaptor<MessagePostProcessor> captor = ArgumentCaptor.forClass(MessagePostProcessor.class);
+        verify(operaciones).convertAndSend(eq("biohub.eventos"), eq("hallazgo.registrado"), eq(evento),
+                captor.capture());
+        Message mensaje = new Message(new byte[0], new MessageProperties());
+        captor.getValue().postProcessMessage(mensaje);
+        assertThat(mensaje.getMessageProperties().getUserId()).isEqualTo("otro_usuario");
+    }
+
+    @Test
+    void sinUsuarioAmqpDeterminableFallaAlConstruir() {
+        when(template.getConnectionFactory()).thenReturn(null);
+
+        assertThatThrownBy(() -> new PublicadorEventos(template, "biohub.eventos", Duration.ofSeconds(5),
+                Clock.fixed(AHORA, ZoneOffset.UTC))).isInstanceOf(IllegalStateException.class);
     }
 
     @Test

@@ -2,12 +2,16 @@ spring:
   application:
     name: api-gateway
   config:
-    # Lee el .env de la raíz del monorepo (al ejecutar desde la carpeta del servicio)
-    import: optional:file:../.env[.properties]
+    # Lee el .env de la raíz del monorepo y el .env propio del servicio (el último gana), al ejecutar
+    # desde la carpeta del servicio. Ver api-gateway/.env.example.
+    import: optional:file:../.env[.properties],optional:file:./.env[.properties]
   datasource:
-    url: jdbc:mysql://${MYSQL_GATEWAY_HOST:localhost}:${MYSQL_GATEWAY_PORT:3310}/gateway
-    username: ${MYSQL_GATEWAY_USER}
-    password: ${MYSQL_GATEWAY_PASSWORD}
+    # Sin valores por defecto: la URL, el usuario y la contraseña salen del entorno.
+    # Los perfiles "local" y "aiven" (application-local.yml / application-aiven.yml) arman la URL.
+    # Sin perfil, hay que definir GATEWAY_DB_URL completa (jdbc:mysql://host:puerto/gateway?...).
+    url: ${GATEWAY_DB_URL}
+    username: ${GATEWAY_DB_USER}
+    password: ${GATEWAY_DB_PASSWORD}
   jpa:
     open-in-view: false
     hibernate:
@@ -17,6 +21,9 @@ spring:
     locations: classpath:db/migration
     # Versiones con fecha (V20261022_1430__...): acepta migraciones que llegan "tarde" al fusionar ramas
     out-of-order: true
+    # Opcional (SEC-11): usuario de migración distinto del de ejecución. Si no se define, usa el del datasource.
+    user: ${GATEWAY_MIGR_USER:${spring.datasource.username}}
+    password: ${GATEWAY_MIGR_PASSWORD:${spring.datasource.password}}
   security:
     oauth2:
       resourceserver:

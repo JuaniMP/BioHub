@@ -1,0 +1,54 @@
+meta {
+  name: hallazgos-filtro-especie-y-fechas
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseCientifico}}/api/cientifico/ubicacion/hallazgos?especie=Atelopus&desde=2026-03-01&hasta=2026-03-31&departamento=15
+  body: none
+  auth: bearer
+}
+
+params:query {
+  especie: Atelopus
+  desde: 2026-03-01
+  hasta: 2026-03-31
+  departamento: 15
+}
+
+auth:bearer {
+  token: {{token_campo}}
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("filtra por especie, rango de fechas y departamento", function () {
+    expect(res.getStatus()).to.equal(200);
+    const c = res.getBody().content;
+    expect(c.length).to.be.at.least(1);
+    c.forEach(function (h) {
+      expect(h.nombreCientifico.toLowerCase().indexOf("atelopus")).to.equal(0);
+      expect(h.fechaRecoleccion >= "2026-03-01" && h.fechaRecoleccion <= "2026-03-31").to.equal(true);
+      expect(h.departamentoCodigo).to.equal("15");
+    });
+    expect(c.map(function (h) { return h.id; })).to.include(bru.getEnvVar("hallazgoA"));
+    expect(clavesDeCoordenadas(res.getBody())).to.deep.equal([]);
+  });
+}
+
+docs {
+  Requisito: HU-13, RF13.
+}

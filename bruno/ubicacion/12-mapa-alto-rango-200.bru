@@ -1,0 +1,63 @@
+meta {
+  name: mapa-alto-rango-200
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{baseCientifico}}/api/cientifico/ubicacion/mapa
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_alto}}
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("200 GeoJSON FeatureCollection con los hallazgos con coordenadas", function () {
+    expect(res.getStatus()).to.equal(200);
+    const b = res.getBody();
+    expect(b.type).to.equal("FeatureCollection");
+    expect(b).to.include.keys(["features", "total", "devueltos", "truncado", "omitidos", "limite"]);
+    expect(b.limite).to.equal(1000);
+    expect(b.devueltos).to.equal(b.features.length);
+    expect(b.truncado).to.equal(false);
+    expect(b.omitidos).to.equal(0);
+  });
+  test("coordenadas exactas en orden GeoJSON [longitud, latitud]", function () {
+    const a = res.getBody().features.find(function (f) { return f.id === bru.getEnvVar("hallazgoA"); });
+    expect(a, "feature A").to.exist;
+    expect(a.type).to.equal("Feature");
+    expect(a.geometry.type).to.equal("Point");
+    expect(a.geometry.coordinates).to.deep.equal([-73.1234567, 5.1234567]);
+    expect(a.properties.hallazgoId).to.equal(bru.getEnvVar("hallazgoA"));
+    expect(a.properties.nombreCientifico).to.equal("Atelopus ebenoides");
+  });
+  test("un hallazgo sin coordenadas no aparece en el mapa", function () {
+    const ids = res.getBody().features.map(function (f) { return f.id; });
+    expect(ids).to.not.include(bru.getEnvVar("hallazgoC"));
+    expect(ids).to.include(bru.getEnvVar("hallazgoB"));
+  });
+  test("Cache-Control no-store", function () {
+    expect(res.getHeader("cache-control")).to.contain("no-store");
+  });
+}
+
+docs {
+  El único rol con acceso: cientifico_alto_rango (cientifico1). Las coordenadas sembradas se cifraron con la clave de CI y se descifran aquí.
+  Requisito: RF12, RF13, RNF9, ASR6, HU-07.
+}

@@ -1,0 +1,20 @@
+# Perfil "aiven": MySQL administrado en Aiven, con SSL obligatorio y verificación del CA.
+# Activar:  SPRING_PROFILES_ACTIVE=aiven   (variables en servicio-equipos/.env.example)
+#
+# MySQL Connector/J 9.x no lee PEM: el CA de Aiven (ca.pem) debe convertirse una vez a un truststore PKCS12
+# (comando en docs/equipo/09-despliegue.md). AIVEN_TRUSTSTORE_PATH es la ruta ABSOLUTA de ese .p12.
+#   sslMode=VERIFY_CA        verifica que el certificado del servidor lo firma el CA de Aiven (por defecto).
+#   AIVEN_SSL_MODE=VERIFY_IDENTITY  además verifica que el host coincida con el certificado.
+# Nunca bajar a PREFERRED/REQUIRED: cifrarían sin verificar al servidor.
+spring:
+  datasource:
+    url: "jdbc:mysql://${EQUIPOS_DB_HOST}:${EQUIPOS_DB_PORT}/${EQUIPOS_DB_NAME:equipos}?sslMode=${AIVEN_SSL_MODE:VERIFY_IDENTITY}&trustCertificateKeyStoreUrl=file:${AIVEN_TRUSTSTORE_PATH}&trustCertificateKeyStoreType=PKCS12&trustCertificateKeyStorePassword=${AIVEN_TRUSTSTORE_PASSWORD}&connectTimeout=${EQUIPOS_DB_CONNECT_TIMEOUT_MS:3000}&socketTimeout=${EQUIPOS_DB_SOCKET_TIMEOUT_MS:30000}&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8&rewriteBatchedStatements=true"
+    hikari:
+      # Escritura: latencia por internet, apertura de conexión más tolerante que en local.
+      connection-timeout: 10000
+      validation-timeout: 3000
+      maximum-pool-size: 5        # el plan de Aiven limita las conexiones; los servicios del mismo Aiven comparten el límite
+      minimum-idle: 1
+      idle-timeout: 300000
+      max-lifetime: 600000        # recicla antes de que un firewall/proxy corte la conexión inactiva
+      keepalive-time: 120000

@@ -1,0 +1,64 @@
+meta {
+  name: publicar-hallazgo-A
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{rabbitMgmtUrl}}/api/exchanges/%2F/biohub.eventos/publish
+  body: json
+  auth: basic
+}
+
+auth:basic {
+  username: {{rabbitUser}}
+  password: {{rabbitPassword}}
+}
+
+body:json {
+  {}
+}
+
+script:pre-request {
+  // El payload del evento va como TEXTO dentro del JSON de la API de management de RabbitMQ.
+  const id = bru.getEnvVar("hallazgoA");
+  const evento = {
+    id: bru.interpolate("{{$guid}}"),
+    tipo: "hallazgo.registrado",
+    origen: "servicio-cientifico",
+    fecha: new Date().toISOString(),
+    usuario: "investigador1",
+    datos: {
+      hallazgoId: id,
+      version: 1,
+      nombreCientifico: "Atelopus ebenoides",
+      nombreComun: "Rana arlequín de Boyacá",
+      familia: "Bufonidae",
+      tipoEspecimen: "Adulto",
+      fechaRecoleccion: "2026-03-14",
+      estadoConservacion: "EN_PELIGRO",
+      departamento: "15",
+      descripcion: "Anfibio endémico de páramo (dato de prueba)."
+    }
+  };
+  req.setBody({
+    // user_id = usuario AMQP que publica: lo exige la verificación del publicador de consulta-publica (SEC-D-03, ARQ-13)
+    properties: { delivery_mode: 2, content_type: "application/json", message_id: evento.id, user_id: bru.getEnvVar("rabbitUser") },
+    routing_key: evento.tipo,
+    payload: JSON.stringify(evento),
+    payload_encoding: "string"
+  });
+}
+
+tests {
+  test("RabbitMQ enruta el evento a alguna cola", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().routed).to.equal(true);
+  });
+}
+
+docs {
+  Siembra la ficha pública publicando `hallazgo.registrado` en el exchange `biohub.eventos` (contrato 04 §7). No hay publicador de registro todavía;
+  esto sustituye a Hernando solo para pruebas. Nunca apuntar a un RabbitMQ compartido.
+  Requisito: RF10, HU-06 (datos para la búsqueda); RF4 (evento hallazgo.*).
+}

@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.core.MessageDeliveryMode;
+import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,8 @@ public class PublicadorEventos {
     private final String exchange;
     private final Duration timeoutConfirmacion;
     private final Clock reloj;
+    /** Usuario AMQP con el que este servicio se conecta al broker; viaja como {@code user_id} (ARQ-13, ARQ-26). */
+    private final String usuarioAmqp;
 
     public PublicadorEventos(RabbitTemplate rabbitTemplate,
                              @Value("${biohub.eventos.exchange}") String exchange,
@@ -36,6 +39,21 @@ public class PublicadorEventos {
         this.exchange = exchange;
         this.timeoutConfirmacion = timeoutConfirmacion;
         this.reloj = reloj;
+        this.usuarioAmqp = usuarioDeLaConexion(rabbitTemplate);
+    }
+
+    /**
+     * El {@code user_id} sale de la misma {@code ConnectionFactory} con la que se publica
+     * ({@code spring.rabbitmq.username}), no de una constante: RabbitMQ rechaza un {@code user_id} distinto del
+     * usuario autenticado, por lo que consulta-publica puede confiar en el valor (SEC-J-01, SEC-J-11).
+     */
+    private static String usuarioDeLaConexion(RabbitTemplate plantilla) {
+        ConnectionFactory fabrica = plantilla.getConnectionFactory();
+        String usuario = fabrica == null ? null : fabrica.getUsername();
+        if (usuario == null || usuario.isBlank()) {
+            throw new IllegalStateException("No se pudo determinar el usuario AMQP de la conexion (spring.rabbitmq.username)");
+        }
+        return usuario;
     }
 
     /**
@@ -52,6 +70,8 @@ public class PublicadorEventos {
                     // El nombre de clase Java no debe viajar: los consumidores son otros servicios
                     mensaje.getMessageProperties().getHeaders().remove("__TypeId__");
                     mensaje.getMessageProperties().setMessageId(evento.id().toString());
+                    // Identidad del publicador: el broker comprueba que coincida con el usuario autenticado
+                    mensaje.getMessageProperties().setUserId(usuarioAmqp);
                     return mensaje;
                 });
                 operaciones.waitForConfirmsOrDie(timeoutConfirmacion.toMillis());

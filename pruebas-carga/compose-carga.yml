@@ -1,0 +1,47 @@
+# Compose EFÍMERO para la prueba de carga ASR1 (SAD §5.3): N réplicas de servicio-consulta-publica detrás de NGINX.
+# Reutiliza la infraestructura del compose raíz (red biohub_default: mysql-lectura, redis, rabbitmq): no la duplica.
+# Solo local. Nunca contra Aiven (D30/D38). Uso (desde pruebas-carga/), ver README:
+#   ./construir-imagen.sh
+#   docker compose -p biohub-carga -f compose-carga.yml --env-file ../.env up -d --scale consulta-publica=2
+#   ... ./correr-k6.sh ...
+#   docker compose -p biohub-carga -f compose-carga.yml --env-file ../.env down -v
+# Sin container_name en las réplicas (necesario para --scale). Límites de CPU/memoria por réplica (bulkhead, ARQ-24).
+services:
+  consulta-publica:
+    image: biohub/servicio-consulta-publica:carga
+    cpus: ${CARGA_CPUS:-2}
+    mem_limit: 1g
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SERVER_ADDRESS: 0.0.0.0
+      MYSQL_LECTURA_HOST: mysql-lectura
+      MYSQL_LECTURA_PORT: "3306"
+      MYSQL_LECTURA_USER: ${MYSQL_LECTURA_USER:?}
+      MYSQL_LECTURA_PASSWORD: ${MYSQL_LECTURA_PASSWORD:?}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: ${RABBITMQ_USER:?}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?}
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/biohub
+      # Eventos hallazgo.* (ARQ-13, SEC-J-14): la verificación del publicador queda ACTIVA. k6 publica con user_id = el
+      # usuario de RabbitMQ con el que se autentica (RMQ_USER = RABBITMQ_USER), así que ese es el publicador esperado.
+      BIOHUB_EVENTOS_VERIFICAR_PUBLICADOR: "true"
+      BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO: ${RABBITMQ_USER:?}
+      # Cola (y DLQ <cola>.dlq) PROPIAS de la carga: las réplicas efímeras no consumen de la cola de desarrollo y lo que
+      # falle aquí no ensucia consulta-publica.eventos.dlq. datos/limpiar.sh las borra.
+      BIOHUB_EVENTOS_COLA: ${COLA_CARGA:-consulta-publica.carga.eventos}
+    networks: [biohub_default]
+  nginx:
+    image: nginx:1.27-alpine
+    cpus: 2
+    ulimits: { nofile: { soft: 65536, hard: 65536 } }   # con 1024 (valor por defecto) NGINX se quedaba sin descriptores en el pico
+    depends_on: [consulta-publica]
+    volumes: ["./nginx-carga.conf:/etc/nginx/nginx.conf:ro"]
+    ports: ["127.0.0.1:18080:8080"]
+    networks: [biohub_default]
+networks:
+  biohub_default:
+    external: true

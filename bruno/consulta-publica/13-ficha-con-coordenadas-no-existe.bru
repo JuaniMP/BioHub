@@ -1,0 +1,41 @@
+meta {
+  name: ficha-con-coordenadas-no-existe
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{baseConsulta}}/api/publica/fichas/{{hallazgoConCoordenadas}}
+  body: none
+  auth: none
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("404: el evento con latitud/longitud fue rechazado (DLQ) y no creó ficha", function () {
+    expect(res.getStatus()).to.equal(404);
+  });
+  test("la respuesta NUNCA contiene claves de coordenadas (D14)", function () {
+    expect(clavesDeCoordenadas(res.getBody())).to.deep.equal([]);
+    const crudo = JSON.stringify(res.getBody());
+    expect(crudo).to.not.contain("5.1234567");
+    expect(crudo).to.not.contain("-73.1234567");
+  });
+}
+
+docs {
+  Comprueba la defensa en profundidad del consumidor: un `hallazgo.registrado` con claves de coordenadas no llega a la ficha pública.
+  Requisito: RF11, RNF9, ASR6 (D14).
+}

@@ -1,0 +1,92 @@
+-- =====================================================================================================
+-- BioHub - Aprovisionamiento de MySQL administrado en Aiven: servicio de ESCRITURA (D39).
+--
+-- Quien lo ejecuta: la persona duena de ESE servicio de Aiven, UNA vez, con su usuario administrador (avnadmin).
+-- Hay DOS servicios de Aiven y cada uno tiene su script (cada uno se ejecuta SOLO en su servicio):
+--   01-escritura-bases-y-usuarios.sql.example  ->  servicio de escritura: bases `cientifico` y `equipos`
+--   02-lectura-bases-y-usuarios.sql.example    ->  servicio de lectura:   bases `consulta_publica`, `reportes`, `gateway`
+-- Este archivo: servicio-cientifico (`cientifico`, compartida con el modulo registro de Hernando) y servicio-equipos (`equipos`).
+--
+-- COMO USARLO (este archivo es una PLANTILLA; la copia con contrasenas reales NO se sube a git:
+-- deploy/aiven/.gitignore ignora 01-escritura-bases-y-usuarios.sql):
+--   1) cp 01-escritura-bases-y-usuarios.sql.example 01-escritura-bases-y-usuarios.sql
+--   2) Reemplaza cada marcador CAMBIAR_... por una contrasena distinta y aleatoria. Usa solo [A-Za-z0-9]
+--      para no tener que escapar comillas:   openssl rand -hex 24
+--      Comprueba que no quedo ninguno:       grep -n CAMBIAR_ 01-escritura-bases-y-usuarios.sql   (debe salir vacio)
+--   3) Ejecuta con SSL verificado (ca.pem se descarga de la consola de Aiven, pestana "Overview"):
+--        mysql --ssl-mode=VERIFY_CA --ssl-ca=ca.pem -h <HOST> -P <PUERTO> -u avnadmin -p < 01-escritura-bases-y-usuarios.sql
+--      (la contrasena de avnadmin se escribe en el prompt; no la pases por argumento).
+--   4) Entrega a cada integrante SOLO las credenciales de la base que mantiene (por un canal privado) y borra
+--      la copia con claves.
+--
+-- Es IDEMPOTENTE: repetirlo no duplica nada y vuelve a fijar contrasenas y permisos (sirve para rotar).
+-- No contiene DROP ni TRUNCATE. avnadmin no tiene SUPER en Aiven y este script no lo necesita.
+--
+-- Usuarios y variables de entorno que alimentan application*.yml:
+--   cientifico_app   DML  CIENTIFICO_DB_USER   / CIENTIFICO_DB_PASSWORD    (conexion de la aplicacion)
+--   cientifico_migr  DDL  CIENTIFICO_MIGR_USER / CIENTIFICO_MIGR_PASSWORD  (solo Flyway, SEC-11)
+--   equipos_app   DML  EQUIPOS_DB_USER   / EQUIPOS_DB_PASSWORD    (conexion de la aplicacion)
+--   equipos_migr  DDL  EQUIPOS_MIGR_USER / EQUIPOS_MIGR_PASSWORD  (solo Flyway, SEC-11)
+-- Si no defines *_MIGR_USER, Flyway usa el usuario de la aplicacion y, al no tener DDL, la migracion falla.
+--
+-- Decisiones:
+--  * Charset utf8mb4 / collation utf8mb4_0900_ai_ci en la BASE, de modo que flyway_schema_history
+--    (que Flyway crea sin charset propio) y cualquier tabla futura hereden lo mismo que las migraciones.
+--  * Un usuario por servicio y base: cada usuario ve SOLO su base (aislamiento de D4/D14: las coordenadas
+--    viven solo en `cientifico`, cifradas, y `consulta_publica` no las tiene). Ningun usuario tiene GRANT OPTION.
+--  * Host '%': Aiven no ofrece IP fija para los clientes. El control de red se hace en Aiven con la lista de
+--    IP permitidas del servicio (Allowed IP addresses). REQUIRE SSL rechaza conexiones sin TLS.
+--  * El usuario de aplicacion NO tiene CREATE/ALTER/DROP/INDEX/REFERENCES: si se vulnera el servicio, no puede
+--    cambiar el esquema. Los permisos son sobre la base entera (`base`.*): cubren tablas futuras sin
+--    volver a ejecutar este script.
+--  * Sin GRANT OPTION, sin FILE, sin PROCESS, sin SUPER, sin TRIGGER, sin EXECUTE/rutinas.
+--  * Presupuesto de conexiones (plan gratuito, max_connections = 76 por servicio de Aiven): pool de 5 por
+--    instancia (perfil aiven) y MAX_USER_CONNECTIONS por usuario, ver los valores mas abajo.
+-- =====================================================================================================
+
+-- ---------- Bases ----------
+CREATE DATABASE IF NOT EXISTS `cientifico`
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+CREATE DATABASE IF NOT EXISTS `equipos`
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+-- Si la base ya existia con otro charset, se corrige aqui (no toca las tablas existentes):
+ALTER DATABASE `cientifico` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+ALTER DATABASE `equipos` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+
+-- ---------- Usuarios: se crean y SIEMPRE se les vuelve a fijar la contrasena (idempotente) ----------
+CREATE USER IF NOT EXISTS 'cientifico_app'@'%'  IDENTIFIED BY 'CAMBIAR_CIENTIFICO_APP_PASSWORD'  REQUIRE SSL;
+CREATE USER IF NOT EXISTS 'cientifico_migr'@'%' IDENTIFIED BY 'CAMBIAR_CIENTIFICO_MIGR_PASSWORD' REQUIRE SSL;
+CREATE USER IF NOT EXISTS 'equipos_app'@'%'  IDENTIFIED BY 'CAMBIAR_EQUIPOS_APP_PASSWORD'  REQUIRE SSL;
+CREATE USER IF NOT EXISTS 'equipos_migr'@'%' IDENTIFIED BY 'CAMBIAR_EQUIPOS_MIGR_PASSWORD' REQUIRE SSL;
+
+ALTER USER 'cientifico_app'@'%'  IDENTIFIED BY 'CAMBIAR_CIENTIFICO_APP_PASSWORD'  REQUIRE SSL WITH MAX_USER_CONNECTIONS 20;
+ALTER USER 'cientifico_migr'@'%' IDENTIFIED BY 'CAMBIAR_CIENTIFICO_MIGR_PASSWORD' REQUIRE SSL WITH MAX_USER_CONNECTIONS 3;
+ALTER USER 'equipos_app'@'%'  IDENTIFIED BY 'CAMBIAR_EQUIPOS_APP_PASSWORD'  REQUIRE SSL WITH MAX_USER_CONNECTIONS 20;
+ALTER USER 'equipos_migr'@'%' IDENTIFIED BY 'CAMBIAR_EQUIPOS_MIGR_PASSWORD' REQUIRE SSL WITH MAX_USER_CONNECTIONS 3;
+
+-- ---------- Permisos: se recalculan desde cero (REVOKE + GRANT) para corregir desviaciones ----------
+REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'cientifico_app'@'%';
+REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'cientifico_migr'@'%';
+REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'equipos_app'@'%';
+REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'equipos_migr'@'%';
+
+-- Aplicacion: solo DML.
+GRANT SELECT, INSERT, UPDATE, DELETE ON `cientifico`.* TO 'cientifico_app'@'%';
+GRANT SELECT, INSERT, UPDATE, DELETE ON `equipos`.* TO 'equipos_app'@'%';
+
+-- Migracion (Flyway): DML (para flyway_schema_history y los INSERT de catalogos) + DDL de tablas e indices.
+-- DROP se concede porque una migracion futura puede eliminar una columna/indice/tabla; cada migracion se
+-- revisa en el PR. Sin TRIGGER, sin CREATE ROUTINE/EVENT: Aiven no da SUPER y con binlog activo exigirian
+-- log_bin_trust_function_creators (ver docs/equipo/05-modelo-datos.md, seccion Aiven).
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES
+  ON `cientifico`.* TO 'cientifico_migr'@'%';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES
+  ON `equipos`.* TO 'equipos_migr'@'%';
+
+-- Verificacion: deben listarse exactamente estos permisos, sin ALL PRIVILEGES ni WITH GRANT OPTION.
+SHOW GRANTS FOR 'cientifico_app'@'%';
+SHOW GRANTS FOR 'cientifico_migr'@'%';
+SHOW GRANTS FOR 'equipos_app'@'%';
+SHOW GRANTS FOR 'equipos_migr'@'%';
+
+-- Nota: Aiven aplica los cambios de usuarios al instante; FLUSH PRIVILEGES no es necesario con GRANT/CREATE USER.

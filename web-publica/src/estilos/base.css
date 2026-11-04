@@ -1,0 +1,25 @@
+:root { font-family: var(--fuente); color: var(--c-texto); background: var(--c-fondo); line-height: 1.5; }
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-padding-top: var(--e-4); }
+body { margin: 0; font-size: var(--t-base); }
+h1, h2, h3 { line-height: 1.25; margin: 0 0 var(--e-3); }
+h1 { font-size: var(--t-xl); }
+h2 { font-size: var(--t-lg); }
+h3 { font-size: var(--t-md); }
+a { color: var(--c-primario-hover); }
+.contenedor { max-width: 64rem; margin: 0 auto; padding: var(--e-6); }
+:focus-visible { outline: 3px solid var(--c-foco); outline-offset: 2px; }
+[tabindex="-1"]:focus { outline: none; }
+[tabindex="-1"]:focus-visible { outline: 3px solid var(--c-foco); outline-offset: 2px; }
+.solo-lectores {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+.enlace-saltar {
+  position: absolute; left: var(--e-2); top: -4rem; background: var(--c-superficie); padding: var(--e-3) var(--e-4);
+  border-radius: var(--r-md); z-index: 10;
+}
+.enlace-saltar:focus { top: var(--e-2); }
+@media (min-width: 600px) { .contenedor { padding: var(--e-8) var(--e-6); } }
+@media (min-width: 600px) { h1 { font-size: var(--t-2xl); } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

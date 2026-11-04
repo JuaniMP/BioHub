@@ -1,0 +1,37 @@
+meta {
+  name: token-admin1
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{keycloakUrl}}/realms/{{realm}}/protocol/openid-connect/token
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  grant_type: password
+  client_id: {{clientId}}
+  username: admin1
+  password: {{passwordUsuarios}}
+}
+
+script:post-response {
+  if (res.getStatus() === 200) {
+    bru.setVar("token_admin", res.getBody().access_token);
+  }
+}
+
+tests {
+  test("token obtenido para admin1", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().access_token).to.be.a("string").and.not.empty;
+  });
+}
+
+docs {
+  Password grant con el cliente de pruebas `biohub-pruebas` del realm de desarrollo/CI (infra/keycloak/realm-biohub.json).
+  Usuario de prueba admin1. Guarda el token en la variable de ejecución `token_admin` (no se escribe en disco).
+  Requisito: RF17, RF18, RF19 (roles por token); base de RF13.
+}

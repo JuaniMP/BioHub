@@ -2,30 +2,43 @@ spring:
   application:
     name: servicio-consulta-publica
   config:
-    # Lee el .env de la raíz del monorepo (al ejecutar desde la carpeta del servicio)
-    import: optional:file:../.env[.properties]
+    # Lee el .env de la raíz del monorepo y el .env propio del servicio (el último gana), al ejecutar
+    # desde la carpeta del servicio. Ver servicio-consulta-publica/.env.example.
+    import: optional:file:../.env[.properties],optional:file:./.env[.properties]
   datasource:
-    url: jdbc:mysql://${MYSQL_LECTURA_HOST:localhost}:${MYSQL_LECTURA_PORT:3308}/consulta_publica
-    username: ${MYSQL_LECTURA_USER}
-    password: ${MYSQL_LECTURA_PASSWORD}
+    # Sin valores por defecto: la URL, el usuario y la contraseña salen del entorno.
+    # Los perfiles "local" y "aiven" (application-local.yml / application-aiven.yml) arman la URL.
+    # Sin perfil, hay que definir CONSULTA_DB_URL completa (jdbc:mysql://host:puerto/consulta_publica?...).
+    url: ${CONSULTA_DB_URL}
+    username: ${CONSULTA_DB_USER}
+    password: ${CONSULTA_DB_PASSWORD}
+    hikari:
+      # Si la base cae, responde 503 rápido en vez de colgarse (J10)
+      connection-timeout: 2000
   jpa:
     open-in-view: false
     hibernate:
       ddl-auto: validate   # el esquema lo maneja Flyway, nunca Hibernate
+    properties:
+      hibernate.jdbc.time_zone: UTC
   flyway:
     enabled: true
     locations: classpath:db/migration
     # Versiones con fecha (V20261022_1430__...): acepta migraciones que llegan "tarde" al fusionar ramas
     out-of-order: true
+    # Opcional (SEC-11): usuario de migración distinto del de ejecución. Si no se define, usa el del datasource.
+    user: ${CONSULTA_MIGR_USER:${spring.datasource.username}}
+    password: ${CONSULTA_MIGR_PASSWORD:${spring.datasource.password}}
   data:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD}
+      # Redis no es fuente de verdad: si tarda, se lee de MySQL (D25). Reconecta solo al volver.
+      timeout: 300ms
+      connect-timeout: 300ms
   cache:
-    type: redis
-    redis:
-      time-to-live: 10m
+    type: redis   # los TTL por caché (fichas 5 min, busquedas 60 s) están en CacheConfig / biohub.cache.*
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
@@ -57,6 +70,9 @@ server:
     include-message: never
 
 management:
+  health:
+    redis:
+      enabled: false   # Redis caído NO marca el servicio como no sano (D25, RNF5)
   endpoints:
     web:
       exposure:
@@ -72,3 +88,12 @@ biohub:
     exchange: biohub.eventos
     dlx: biohub.eventos.dlx
     cola: consulta-publica.eventos
+    # Verifica el user_id AMQP del publicador (SEC-D-03, SEC-J-01). Activo por defecto (ARQ-13); false solo en local sin publicador.
+    verificar-publicador: ${BIOHUB_EVENTOS_VERIFICAR_PUBLICADOR:true}
+    publicador-cientifico: ${BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO:cientifico_mq}
+  cache:
+    ttl-fichas: 5m
+    ttl-busquedas: 60s
+  publica:
+    # RNF1: si es true se ignoran familia y departamento (q y paginación siguen funcionando)
+    modo-degradado: ${CONSULTA_MODO_DEGRADADO:false}

@@ -1,0 +1,48 @@
+meta {
+  name: buscar-fichas-ignora-incluirCoordenadas
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseConsulta}}/api/publica/fichas?q=atelopus&incluirCoordenadas=true&mostrar=exacta
+  body: none
+  auth: none
+}
+
+params:query {
+  q: atelopus
+  incluirCoordenadas: true
+  mostrar: exacta
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("200 y sin coordenadas aunque se pidan", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().content.length).to.be.at.least(1);
+  });
+  test("la respuesta NUNCA contiene claves de coordenadas (D14)", function () {
+    expect(clavesDeCoordenadas(res.getBody())).to.deep.equal([]);
+    const crudo = JSON.stringify(res.getBody());
+    expect(crudo).to.not.contain("5.1234567");
+    expect(crudo).to.not.contain("-73.1234567");
+  });
+}
+
+docs {
+  Los parámetros desconocidos (incluirCoordenadas, latitud, mostrar=exacta) se ignoran: el portal público jamás devuelve coordenadas.
+  Requisito: RF11, RNF9 (D14).
+}

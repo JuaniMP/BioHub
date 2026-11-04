@@ -1,0 +1,40 @@
+meta {
+  name: buscar-fichas-departamento-desconocido
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseConsulta}}/api/publica/fichas?departamento=Atlantida-inexistente
+  body: none
+  auth: none
+}
+
+params:query {
+  departamento: Atlantida-inexistente
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("400 por departamento desconocido", function () {
+    expect(res.getStatus()).to.equal(400);
+    expect(res.getBody().errores[0].campo).to.equal("departamento");
+  });
+}
+
+docs {
+  Catálogo cerrado de 33 departamentos.
+  Requisito: RF10, HU-06.2.
+}

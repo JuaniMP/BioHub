@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="BioHub: consulta pública de información de biodiversidad." />
+    <!-- SEC-J-07: frame-ancestors no funciona en <meta>; va como cabecera HTTP (ver README). -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' %CONNECT_SRC%; object-src 'none'; base-uri 'self'; form-action 'self'"
+    />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>BioHub · Consulta pública</title>
   </head>
   <body>
