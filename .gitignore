@@ -40,7 +40,6 @@ secrets/
 # Herramientas locales de agentes/IA
 .claude/
 
-# Despliegue on-premise (secretos generados; ver deploy/generar-env.sh)
-deploy/**/.env
-deploy/backend/rabbitmq/definitions.json
-deploy/backend/keycloak/
+# Certificados de Aiven (CA descargado y truststore convertido; ver docs/equipo/09-despliegue.md)
+ca.pem
+certs/
