@@ -42,7 +42,8 @@ script:pre-request {
     }
   };
   req.setBody({
-    properties: { delivery_mode: 2, content_type: "application/json", message_id: evento.id },
+    // user_id = usuario AMQP que publica: lo exige la verificación del publicador de consulta-publica (SEC-D-03, ARQ-13)
+    properties: { delivery_mode: 2, content_type: "application/json", message_id: evento.id, user_id: bru.getEnvVar("rabbitUser") },
     routing_key: evento.tipo,
     payload: JSON.stringify(evento),
     payload_encoding: "string"

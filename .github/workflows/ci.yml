@@ -165,6 +165,10 @@ jobs:
           export REDIS_HOST=127.0.0.1 REDIS_PASSWORD=
           export KEYCLOAK_ISSUER_URI=http://localhost:8180/realms/biohub
           export UBICACION_CLAVES="v1:$CI_UBICACION_CLAVE" UBICACION_CLAVE_ACTIVA=v1
+          # ARQ-13 / SEC-J-01: consulta-publica verifica el user_id AMQP de los hallazgo.* (activo por defecto).
+          # Aquí quien publica es la coleccion Bruno con el usuario del broker de CI (biohub_ci), y esa coleccion
+          # pone user_id = biohub_ci en cada evento; solo cambia el usuario esperado, la verificación sigue activa.
+          export BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO=biohub_ci
           setsid nohup java -jar servicio-cientifico/target/servicio-cientifico-0.0.1-SNAPSHOT.jar \
             > "$RUNNER_TEMP/logs/servicio-cientifico.log" 2>&1 &
           setsid nohup java -jar servicio-consulta-publica/target/servicio-consulta-publica-0.0.1-SNAPSHOT.jar \

@@ -86,6 +86,8 @@ class PublicadorEventosIntegracionTest {
         assertThat(m.getMessageProperties().getReceivedDeliveryMode()).isEqualTo(MessageDeliveryMode.PERSISTENT);
         assertThat(m.getMessageProperties().getHeaders()).doesNotContainKey("__TypeId__");
         assertThat(m.getMessageProperties().getContentType()).isEqualTo("application/json");
+        // El broker acepta el user_id solo si coincide con el usuario autenticado (ARQ-26, SEC-J-11)
+        assertThat(m.getMessageProperties().getReceivedUserId()).isEqualTo(RABBIT.getAdminUsername());
         JsonNode json = mapper.readTree(m.getBody());
         assertThat(json.get("id").asText()).isEqualTo(evento.id().toString());
         assertThat(json.get("tipo").asText()).isEqualTo("prueba.ping");

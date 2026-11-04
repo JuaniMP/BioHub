@@ -57,7 +57,7 @@ Mensaje JSON (`application/json`), persistente (`delivery_mode=2`), `message_id`
 ```
 - `usuario`: `preferred_username` del JWT que originó el evento. `fecha`: ISO-8601 UTC.
 - Tipos conocidos por los consumidores: `prueba.ping` (`datos.mensaje`: string, máx 200) y `hallazgo.registrado` (datos libres hasta definir el modelo). Para agregar un tipo: añadirlo a `TIPOS_CONOCIDOS` en `ConsumidorEventos` de cada consumidor.
-- Un mensaje con JSON roto, sobre incompleto, tipo desconocido, routing key distinta del `tipo` o de más de 64 KB se rechaza sin reencolar y va a la DLQ. Otros fallos del consumidor se reintentan 3 veces (1 s, 2 s) y luego van a la DLQ.
+- Un mensaje con JSON roto, sobre incompleto, tipo desconocido, routing key distinta del `tipo` o de más de 64 KB se rechaza sin reencolar y va a la DLQ. **Excepción:** si el cuerpo trae coordenadas (§7.3, §7.5) se descarta con ack y se registra un incidente, sin pasar por la DLQ. Otros fallos del consumidor se reintentan 3 veces (1 s, 2 s) y luego van a la DLQ.
 
 ### POST /api/cientifico/eventos/prueba
 Publica un evento `prueba.ping`. Requiere JWT con rol `administrador`.
@@ -184,7 +184,7 @@ Ejemplo: `GET /api/publica/fichas?q=atelopus&departamento=15&page=0&size=20`
 }
 ```
 - Sin resultados: `200` con `"content": []`, `"total": 0`, `"totalPaginas": 0`.
-- Modo degradado (RNF1): `"modoDegradado": true` y `"filtrosIgnorados": ["familia", "departamento"]` (solo los que se enviaron); `q` y la paginación se aplican igual.
+- Modo degradado (RNF1, ASR1, ARQ-06): `"modoDegradado": true` y `"filtrosIgnorados": ["familia", "departamento"]` (solo los que se enviaron); `q` y la paginación se aplican igual. **Es la única indicación**: no hay cabecera ni campo nuevos, y el estado HTTP sigue siendo 200 (sin 5xx). Qué lo activa: (1) **automático**, en cada petición, cuando el monitor de carga del servicio detecta saturación (muchas lecturas en curso o p95 alto en una ventana deslizante; vuelve a la búsqueda completa con histéresis para no oscilar), y (2) **forzado manual** con `CONSULTA_MODO_DEGRADADO=true`. Una respuesta degradada puede quedar en las cachés (Redis y HTTP, `Cache-Control: public, max-age=30`) hasta 60 s: el cliente no debe asumir que `modoDegradado` es permanente. Los filtros se validan igual aunque se ignoren (un `departamento` desconocido sigue siendo 400). Estado operativo para operación: `GET /actuator/info` (clave `busqueda`) y las métricas `biohub.consulta.degradado`, `biohub.consulta.en_curso` y `biohub.consulta.p95.ms`; no es parte de la API pública.
 
 **400** (ejemplo)
 ```json
@@ -469,6 +469,7 @@ Validaciones (lanzan `UbicacionInvalidaException(campo, mensaje)`):
 | `hallazgoId` | no nulo | "obligatorio" |
 | `version` | ≥ 1 | "debe ser mayor o igual a 1" |
 | `nombreCientifico` | no vacío, ≤ 150 | "obligatorio, máximo 150 caracteres" |
+| `nombreCientifico` | no puede contener coordenadas escritas en texto (p. ej. `5.53214, -73.36712` o `5°31'55"N`): el nombre se muestra a todos los roles y viaja al portal público (SEC-J-02, RNF9) | "no puede contener coordenadas" |
 | `fechaRecoleccion` | no nula, no posterior a hoy (zona `America/Bogota`) | "obligatoria y no futura" |
 | `investigador` (solo `registrar`) | no vacío, ≤ 100 | "obligatorio, máximo 100 caracteres" |
 | `departamento` | existe en el catálogo (código o nombre, sin distinguir mayúsculas ni tildes) | "departamento desconocido" |
@@ -483,6 +484,19 @@ Obligaciones de `registro` (Hernando):
 5. Traducir su clasificación al enum de 3 valores. Si usa UICN: `CR`, `EN` → `EN_PELIGRO`; `VU`, `NT`, `LC` → `NO_AMENAZADA`; `DD`, `NE` → `SIN_EVALUAR` (a confirmar por Hernando; cualquier otra equivalencia se documenta aquí).
 6. Corregir coordenadas después del alta **no está en el contrato**: si se necesita, se pide a Juanita un método nuevo.
 
+**Forma de invocación recomendada (D40, ARQ-08, P-A3): evento de dominio en lugar de llamada directa.** El SAD (§2.5, §6.4.2, §7.1) dice que registro y ubicacion no se importan entre sí. Por eso `ubicacion.service.ObservadorUbicacion` escucha, con `@EventListener` **síncrono**, dos eventos de `co.edu.unbosque.biohub.cientifico.eventos.domain` y llama a `UbicacionService` por registro:
+```java
+// registro, dentro de su @Transactional y DESPUÉS de insertar el hallazgo (o la nueva versión):
+publicador.publishEvent(new HallazgoRegistrado(hallazgoId, version, nombreCientifico, fechaRecoleccion,
+        investigador, departamento, "EN_PELIGRO" /* o NO_AMENAZADA / SIN_EVALUAR */, latitud, longitud, Instant.now()));
+publicador.publishEvent(new HallazgoReclasificado(hallazgoId, version, nombreCientifico, fechaRecoleccion,
+        departamento, estadoConservacion, Instant.now()));   // no lleva coordenadas
+```
+- `publicador` es `org.springframework.context.ApplicationEventPublisher`. El listener corre en el mismo hilo y en la misma transacción: equivale a llamar a `registrar`/`actualizar` (mismas validaciones, mismas excepciones, mismo `MANDATORY`). Si lanza una excepción (`UbicacionInvalidaException`, `UbicacionNoEncontradaException` o un `IllegalStateException` de cifrado), `publishEvent` la propaga y se revierte todo el registro, hallazgo incluido; sin transacción activa falla con `IllegalTransactionStateException`.
+- `estadoConservacion` viaja como texto (`EN_PELIGRO`, `NO_AMENAZADA`, `SIN_EVALUAR`) para que `eventos.domain` no dependa de ubicacion. Un valor desconocido produce `UbicacionInvalidaException` (campo `estadoConservacion`).
+- Los eventos de dominio llevan las coordenadas **solo en memoria** (su `toString()` las enmascara); no se serializan ni van al broker. El `@TransactionalEventListener(AFTER_COMMIT)` que arma el `EventoSobre` público de §7 es de registro y **no debe copiar** `latitud`/`longitud`.
+- La llamada directa a `UbicacionService` sigue siendo válida y tiene el mismo contrato; nada de lo anterior cambia las validaciones de la tabla.
+
 ## 7. Eventos `hallazgo.*` (los publica registro, los consumen consulta-publica y reportes)
 
 ### 7.1 Transporte
@@ -490,7 +504,7 @@ Obligaciones de `registro` (Hernando):
 |---|---|
 | Exchange | `biohub.eventos` (topic, durable) |
 | Routing key | igual a `tipo`: `hallazgo.registrado`, `hallazgo.reclasificado`, `hallazgo.actualizado` |
-| Propiedades AMQP | `content_type=application/json`, `delivery_mode=2`, `message_id` = `id` del sobre, sin `__TypeId__`. `user_id` = usuario AMQP del publicador (`cientifico_mq` en las VMs) cuando se resuelva SEC-D-03 |
+| Propiedades AMQP | `content_type=application/json`, `delivery_mode=2`, `message_id` = `id` del sobre, sin `__TypeId__`. `user_id` = usuario AMQP con que el publicador se conecta al broker (`cientifico_mq` por defecto). **Obligatorio**: consulta-publica verifica el `user_id` por defecto (ARQ-13, SEC-J-01); el usuario esperado se cambia con `BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO` y la verificación solo se apaga con `BIOHUB_EVENTOS_VERIFICAR_PUBLICADOR=false` en pruebas locales. RabbitMQ rechaza un `user_id` distinto del usuario autenticado, así que no se puede falsificar desde otra conexión. `PublicadorEventos` lo toma de la `ConnectionFactory` (`spring.rabbitmq.username`), no de una constante; en el Compose local es `RABBITMQ_USER` (p. ej. `biohub`) y `BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO` debe valer lo mismo (ARQ-26, SEC-J-11) |
 | Publicador | `PublicadorEventos.publicar(tipo, usuario, datos)` (existente), **después del commit** |
 | Cuándo | `registrado`: alta del hallazgo (normalmente `version` = 1). `reclasificado`: cambio de `estadoConservacion` o de taxonomía (`nombreCientifico`/`familia`), HU-03. `actualizado`: cualquier otra edición de un campo de `datos` (opcional; si Hernando no edita datos públicos, no lo usa) |
 
@@ -510,6 +524,8 @@ Obligaciones de `registro` (Hernando):
 | `estadoConservacion` | string | Sí | `EN_PELIGRO` \| `NO_AMENAZADA` \| `SIN_EVALUAR` (un valor desconocido se trata como `EN_PELIGRO`) |
 | `departamento` | string | Sí | Código DANE de 2 dígitos o nombre oficial (catálogo de 33). La región **no** viaja: la deriva el consumidor |
 | `descripcion` | string \| null | No | ≤ 5.000; texto público de la ficha |
+
+**Regla de texto: ningún campo de texto de `datos` puede contener coordenadas** (SEC-J-02, RNF9, D14). Vale para `nombreCientifico`, `nombreComun`, `familia`, `tipoEspecimen`, `departamento`, `descripcion` y cualquier otro texto, no solo para las claves con nombre prohibido. El consumidor detecta, en el texto de cualquier valor, pares de grados decimales (`5.53214, -73.36712`), grados con hemisferio (`5.53° N`, `73°22'W`) y grados-minutos-segundos (`5°31'55"N`). No se consideran coordenadas las fechas (`2026-03-14`), las medidas (`12,5 cm`), los rangos de altitud (`3.200, 3.500 msnm`) ni las cantidades. Si un texto legítimo se confunde con una coordenada, el evento se descarta (§7.5) y hay que reescribir el texto. `registro` debe validarlo **antes** de publicar (ubicacion ya lo hace para `nombreCientifico`). JSON Schema no expresa esta regla: se verifica con pruebas.
 
 **Prohibido en `datos` (en cualquier nivel):** `latitud`, `longitud`, `lat`, `lon`, `lng`, `coordenadas`, `coordinates`, `geometry`, `geom`, `ubicacionExacta`, **de cualquier especie** (D14). Tampoco: investigador, justificación científica, historial, rutas de adjuntos ni atributos internos. Los campos extra que no estén prohibidos se ignoran (lector tolerante).
 
@@ -592,9 +608,9 @@ JSON Schema (draft 2020-12) de `datos`, para que Hernando valide en sus pruebas:
 | Evento válido con `version` mayor que la guardada, o hallazgo nuevo | INSERT/UPDATE de la ficha; se invalidan su caché y la de las búsquedas; ack |
 | Mismo evento repetido, o `version` igual o menor | Se ignora (ack, sin cambios) |
 | `reclasificado`/`actualizado` antes que `registrado` | Se crea la ficha con ese snapshot; el `registrado` posterior (versión menor) se ignora |
-| `datos` con una clave de coordenadas | DLQ (sin reencolar) + log WARN sin valores |
-| Falta un obligatorio, tipo incorrecto, longitud excedida, departamento desconocido, JSON roto, > 64 KB, routing key ≠ `tipo` | DLQ |
-| `origen` ≠ `servicio-cientifico`, o `user_id` distinto del publicador (cuando se active) | DLQ |
+| `datos` con una clave de coordenadas, o texto con forma de coordenadas en cualquier campo (SEC-J-01/02/03) | **Se descarta con ack: NO va a la DLQ** (la DLQ es un almacén persistente fuera del cifrado y guardaría las coordenadas). No se crea ni cambia ninguna ficha. Se registra un **incidente de seguridad** (log ERROR `INCIDENTE SEC-J-03`) con solo el `id` del evento y el tipo, sin ningún valor. Se analiza el cuerpo de todo mensaje de la cola, también con JSON roto o routing key distinta. El responsable del publicador debe corregirlo y republicar |
+| Falta un obligatorio, tipo incorrecto, longitud excedida, departamento desconocido, JSON roto, > 64 KB, routing key ≠ `tipo` (siempre que no traiga coordenadas) | DLQ |
+| `origen` ≠ `servicio-cientifico`, o `user_id` ausente o distinto del publicador esperado (verificación activa por defecto, ARQ-13) | DLQ |
 | `estadoConservacion` desconocido | Se guarda como `EN_PELIGRO` + log WARN |
 | Fallo transitorio (BD caída) | 3 reintentos (1 s, 2 s) y después DLQ; reenviar desde la DLQ es seguro |
 
