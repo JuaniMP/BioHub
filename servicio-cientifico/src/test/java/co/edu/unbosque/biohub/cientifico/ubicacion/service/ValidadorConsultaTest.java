@@ -67,6 +67,21 @@ class ValidadorConsultaTest {
     }
 
     @Test
+    @org.junit.jupiter.api.DisplayName("BUG-J1: page=Integer.MAX_VALUE no desborda el límite de 10.000 (RF12/RF13, HU-13)")
+    void bugJ1_pageEnteroMaximoNoDesbordaElLimite() {
+        for (String[] extremo : new String[][] {{"2147483647", "100"}, {"2147483647", "1"}, {"2147483647", null},
+                {"2147483646", "2"}, {"21474836", "100"}}) {
+            ValidadorConsulta val = v();
+            val.paginacion(extremo[0], extremo[1], 100);
+            assertThatThrownBy(val::lanzarSiHayErrores).as("page=%s size=%s", extremo[0], extremo[1])
+                    .isInstanceOfSatisfying(ParametroInvalidoException.class,
+                            e -> assertThat(e.errores()).extracting(ErrorCampo::campo).contains("page"));
+        }
+        // el límite exacto sigue siendo válido
+        assertThat(v().paginacion("9999", "1", 100)).containsExactly(9999, 1);
+    }
+
+    @Test
     void textoFueraDeRango() {
         ValidadorConsulta val = v();
         assertThat(val.texto("especie", "a", 2, 100, "debe tener entre 2 y 100 caracteres")).isNull();

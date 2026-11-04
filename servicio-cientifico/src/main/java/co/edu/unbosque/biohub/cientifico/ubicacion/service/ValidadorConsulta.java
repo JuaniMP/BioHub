@@ -95,7 +95,8 @@ final class ValidadorConsulta {
     int[] paginacion(String page, String size, int maxSize) {
         int p = entero("page", page, 0, Integer.MAX_VALUE, 0, "debe ser un entero mayor o igual a 0");
         int s = entero("size", size, 1, maxSize, 20, "debe estar entre 1 y " + maxSize);
-        if (p >= 0 && s >= 1 && (long) (p + 1) * s > LIMITE_RESULTADOS) {
+        // BUG-J1: en long, porque (p + 1) con p = Integer.MAX_VALUE desbordaba el int y el límite no se aplicaba
+        if (p >= 0 && s >= 1 && ((long) p + 1) * s > LIMITE_RESULTADOS) {
             errores.add(new ErrorCampo("page", "no se puede paginar más allá de 10.000 resultados"));
         }
         return new int[] {p, s};
