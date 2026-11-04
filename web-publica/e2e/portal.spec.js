@@ -162,6 +162,22 @@ test.describe('SEC-J-07 · CSP', () => {
     expect(erroresCsp).toEqual([]);
   });
 
+  // Guarda del fixture `erroresCsp`: ignora solo el artefacto de <select> de WebKit y debe seguir viendo
+  // las violaciones reales de estilos en línea (si alguien añadiera un <style> o `style=` a la app).
+  for (const [nombre, inyectar, directiva] of [
+    ['un <style> en línea', () => { const e = document.createElement('style'); e.textContent = 'body{color:red}'; document.head.appendChild(e); }, 'style-src-elem'],
+    ['un atributo style en un elemento', () => { document.body.setAttribute('style', 'color:red'); }, 'style-src-attr'],
+    ['un atributo style en un <select>', () => { const s = document.createElement('select'); s.setAttribute('style', 'color:red'); document.body.appendChild(s); }, 'style-src-attr'],
+  ]) {
+    test(`SEC-J-07: el fixture detecta ${nombre} inyectado`, async ({ page, erroresCsp }) => {
+      await simularApi(page);
+      await page.goto('/');
+      await expect(page.getByRole('heading', { name: 'Busca una especie' })).toBeVisible();
+      await page.evaluate(inyectar);
+      await expect.poll(() => erroresCsp.filter((e) => e.includes(directiva)).length).toBeGreaterThan(0);
+    });
+  }
+
   test('SEC-J-07: un script en línea inyectado es bloqueado por la CSP', async ({ page }) => {
     await simularApi(page);
     await page.goto('/');

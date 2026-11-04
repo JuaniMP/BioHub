@@ -198,6 +198,8 @@ jobs:
       - name: Ejecutar la coleccion Bruno
         working-directory: bruno
         run: |
+          # Bruno CLI no crea la carpeta de los reportes y sale con código 2 si no existe
+          mkdir -p resultados
           npx --yes @usebruno/cli@${BRUNO_CLI_VERSION} run --env ci \
             --env-var passwordUsuarios="$CI_USUARIOS_PRUEBA_PASSWORD" \
             --env-var rabbitPassword="$CI_RABBIT_PASSWORD" \
