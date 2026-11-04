@@ -30,6 +30,14 @@ public class EscrituraFichasJdbc {
                 .update();
     }
 
+    /** Versión guardada de un hallazgo, si existe (solo para detectar saltos anómalos; SEC-J-01). */
+    public java.util.Optional<Integer> versionGuardada(java.util.UUID hallazgoId) {
+        return jdbc.sql("SELECT version FROM ficha_publica WHERE hallazgo_id = ?")
+                .param(UuidBinario.aBytes(hallazgoId))
+                .query(Integer.class)
+                .optional();
+    }
+
     /** INSERT; lanza {@code DuplicateKeyException} si el hallazgo ya existe. */
     public void insertar(FichaPublica f) {
         jdbc.sql("""

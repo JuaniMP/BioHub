@@ -1,9 +1,9 @@
 package co.edu.unbosque.biohub.consultapublica.eventos.service;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -31,8 +31,10 @@ import co.edu.unbosque.biohub.consultapublica.service.CatalogoDepartamentos;
 /**
  * Valida el {@code datos} de un evento {@code hallazgo.*} y lo convierte en {@link FichaPublica} (D24, D32):
  * <ol>
- *   <li>cualquier clave de coordenadas, en cualquier nivel y sin distinguir mayúsculas, rechaza el evento;</li>
- *   <li>mapeo estricto de tipos + Bean Validation (longitudes, obligatorios);</li>
+ *   <li>cualquier clave de coordenadas (en cualquier nivel, sin distinguir mayúsculas) o texto con forma de
+ *       coordenada hace que el evento se descarte sin pasar por la DLQ ({@link EventoConCoordenadasException});</li>
+ *   <li>mapeo estricto de tipos + Bean Validation (longitudes, obligatorios, tope de {@code version});</li>
+ *   <li>contenido plausible: fecha no futura ni anterior a 1800, sin caracteres de control (SEC-J-01);</li>
  *   <li>el departamento se resuelve en el catálogo (código o nombre); la región la deriva este servicio;</li>
  *   <li>estado ausente rechaza; estado desconocido se guarda como EN_PELIGRO (falla segura).</li>
  * </ol>
@@ -43,9 +45,9 @@ public class ValidadorDatosHallazgo {
 
     private static final Logger log = LoggerFactory.getLogger(ValidadorDatosHallazgo.class);
 
-    /** Claves prohibidas en minúsculas (D14, contrato 04 §7.3). */
-    static final Set<String> CLAVES_PROHIBIDAS = Set.of("latitud", "longitud", "lat", "lon", "lng", "latitude",
-            "longitude", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta");
+    private static final ZoneId ZONA_BOGOTA = ZoneId.of("America/Bogota");
+    /** Año mínimo plausible de una recolección registrada en BioHub. */
+    static final int ANIO_MINIMO = 1800;
 
     private final ObjectMapper mapeador;
     private final Validator validador;
@@ -71,9 +73,10 @@ public class ValidadorDatosHallazgo {
         if (datos == null || datos.isEmpty()) {
             throw new EventoInvalidoException("Evento sin datos");
         }
-        if (contieneClaveProhibida(datos)) {
-            log.warn("Evento con coordenadas rechazado id={}", eventoId);
-            throw new EventoInvalidoException("Evento con coordenadas no permitido");
+        // SEC-J-02/J-03: coordenadas en una clave O en texto libre (descripcion, nombres...). El consumidor descarta
+        // estos eventos con ack (no van a la DLQ); aquí solo se señala. Nunca se registra ni se cita el valor.
+        if (DetectorCoordenadas.contiene(datos)) {
+            throw new EventoConCoordenadasException();
         }
 
         DatosHallazgo d;
@@ -91,12 +94,50 @@ public class ValidadorDatosHallazgo {
             throw new EventoInvalidoException("Evento con datos inválidos en: " + String.join(", ", campos));
         }
 
+        validarContenidoEstricto(d);
+
         Departamento departamento = catalogo.resolver(d.departamento())
                 .orElseThrow(() -> new EventoInvalidoException("Evento con departamento desconocido"));
 
         return new FichaPublica(d.hallazgoId(), d.version(), d.nombreCientifico(), d.nombreComun(), d.familia(),
                 d.tipoEspecimen(), d.fechaRecoleccion(), estado(eventoId, d.estadoConservacion()),
                 departamento.codigo(), departamento.nombre(), departamento.region(), d.descripcion());
+    }
+
+    /** SEC-J-01: validación estricta del payload más allá de los tipos (fecha plausible, sin caracteres de control). */
+    private static void validarContenidoEstricto(DatosHallazgo d) {
+        LocalDate hoyBogota = LocalDate.now(ZONA_BOGOTA);
+        if (d.fechaRecoleccion().isAfter(hoyBogota.plusDays(1)) || d.fechaRecoleccion().getYear() < ANIO_MINIMO) {
+            throw new EventoInvalidoException("Evento con datos inválidos en: fechaRecoleccion");
+        }
+        List<String> sospechosos = new ArrayList<>();
+        comprobarTexto(sospechosos, "nombreCientifico", d.nombreCientifico(), false);
+        comprobarTexto(sospechosos, "nombreComun", d.nombreComun(), false);
+        comprobarTexto(sospechosos, "familia", d.familia(), false);
+        comprobarTexto(sospechosos, "tipoEspecimen", d.tipoEspecimen(), false);
+        comprobarTexto(sospechosos, "estadoConservacion", d.estadoConservacion(), false);
+        comprobarTexto(sospechosos, "departamento", d.departamento(), false);
+        comprobarTexto(sospechosos, "descripcion", d.descripcion(), true);
+        if (!sospechosos.isEmpty()) {
+            throw new EventoInvalidoException("Evento con datos inválidos en: " + String.join(", ", sospechosos));
+        }
+    }
+
+    /** Rechaza caracteres de control y de dirección del texto (spoofing en el portal); permite saltos de línea si se indica. */
+    private static void comprobarTexto(List<String> sospechosos, String campo, String valor, boolean permiteSaltos) {
+        if (valor == null) {
+            return;
+        }
+        for (int i = 0; i < valor.length(); i++) {
+            char c = valor.charAt(i);
+            boolean salto = c == '\n' || c == '\r' || c == '\t';
+            boolean control = Character.isISOControl(c) && !(permiteSaltos && salto);
+            boolean direccion = (c >= '\u202A' && c <= '\u202E') || (c >= '\u2066' && c <= '\u2069');
+            if (control || direccion) {
+                sospechosos.add(campo);
+                return;
+            }
+        }
     }
 
     private static EstadoConservacion estado(UUID eventoId, String valor) {
@@ -107,27 +148,5 @@ public class ValidadorDatosHallazgo {
         }
         log.warn("Evento con estadoConservacion desconocido, se guarda EN_PELIGRO id={}", eventoId);
         return EstadoConservacion.EN_PELIGRO;
-    }
-
-    /** Recorre mapas y listas en cualquier profundidad buscando claves de coordenadas. */
-    static boolean contieneClaveProhibida(Object nodo) {
-        if (nodo instanceof Map<?, ?> mapa) {
-            for (Map.Entry<?, ?> e : mapa.entrySet()) {
-                if (e.getKey() != null && CLAVES_PROHIBIDAS.contains(e.getKey().toString().toLowerCase(Locale.ROOT))) {
-                    return true;
-                }
-                if (contieneClaveProhibida(e.getValue())) {
-                    return true;
-                }
-            }
-        } else if (nodo instanceof Collection<?> coleccion) {
-            List<Object> elementos = new ArrayList<>(coleccion);
-            for (Object o : elementos) {
-                if (contieneClaveProhibida(o)) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 }

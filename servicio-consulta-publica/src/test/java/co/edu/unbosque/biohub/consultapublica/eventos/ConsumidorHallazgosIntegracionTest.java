@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.Message;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -189,23 +190,40 @@ class ConsumidorHallazgosIntegracionTest extends BaseIntegracion {
     }
 
     @Test
-    void eventoConCoordenadasVaALaDlqSinCrearFicha() {
+    @DisplayName("SEC-J-03: un evento con coordenadas se descarta con ack: ni DLQ ni ficha (RNF9, ASR6, RF11)")
+    void eventoConCoordenadasSeDescartaSinDlqNiFicha() {
         Map<String, Object> plano = Eventos.datos(id("c1"), 1, "Atelopus ebenoides", "NO_AMENAZADA");
         plano.put("latitud", 5.5);
         plano.put("longitud", -73.1);
         publicar("hallazgo.registrado", Eventos.sobre("hallazgo.registrado", plano));
-        esperaDlqYSinFicha("coordenadas planas", 0);
 
         Map<String, Object> anidado = Eventos.datos(id("c2"), 1, "Atelopus ebenoides", "NO_AMENAZADA");
         anidado.put("extra", Map.of("detalle", List.of(Map.of("Coordenadas", "5.5,-73.1"))));
         publicar("hallazgo.registrado", Eventos.sobre("hallazgo.registrado", anidado));
-        esperaDlqYSinFicha("coordenadas anidadas y en mayúsculas", 0);
 
         // También en reclasificado y actualizado
         Map<String, Object> geom = Eventos.datos(id("c3"), 2, "Atelopus ebenoides", "EN_PELIGRO");
         geom.put("geometry", Map.of("type", "Point"));
         publicar("hallazgo.reclasificado", Eventos.sobre("hallazgo.reclasificado", geom));
-        esperaDlqYSinFicha("geometry en reclasificado", 0);
+
+        // SEC-J-02: coordenadas escritas a mano en el texto libre
+        Map<String, Object> texto = Eventos.datos(id("c4"), 1, "Atelopus ebenoides", "EN_PELIGRO");
+        texto.put("descripcion", "colectado en 5.53214, -73.36712");
+        publicar("hallazgo.actualizado", Eventos.sobre("hallazgo.actualizado", texto));
+
+        sincronizar("coords"); // los anteriores ya se consumieron (cola FIFO con un solo consumidor)
+        assertThat(siguienteDeLaDlq(Duration.ofSeconds(3))).as("la DLQ no debe retener coordenadas").isNull();
+        assertThat(fichas()).as("solo la ficha de control").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("SEC-J-02: un evento válido cuyo texto trae medidas y fechas se acepta (sin falsos positivos)")
+    void textoConMedidasYFechasNoSeDescarta() {
+        UUID id = id("texto-ok");
+        Map<String, Object> d = Eventos.datos(id, 1, "Atelopus ebenoides", "EN_PELIGRO");
+        d.put("descripcion", "Macho de 12,5 cm, recolectado el 2026-03-14 a 3.200 msnm");
+        publicar("hallazgo.registrado", Eventos.sobre("hallazgo.registrado", d));
+        esperarVersion(id, 1);
     }
 
     @Test

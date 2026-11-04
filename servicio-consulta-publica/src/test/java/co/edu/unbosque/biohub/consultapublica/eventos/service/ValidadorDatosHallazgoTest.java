@@ -104,6 +104,78 @@ class ValidadorDatosHallazgoTest {
     }
 
     @Test
+    @org.junit.jupiter.api.DisplayName("SEC-J-02: coordenadas escritas en texto libre se señalan como EventoConCoordenadas (RF11, RNF9)")
+    void coordenadasEnTextoLibreSeSenalanEnCadaCampoDeTexto() {
+        for (String campo : new String[] {"descripcion", "nombreComun", "tipoEspecimen", "familia", "nombreCientifico",
+                "departamento"}) {
+            for (String texto : new String[] {"colectado en 5.53214, -73.36712", "5°31'55\"N 73°22'02\"W"}) {
+                Map<String, Object> d = datos();
+                d.put(campo, texto);
+                assertThatThrownBy(() -> validador.validar(UUID.randomUUID(), d))
+                        .as("%s = %s", campo, texto)
+                        .isInstanceOf(EventoConCoordenadasException.class)
+                        .hasMessageNotContaining("5.53214").hasMessageNotContaining("73");
+            }
+        }
+        Map<String, Object> anidado = datos();
+        anidado.put("notas", Map.of("campo", List.of("punto 4.6097 -74.0817")));
+        assertThatThrownBy(() -> validador.validar(UUID.randomUUID(), anidado))
+                .isInstanceOf(EventoConCoordenadasException.class);
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("SEC-J-02: texto biológico con números y fechas no se confunde con coordenadas")
+    void textoBiologicoConNumerosSeAcepta() {
+        Map<String, Object> d = datos();
+        d.put("descripcion", "Macho de 12,5 cm, recolectado el 2026-03-14 entre 3.200, 3.500 msnm");
+        assertThat(validador.validar(UUID.randomUUID(), d).descripcion()).contains("12,5 cm");
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("SEC-J-01: tope de cordura en version (1.000.000) para no congelar fichas")
+    void versionConTopeDeCordura() {
+        Map<String, Object> d = datos();
+        d.put("version", 1_000_000);
+        assertThat(validador.validar(UUID.randomUUID(), d).version()).isEqualTo(1_000_000);
+        for (Object v : new Object[] {1_000_001, Integer.MAX_VALUE, 0, -1}) {
+            Map<String, Object> malo = datos();
+            malo.put("version", v);
+            assertThatThrownBy(() -> validador.validar(UUID.randomUUID(), malo))
+                    .as("version=%s", v)
+                    .isInstanceOf(EventoInvalidoException.class)
+                    .isNotInstanceOf(EventoConCoordenadasException.class)
+                    .hasMessageContaining("version");
+        }
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("SEC-J-01: validación estricta: fecha futura o imposible y caracteres de control se rechazan")
+    void contenidoEstrictoFechaYCaracteresDeControl() {
+        Map<String, Object> futura = datos();
+        futura.put("fechaRecoleccion", LocalDate.now().plusDays(30).toString());
+        rechaza(futura);
+        Map<String, Object> antigua = datos();
+        antigua.put("fechaRecoleccion", "1700-01-01");
+        rechaza(antigua);
+        Map<String, Object> manana = datos(); // desfase horario Bogotá/UTC: un día de tolerancia
+        manana.put("fechaRecoleccion", LocalDate.now().plusDays(1).toString());
+        assertThat(validador.validar(UUID.randomUUID(), manana)).isNotNull();
+
+        for (String malo : new String[] {"a\u0000b", "a\u001bb", "texto\u202Eoculto", "x\u2067y"}) {
+            Map<String, Object> d = datos();
+            d.put("nombreComun", malo);
+            assertThatThrownBy(() -> validador.validar(UUID.randomUUID(), d)).isInstanceOf(EventoInvalidoException.class)
+                    .hasMessageContaining("nombreComun");
+        }
+        Map<String, Object> saltos = datos();
+        saltos.put("descripcion", "línea 1\nlínea 2\tcon tabulación");
+        assertThat(validador.validar(UUID.randomUUID(), saltos)).isNotNull();
+        Map<String, Object> saltoEnNombre = datos();
+        saltoEnNombre.put("nombreCientifico", "Atelopus\nebenoides");
+        rechaza(saltoEnNombre);
+    }
+
+    @Test
     void faltaUnObligatorio() {
         for (String campo : new String[] {"hallazgoId", "version", "nombreCientifico", "familia",
                 "fechaRecoleccion", "estadoConservacion", "departamento"}) {

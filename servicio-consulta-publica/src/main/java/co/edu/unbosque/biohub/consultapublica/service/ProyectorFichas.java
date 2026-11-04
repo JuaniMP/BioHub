@@ -23,6 +23,11 @@ public class ProyectorFichas {
         this.escritura = escritura;
     }
 
+    /** Versión actualmente guardada del hallazgo (lectura informativa, sin bloqueo). */
+    public java.util.Optional<Integer> versionGuardada(java.util.UUID hallazgoId) {
+        return escritura.versionGuardada(hallazgoId);
+    }
+
     @Transactional
     public ResultadoProyeccion aplicar(FichaPublica ficha) {
         if (escritura.actualizarSiEsMasNueva(ficha) > 0) {
