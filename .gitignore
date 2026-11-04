@@ -2,6 +2,7 @@
 target/
 *.class
 *.log
+logs/
 hs_err_pid*
 
 # Node

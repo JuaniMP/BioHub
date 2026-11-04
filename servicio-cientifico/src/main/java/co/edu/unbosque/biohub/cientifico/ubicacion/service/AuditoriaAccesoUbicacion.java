@@ -4,7 +4,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-/** Auditoría de accesos a ubicaciones (D28): log estructurado dedicado, sin coordenadas. */
+/**
+ * Auditoría de accesos a ubicaciones (D28): log estructurado dedicado, sin coordenadas.
+ *
+ * <p>El logger {@code biohub.auditoria.ubicacion} se envía a un archivo propio, de solo anexado y con rotación y
+ * retención amplias, y su nivel queda fijado en INFO en {@code logback-spring.xml} (SEC-J-08 punto 3). <b>El nivel no
+ * debe bajarse</b> (OFF, WARN, ERROR): apagaría la auditoría. No definir
+ * {@code logging.level.biohub.auditoria.ubicacion} en ningún entorno.
+ */
 @Component
 public class AuditoriaAccesoUbicacion {
 

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Logging de servicio-cientifico (SEC-J-08 punto 3, D28).
+
+  1. Todo lo demas se queda como el logging por defecto de Spring Boot (defaults + consola, raiz en INFO);
+     logging.level.* y logging.file.* siguen funcionando para el resto de los loggers.
+  2. El logger "biohub.auditoria.ubicacion" (accesos a coordenadas exactas y 403, ver AuditoriaAccesoUbicacion) tambien
+     va a un archivo PROPIO, en modo anexado, con rotacion por fecha y tamano y retencion amplia, para que no se pierda
+     al rotar el log general ni se mezcle con el.
+     - Ruta: variable de entorno o propiedad del sistema UBICACION_AUDITORIA_LOG (por defecto logs/auditoria-ubicacion.log,
+       relativa al directorio de trabajo). El proceso debe poder escribir ahi; en Docker, montar un volumen persistente.
+     - Retencion: UBICACION_AUDITORIA_LOG_DIAS (por defecto 365 dias) y tope total UBICACION_AUDITORIA_LOG_TOPE (por defecto 10GB).
+     - additivity=true: ademas se emite por la consola, de modo que un recolector de logs del contenedor la ve.
+  3. El nivel de ese logger esta FIJADO en INFO. NO debe bajarse ni apagarse: con OFF/WARN/ERROR se pierde la auditoria
+     (D28, RF11, RNF9). Ojo: un logging.level.biohub.auditoria.ubicacion=... en el entorno SI sobrescribe este valor
+     (Spring Boot aplica logging.level.* despues de leer este archivo); revisar que nadie lo defina (README, "Auditoria").
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <property name="AUDITORIA_UBICACION_ARCHIVO" value="${UBICACION_AUDITORIA_LOG:-logs/auditoria-ubicacion.log}"/>
+
+    <appender name="AUDITORIA_UBICACION" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${AUDITORIA_UBICACION_ARCHIVO}</file>
+        <append>true</append>
+        <encoder>
+            <charset>UTF-8</charset>
+            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %logger{0} - %msg%n</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${AUDITORIA_UBICACION_ARCHIVO}.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>${UBICACION_AUDITORIA_LOG_DIAS:-365}</maxHistory>
+            <totalSizeCap>${UBICACION_AUDITORIA_LOG_TOPE:-10GB}</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <logger name="biohub.auditoria.ubicacion" level="INFO" additivity="true">
+        <appender-ref ref="AUDITORIA_UBICACION"/>
+    </logger>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
