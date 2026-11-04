@@ -42,7 +42,8 @@ En servicio-cientifico: `cientifico.registro.{controller,service,domain,infrastr
 - Puertos de infraestructura publicados solo en 127.0.0.1. Contraseñas en `.env` (no versionado); las de los usuarios de prueba se inyectan al realm con el placeholder `${KEYCLOAK_TEST_USERS_PASSWORD}`.
 
 ## Persistencia
-- Flyway en cada servicio, `V1__base.sql` vacía. Cada historia agrega `V<n>__descripcion.sql`. Hibernate `ddl-auto=validate`.
+- Flyway en cada servicio, `V1__base.sql` vacía. Cada historia agrega `VAAAAMMDD_HHMM__descripcion.sql` (convención por fecha, `out-of-order`; D37). Hibernate `ddl-auto=validate`.
+- Bases en MySQL local (perfil `local`) o en Aiven (perfil `aiven`), una base y un usuario por servicio (D35, D36).
 - mysql-transaccional: un usuario por esquema con permisos solo sobre su esquema.
 
 ## Decisiones (ADR resumidos)
@@ -58,11 +59,11 @@ En servicio-cientifico: `cientifico.registro.{controller,service,domain,infrastr
 | D8 | El gateway lee el cuerpo con límite (10MB) y no lee cuerpo en GET/HEAD/OPTIONS/DELETE | Evita DoS por memoria (SEC-03) |
 | D9 | BUG-01 de QA vs SEC-06 de seguridad (contradicción sobre path traversal): **decide Tech Lead** → era un falso positivo de curl; se añade igualmente validación de rutas en el proxy (400) | Defensa en profundidad |
 | D10 | Pendientes de seguridad asignados a historias: usuarios RabbitMQ por servicio (SEC-04), API Key como ROLE_API_CLIENT (SEC-05), usuario Flyway vs aplicación (SEC-11), reglas por rol + `denyAll` por defecto (SEC-02) | Requieren modelo/endpoints que aún no existen |
-| D11 | **Despliegue:** webs (web-interna y web-publica) en **Vercel** (plan Hobby, gratis). Backend on-premise en **DOS máquinas virtuales**: **VM de backend** (gateway, servicios, Keycloak, RabbitMQ, Redis) y **VM de datos** (los 4 MySQL + BD de Keycloak), cada componente como contenedor Docker. **Tailscale** conecta las VMs entre sí y al equipo por una red privada cifrada; **Tailscale Funnel** publica solo el gateway y el login de Keycloak | Costo cero; separar los datos en otra VM limita el daño si se compromete el backend (la VM de datos solo acepta conexiones de la VM de backend); Tailscale evita abrir puertos en el router y cifra el tráfico entre VMs |
-| D12 | **Primera implementación de D11 (alcance 4a):** VMs KVM en el portátil de Juanita (`biohub-backend` 4 vCPU/6 GB/30 GB, `biohub-datos` 2 vCPU/4 GB/40 GB, Ubuntu 24.04 cloud image). Sin Funnel, sin Vercel; Keycloak sigue en `start-dev` con H2 en la VM backend (no en la VM de datos). ACL por etiquetas `tag:backend`/`tag:datos` y `autogroup:member`; Tailscale SSH. RabbitMQ con un usuario por servicio (SEC-04) y topología declarada por el código | Alcance acordado con la dueña; deja el backend usable por el equipo en la tailnet sin exponer nada a internet |
-| D13 | **Keycloak `sslRequired=NONE`** en los realms `master` y `biohub` del despliegue (aplicado por `deploy/desplegar.sh`). Aprobada por Juanita (2026-10-22) | Keycloak trata las IPs 100.x de Tailscale como externas y exigía HTTPS. Riesgo aceptado: solo es accesible por la tailnet (ACL + cifrado WireGuard). **Condición:** volver a `external` cuando se publique con HTTPS (`tailscale serve`/Funnel) |
+| D11 | Despliegue on-premise del backend en máquinas virtuales. **Reemplazada por D34** | – |
+| D12 | Primera implementación de D11 en VMs locales. **Reemplazada por D34** | – |
+| D13 | Keycloak sin exigir SSL en el despliegue en VMs. **Reemplazada por D34** (Keycloak usa `sslRequired=external`) | – |
 | D14 | **Ningún dato público lleva coordenadas exactas**, ni de especies en peligro ni de las que no lo están. El portal público, la API pública y el modelo de lectura de `consulta_publica` solo guardan y muestran departamento/región. Las coordenadas exactas solo las devuelve `servicio-cientifico` (módulo ubicacion) al rol `cientifico_alto_rango`. Decidida por Juanita (2026-10-26) | Publicar coordenadas de especies no amenazadas también facilita la caza; además reduce el riesgo de que un error de clasificación filtre una especie en peligro. Endurece RF11/RF12 |
-| D15 | **Todas las coordenadas se cifran** con AES-256-GCM antes de persistirse (no solo las de especies en peligro). Llaves versionadas fuera de la BD (variables de entorno / `.env` de la VM, nunca en el repo), con id de versión guardado junto al texto cifrado y rotación (re-cifrado). Es el "KMS equivalente" del prototipo (ASR6) | Evita decidir qué cifrar según el estado de conservación (que puede cambiar con una reclasificación). Sin infraestructura compartida nueva |
+| D15 | **Todas las coordenadas se cifran** con AES-256-GCM antes de persistirse (no solo las de especies en peligro). Llaves versionadas fuera de la BD (variables de entorno / `.env` del servicio, nunca en el repo ni en Aiven), con id de versión guardado junto al texto cifrado y rotación (re-cifrado). Es el "KMS equivalente" del prototipo (ASR6) | Evita decidir qué cifrar según el estado de conservación (que puede cambiar con una reclasificación). Sin infraestructura compartida nueva |
 | D16 | **web-publica usa `GET /api/publica/**` sin API Key** (solo rate limit por IP en el gateway). Las API Keys de HU-08/HU-12 (Santiago) aplican a la API para externos, con prefijo propio (propuesto `/api/v1/externa/**`). Juanita lo coordina con Santiago | El portal lo usan visitantes sin cuenta; una key embebida en el navegador no protege nada |
 | D17 | **Pantallas internas de Juanita** (mapa HU-07 y búsqueda interna HU-13) viven en una carpeta propia de `web-interna` (`src/ubicacion/`); Santiago solo monta la ruta y el enlace en su navegación/login | Respeta el reparto: Juanita no modifica el login ni la navegación de Santiago |
 | D18 | **Límite con Hernando:** Juanita define contratos (evento `hallazgo.registrado`/`hallazgo.reclasificado`, interfaz `UbicacionService`) e implementa solo su lado. No se implementa código del módulo registro | Pedido explícito de Juanita |
@@ -77,59 +78,54 @@ En servicio-cientifico: `cientifico.registro.{controller,service,domain,infrastr
 | D27 | **La ficha pública es por hallazgo** (`id` = `hallazgoId`), con departamento y región, y `ubicacionProtegida: true` siempre (D14). La web elige el texto del aviso según `estadoConservacion` (`02-diseno-ux.md` §6) | Una sola clave de identidad de punta a punta, sin campos redundantes |
 | D28 | **Auditoría de accesos a coordenadas (HU-07.3) en log estructurado dedicado** (logger `biohub.auditoria.ubicacion`): usuario, endpoint, filtros, cantidad devuelta y omitidos; también los 403. Sin coordenadas. La tabla `ubicacion_acceso_log` de `05` queda como Could | Cubre la recomendación 3 de seguridad con el mínimo de piezas. La tabla se añade sin cambiar el contrato |
 | D29 | **Errores de los endpoints de Juanita:** `application/problem+json` con dos extensiones, `codigo` (estable, para la lógica del frontend) y `errores[]` (por campo). El 401 lo emite Spring Security **sin cuerpo** (`WWW-Authenticate: Bearer`), como en el resto de servicios; el 429 lo emite el gateway | El frontend decide por estado HTTP + `codigo`, nunca por el texto. No hay que tocar el `SecurityConfig` compartido |
-| D30 | **Pruebas sin efectos en las VMs:** las pruebas automáticas usan Testcontainers (MySQL 8.4, RabbitMQ 4, Redis 7.4) o mocks; **prohibido** apuntar a las BD, colas o Redis de las VMs y publicar `hallazgo.*` en el broker desplegado. La carga x60 corre en un entorno Compose efímero (`down -v` al terminar) | Requisito de Juanita. Un `hallazgo.*` de prueba en la VM llegaría a la cola real y crearía fichas públicas |
+| D30 | **Pruebas sin efectos en los entornos compartidos:** las pruebas automáticas usan Testcontainers (MySQL 8.4, RabbitMQ 4, Redis 7.4) o mocks; **prohibido** apuntar a las bases de Aiven o a un broker/Redis compartido y publicar `hallazgo.*` en ellos. La carga x60 corre en un entorno Compose efímero (`down -v` al terminar). Ver D38 | Requisito de Juanita. Un `hallazgo.*` de prueba en un broker compartido llegaría a la cola real y crearía fichas públicas |
 | D31 | **Frontend:** web-publica usa `react-router` con las rutas `/` y `/especies/:id` (`02-diseno-ux.md`). Las pantallas internas se exportan como componentes que no dependen del router de Santiago (rutas propuestas `/ubicacion/busqueda` y `/ubicacion/mapa`). Mapa con `leaflet` + `react-leaflet`, teselas OpenStreetMap y `maxZoom: 12`. Los departamentos se muestran en una lista estática en el frontend (33, mismos códigos DANE que el catálogo) y no hay endpoint de catálogos | URLs compartibles en el pico viral (caché HTTP y Redis más efectivas). Leaflet no necesita llave de API. Sin endpoints que la UI no usa |
 | D32 | **Resolución de choques de diseño (Tech Lead, 2026-10-26):** P-J1: solo `cientifico_alto_rango` recibe coordenadas, de cualquier especie (se corrige 05 §7.2). P-J2: `UbicacionService` rechaza `estadoConservacion` ausente (400/validación); el consumidor manda a la DLQ un evento sin estado y guarda `EN_PELIGRO` si el valor es desconocido. P-J3: llaves en `UBICACION_CLAVES=v1:<b64>,...` + `UBICACION_CLAVE_ACTIVA` (formato del contrato; se corrige 05). P-J4: `eliminado_en` existe en el DDL pero queda siempre NULL en el MVP; sin endpoint de desactivación. P-J5: las preguntas de 02 quedan resueltas por 04 (`page` base 0). UX: la celda de coordenadas en web-interna muestra "Restringido" a todo rol que no sea alto rango; el color de foco de web-interna es de Santiago y no se cambia | Coherencia entre 02, 03, 04 y 05 |
 | D33 | **Ajustes tras el plan de pruebas (Tech Lead):** límite de paginación `(page+1)*size <= 10.000` (manda 04). En `LIKE` se escapan `%`, `_` y `\`. La prueba de carga x60 se mide directo contra `servicio-consulta-publica` (o con el rate limit del gateway elevado en el entorno de carga), no contra el limitador. Las criterios de 01 §3 contradichos por D14/D15/D21/D32 quedan anulados (01 §9 prevalece) | Riesgos RQ-1, RQ-4, RQ-5, RQ-6 de 06 |
+| D34 | **Retiro de la red privada y de las VMs locales (iteración 15, 2026-11-03).** Reemplaza D11, D12 y D13. No hay despliegue on-premise: RabbitMQ, Redis y Keycloak corren en Docker con el `docker-compose.yml` de la raíz (puertos solo en `127.0.0.1`) y los servicios en el host (D2). En CI, los mismos componentes son contenedores (D38). Keycloak sigue en `start-dev` con `sslRequired=external`. Se eliminan del repo los scripts de VMs, la política de red y su guía. **Alternativas descartadas:** mantener las VMs con la red privada (dependía de que el portátil de Juanita estuviera encendido y de configuración manual por integrante); publicar el backend con un túnel (expone servicios sin rate limit, ASR8 ausente). **Consecuencias:** desaparece la "red privada" que el SAD §5.2 usa como protección en tránsito para la base: la base de datos queda en internet (D35) y se protege con TLS verificado, usuario por servicio y lista de IPs. Ya no existe un entorno compartido del backend: cada integrante levanta el suyo | Decidido por Juanita (00-plan, iteración 15). Simplifica el arranque y quita la dependencia de una sola máquina |
+| D35 | **MySQL administrado en Aiven** (MySQL 8, SSL obligatorio). Una **base y un usuario por servicio** (`cientifico`, `equipos`, `consulta_publica`, `reportes`, `gateway`); `avnadmin` solo para administración, nunca en una aplicación. Conexión con `sslMode=VERIFY_IDENTITY` (mínimo `VERIFY_CA`) y el CA del proyecto de Aiven en un truststore PKCS12; nunca `REQUIRED`/`PREFERRED`. Host, puerto, base y credenciales salen de variables por servicio, de modo que cada servicio puede apuntar a un servidor distinto sin tocar código. **Topología:** se arranca con un servicio de Aiven (D-I15-2) y se recomienda separar en dos (escritura: `cientifico`, `equipos`; lectura: `consulta_publica`, `reportes`, `gateway`), ver P-A1 y `10-verificacion-sad.md` §8. Presupuesto de conexiones del plan gratuito (`max_connections` = 76): pool de 5 por instancia en el perfil `aiven` y `MAX_USER_CONNECTIONS` por usuario. Las llaves de cifrado (D20) **nunca** van a Aiven: la base solo recibe texto cifrado. **Alternativas descartadas:** seguir con MySQL en Docker como único entorno (no hay base compartida para la demo); otra base administrada no compatible con MySQL (obliga a reescribir el FULLTEXT y las migraciones). **Consecuencias:** latencia por internet en cada consulta (medir la ida y vuelta; ver presupuesto en `10` §8.3); dependencia de un proveedor con protocolo estándar (portable, ASR9); el plan gratuito puede apagarse por inactividad y cambiar de región sin aviso | Base compartida para la demo sin operar servidores. MySQL estándar: el código y las migraciones no cambian |
+| D36 | **Perfiles Spring `local` y `aiven`.** `local` arma la URL hacia el MySQL del compose de la raíz; `aiven` arma la URL con SSL verificado, timeouts de conexión y socket, y el pool acotado. Solo cambia el `datasource`: RabbitMQ, Redis, Keycloak, Flyway y la lógica son iguales en ambos. Sin perfil, el servicio exige la URL completa por variable (no hay valor por defecto que apunte a ningún servidor). En los dos perfiles la sesión JDBC usa UTC (`connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true`), porque el MySQL local corre con `TZ=America/Bogota` y Aiven en UTC, y las columnas `DEFAULT CURRENT_TIMESTAMP(3)` darían horas distintas. Variables documentadas en el `.env.example` de cada servicio | Un solo código para los dos entornos; el cambio de servidor es configuración (ASR9) |
+| D37 | **Flyway igual en todos los entornos:** convención por fecha (`V1__base.sql`, `VAAAAMMDD_HHMM__descripcion.sql`), `out-of-order: true`, Hibernate `ddl-auto=validate` (D-I15-1). Las bases de Aiven nacen vacías: sin `baseline`. Reglas para que una migración funcione en Aiven: toda tabla con clave primaria (Aiven activa `sql_require_primary_key`); sin `DEFINER`, `SET GLOBAL` ni nada que pida `SUPER`; sin triggers ni funciones que exijan `log_bin_trust_function_creators`. **Usuario de migración separado** del de ejecución (SEC-11) obligatorio en `aiven` para `cientifico`: Flyway usa `<SERVICIO>_MIGR_USER` (DDL sobre su base) y la aplicación un usuario con DML; para el historial de registro (ASR7) ese usuario solo tendrá `INSERT, SELECT`. Una migración publicada no se edita: se corrige con otra | Mismo esquema verificable en local, CI y Aiven. El usuario de migración es lo que permite cumplir "la inmutabilidad no depende solo del código" (SAD §5.2) |
+| D38 | **CI con GitHub Actions:** compila y prueba con `mvn -B verify` (Testcontainers levanta MySQL 8.4, RabbitMQ 4 y Redis 7.4 como contenedores), construye y prueba web-publica (`npm ci`, `npm test`, `npm run build`) y ejecuta las colecciones Bruno contra un entorno Compose efímero levantado en el mismo job. **CI nunca se conecta a Aiven** y no tiene sus secretos; las llaves de cifrado de CI se generan en el job. Las pruebas de carga x60 (etiqueta `rendimiento`) quedan fuera del pipeline por defecto | D30: ninguna prueba deja datos en un entorno compartido. CI reproducible y sin secretos de producción |
 
-### Notas de despliegue (D11) – para devops
+### Topología de ejecución (D34–D38)
 
-**Topología**
+```mermaid
+flowchart LR
+  subgraph Equipo[Equipo de cada integrante]
+    WEB[web-interna / web-publica<br/>Vite]
+    GW[api-gateway :8080]
+    SVC[servicios Spring Boot<br/>8081-8084]
+    subgraph Docker[docker-compose raíz · 127.0.0.1]
+      MQ{{RabbitMQ}}
+      RD[(Redis)]
+      KC[Keycloak start-dev]
+      MYL[(MySQL local<br/>perfil local)]
+    end
+  end
+  subgraph Aiven[Aiven · MySQL administrado · TLS]
+    AE[(servidor escritura<br/>cientifico, equipos)]
+    AL[(servidor lectura<br/>consulta_publica, reportes, gateway)]
+  end
+  WEB --> GW --> SVC
+  SVC --> MQ
+  SVC --> RD
+  SVC -. JWT .-> KC
+  SVC -- perfil local --> MYL
+  SVC -- perfil aiven · VERIFY_IDENTITY --> AE
+  SVC -- perfil aiven · VERIFY_IDENTITY --> AL
 ```
-                         Internet
-                            │ HTTPS
-          ┌─────────────────┴──────────────────┐
-   Vercel (gratis)                  Tailscale Funnel (https://biohub-backend.<tailnet>.ts.net)
-   web-interna, web-publica                    │ solo /api/** y /realms/**, /resources/**
-                                               ▼
- ┌──────────── VM 1: biohub-backend (Ubuntu Server) ─────────────┐
- │  Caddy/Nginx (reverse proxy, único punto de entrada)          │
- │    ├► api-gateway ─► cientifico / equipos / consulta-publica / reportes
- │    └► keycloak                                                │
- │  rabbitmq, redis   (red Docker interna, sin puertos públicos) │
- └───────────────────────────────┬───────────────────────────────┘
-                                 │ Tailscale (red privada cifrada)
-                                 │ solo puertos MySQL, solo desde biohub-backend
- ┌───────────────────────────────▼───────────────────────────────┐
- │ VM 2: biohub-datos (Ubuntu Server)                            │
- │  mysql-transaccional, mysql-lectura, mysql-analitica,         │
- │  mysql-gateway, BD de Keycloak (producción)                   │
- │  Puertos publicados SOLO en la IP de Tailscale (100.x.y.z)    │
- └───────────────────────────────────────────────────────────────┘
-        ▲ Tailscale: los 4 integrantes (SSH, consola Keycloak, panel RabbitMQ, clientes MySQL)
-```
 
-**Tailscale: tres usos**
-1. **VM de backend → VM de datos.** Los servicios se conectan a MySQL por el nombre de Tailscale de la VM de datos (MagicDNS), p. ej. `MYSQL_TRANSACCIONAL_HOST=biohub-datos`. No hay cambios de código: los hosts ya son variables de entorno.
-2. **Acceso privado del equipo.** Los 4 integrantes entran a las dos VMs (Tailscale SSH, consola de Keycloak, panel de RabbitMQ, MySQL) sin que nada de eso esté en internet ni haya puertos abiertos en el router.
-3. **Publicación (Funnel).** Solo el reverse proxy de la VM de backend, con HTTPS automático y URL fija. Funnel solo admite los puertos 443/8443/10000; por eso todo pasa por un único proxy que enruta por ruta.
+- Mientras no se resuelva P-A1, `AE` y `AL` son el mismo servicio de Aiven con bases distintas.
+- CI (D38): todo lo de la caja "Docker" más MySQL como contenedores; sin Aiven.
+- Detalle operativo (alta de bases y usuarios en Aiven, truststore, variables): `09-despliegue.md`, a cargo de devops.
 
-**Reglas de seguridad**
-- **ACLs de Tailscale con etiquetas:** `tag:backend` (VM 1), `tag:datos` (VM 2) y el grupo `group:equipo` (4 integrantes). Reglas: `tag:backend` → `tag:datos` solo puertos MySQL; `group:equipo` → ambas VMs (SSH y paneles); **nadie más** llega a `tag:datos`. Verificación en dos pasos en las cuentas.
-- **VM de datos:** MySQL publica sus puertos **solo en la IP de Tailscale** (`100.x.y.z:3307:3306`, etc.), nunca en `0.0.0.0`; `ufw` deniega todo lo entrante salvo la interfaz `tailscale0`. Sin Funnel.
-- **VM de backend:** ningún `ports:` salvo el reverse proxy en `127.0.0.1` (Funnel se conecta localmente); servicios con `SERVER_ADDRESS=0.0.0.0` solo dentro de la red Docker; `ufw` igual que arriba.
-- **Usuarios de MySQL:** cada usuario de aplicación limitado al host de la VM de backend (IP de Tailscale) en vez de `'%'`; root solo local.
-- Keycloak en modo producción (`start`, BD en la VM de datos, `KC_HOSTNAME` = URL de Funnel, `KC_PROXY_HEADERS=xforwarded`); consola admin solo por la tailnet. Eliminar el cliente `biohub-pruebas` y los usuarios de prueba.
-- Agregar los dominios de Vercel a `CORS_ORIGENES` del gateway y a `redirectUris`/`webOrigins` del cliente `web-interna`. En Vercel: `VITE_API_URL` y `VITE_KEYCLOAK_URL` = URL de Funnel (HTTPS obligatorio).
-- Copias de seguridad programadas de los volúmenes MySQL de la VM de datos.
-
-**Recursos sugeridos**
-| VM | vCPU | RAM | Disco |
-|---|---|---|---|
-| biohub-backend | 4 | 6 GB | 30 GB |
-| biohub-datos | 2 | 4 GB | 40 GB |
-
-Pueden estar en el mismo equipo físico (VirtualBox/Proxmox/Hyper-V) o en equipos distintos: Tailscale las conecta igual. Limitación aceptada: la app solo está en línea cuando ambas VMs están encendidas.
+**Pendientes de arquitectura para el tech lead (iteración 15)**
+| # | Tema | Propuesta del arquitecto |
+|---|---|---|
+| P-A1 | 1 o 2 servicios MySQL en Aiven (D-I15-2 dice uno) | **Dos**: escritura (`cientifico`, `equipos`) y lectura (`consulta_publica`, `reportes`, `gateway`). Con uno, la consulta pública y los reportes compiten por la misma CPU, memoria y las 76 conexiones que usa el registro, que es lo que ASR2/ASR3/ASR4 prohíben. El plan gratuito admite un MySQL por organización: el segundo va en la organización de otro integrante, sin costo. Si se mantiene uno, aplicar las mitigaciones de `10` §8.4 y declararlo en SAD §5.3 |
+| P-A2 | Patrones del SAD §6 en el módulo ubicacion (Strategy, Decorator, Observer) no están en el código con la forma que describe el SAD | Implementar Strategy y el observador de ubicación (esfuerzo S) y ajustar el SAD en Decorator y en el almacén de llaves. Detalle en `10` ARQ-08 a ARQ-11 |
+| P-A3 | SAD §2.5/§7.1: registro y ubicacion "solo se comunican por el módulo eventos"; D18/D22 y el contrato 04 hacen que registro llame a `UbicacionService` | Añadir `ObservadorUbicacion` (`@EventListener` síncrono, misma transacción) que escucha los eventos de dominio de `cientifico.eventos` y llama a `UbicacionService`. Hernando publica el evento de dominio en lugar de llamar al servicio; `UbicacionService` se conserva como API interna (sigue con `MANDATORY`) |
 
 ---
 
@@ -301,7 +297,7 @@ La firma exacta está en `04-contrato-api.md` §"Interfaz `UbicacionService`". C
 ### J5. Eventos y consumidor idempotente (D23, D24)
 El esquema exacto está en `04-contrato-api.md` §"Eventos `hallazgo.*`". Algoritmo de `ConsumidorEventos` + `ProyectorFichas` para `hallazgo.*`:
 1. Validación del sobre (ya existe: tamaño ≤ 64 KB, JSON, campos, tipo conocido, routing key = tipo).
-2. `origen` debe ser `servicio-cientifico`. Si `biohub.eventos.verificar-publicador=true`, además `MessageProperties.getReceivedUserId()` debe ser igual a `biohub.eventos.publicador-cientifico` (en las VMs `cientifico_mq`). Se activa cuando el publicador ponga `user_id` (§J12).
+2. `origen` debe ser `servicio-cientifico`. Si `biohub.eventos.verificar-publicador=true`, además `MessageProperties.getReceivedUserId()` debe ser igual a `biohub.eventos.publicador-cientifico` (en un broker con usuarios por servicio, `cientifico_mq`). Se activa cuando el publicador ponga `user_id` (§J12).
 3. Recorrido recursivo del JSON crudo de `datos`. Si aparece cualquier clave (sin distinguir mayúsculas) de `{latitud, longitud, lat, lon, lng, coordenadas, coordinates, geometry, geom, ubicacionExacta}` → `EventoInvalidoException` (DLQ) y log WARN `"Evento con coordenadas rechazado id=…"`, **sin valores**.
 4. Mapeo a `DatosHallazgo` (record, `FAIL_ON_UNKNOWN_PROPERTIES=false`: ignora los campos extra no prohibidos) + Bean Validation + resolución de `departamento` en el catálogo. Si algo falla → DLQ.
 5. `estadoConservacion` con un valor desconocido → se guarda como `EN_PELIGRO` (falla segura, regla 2) + log WARN. Si **falta** → DLQ (campo obligatorio).
@@ -456,9 +452,9 @@ sequenceDiagram
 
 | Variable / propiedad | Servicio | Por defecto | Nota |
 |---|---|---|---|
-| `UBICACION_CLAVES`, `UBICACION_CLAVE_ACTIVA` | cientifico | (vacío → no arranca) | Secretas: `.env` local y `deploy/backend/.env` |
+| `UBICACION_CLAVES`, `UBICACION_CLAVE_ACTIVA` | cientifico | (vacío → no arranca) | Secretas: `.env` del servicio (`servicio-cientifico/.env`), nunca en el repo ni en Aiven |
 | `CONSULTA_MODO_DEGRADADO` | consulta-publica | `false` | RNF1 |
-| `BIOHUB_EVENTOS_VERIFICAR_PUBLICADOR` | consulta-publica | `false` | `true` en las VMs cuando el publicador ponga `user_id` |
+| `BIOHUB_EVENTOS_VERIFICAR_PUBLICADOR` | consulta-publica | `false` | `true` en cualquier broker compartido cuando el publicador ponga `user_id` |
 | `BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO` | consulta-publica | `cientifico_mq` | Usuario AMQP esperado en `user_id` |
 | `spring.data.redis.timeout` / `connect-timeout` | consulta-publica | `300ms` | – |
 | `spring.datasource.hikari.connection-timeout` | consulta-publica | `2000` | Devuelve 503 rápido en vez de colgarse |
@@ -479,12 +475,12 @@ sequenceDiagram
 ### J12. Pendientes y coordinación
 **Santiago (gateway, Keycloak, infraestructura)**
 1. Confirmar que `/api/cientifico/**` (incluye `/ubicacion/**`) sigue exigiendo JWT y que `GET /api/publica/**` sigue sin JWT ni API Key (D16). Rate limit por IP para `/api/publica/**` (propuesta: 120 peticiones/min por IP) con 429 problem+json y `Retry-After`.
-2. CORS: añadir el origen de web-publica en Vercel cuando exista y `Access-Control-Expose-Headers: Retry-After`.
+2. CORS: añadir el origen público de web-publica cuando se publique y `Access-Control-Expose-Headers: Retry-After`.
 3. No filtrar `Cache-Control` en el proxy (hoy pasa; confirmar que seguirá así).
 4. Si se crea la API externa `/api/v1/externa/fichas/**` (D16), debe reescribir la ruta a `/api/publica/fichas/**` de consulta-publica: el proxy actual reenvía la ruta completa y no hay servicio para el prefijo `v1`.
-5. Detrás de Caddy/Funnel, `request.getRemoteAddr()` será la IP del proxy: el rate limit por IP necesita confiar en `X-Forwarded-For` **solo** del proxy propio (`08`, rate limiting, punto 2).
-6. Variables nuevas en `.env.example`, `deploy/generar-env.sh` y `deploy/backend/docker-compose.yml` (§J10).
-7. SEC-D-03: permisos `write` mínimos para `consulta_mq`/`reportes_mq` y `setUserId` en `PublicadorEventos` (paquete `cientifico.eventos`, compartido). Después, activar `BIOHUB_EVENTOS_VERIFICAR_PUBLICADOR=true` en las VMs.
+5. Detrás de un reverse proxy, `request.getRemoteAddr()` será la IP del proxy: el rate limit por IP necesita confiar en `X-Forwarded-For` **solo** del proxy propio (`08`, rate limiting, punto 2).
+6. Variables nuevas en el `.env.example` de cada servicio (§J10, D36).
+7. SEC-D-03: permisos `write` mínimos para `consulta_mq`/`reportes_mq` y `setUserId` en `PublicadorEventos` (paquete `cientifico.eventos`, compartido). Después, activar `BIOHUB_EVENTOS_VERIFICAR_PUBLICADOR=true` (o cambiar su valor por defecto, SEC-J-01).
 8. Montar `rutasUbicacion` en web-interna y aceptar las dependencias `leaflet`/`react-leaflet`.
 9. Recomendado (`08`): MFA para `cientifico_alto_rango`.
 
@@ -500,7 +496,7 @@ sequenceDiagram
 | P-J5 | `02` §4 | Pide confirmar `page` (0 o 1), `size` interno, `investigador`/`estadoConservacion` en el mapa | Confirmado en `04`: `page` base 0; `size` interno 1–100; el mapa trae ambos campos. Además `02` usa `latitud`/`longitud` al primer nivel: el contrato lo adopta |
 
 ### J13. Pruebas (D30)
-**Regla:** las pruebas **nunca** dejan datos en las BD, colas o Redis de las VMs. Nada de `@SpringBootTest` contra `biohub-datos`/`biohub-backend`. No se publican `hallazgo.*` en el broker desplegado. Las semillas de demostración solo se cargan en un perfil `local-demo` que no se activa en las VMs (`05` §13).
+**Regla:** las pruebas **nunca** dejan datos en las bases de Aiven ni en colas o Redis compartidos (D30, D38). Nada de `@SpringBootTest` con el perfil `aiven`. No se publican `hallazgo.*` en un broker compartido. Las semillas de demostración solo se cargan en un perfil `local-demo` que no se activa con `aiven` (`05` §13).
 
 | Nivel | Qué | Herramienta |
 |---|---|---|
@@ -511,12 +507,12 @@ sequenceDiagram
 | Integración (consulta-publica) | Evento → ficha → `GET`. Duplicado. Desorden. DLQ (coordenadas, origen, JSON roto, departamento desconocido). Invalidación de caché tras evento. **Redis detenido** (`container.stop()`) → 200. MySQL detenido con ficha fuera de caché → 503 y con ficha en caché → 200. `q="' OR '1'='1"` → 200 vacío. Búsqueda sin distinguir tildes | Testcontainers `rabbitmq:4-management`, `mysql:8.4`, `redis:7.4-alpine` (GenericContainer) |
 | Rendimiento (etiqueta `rendimiento`, fuera de `mvn test`) | 10.000 filas (20 % en peligro): búsqueda interna p95 < 3 s con descifrado; pública en frío p95 ≤ 2 s | Testcontainers + generador de `05` §13 |
 | Web | web-publica: estados de `02` §3, lista blanca (`02` §9.1), ninguna coordenada en el DOM aunque la respuesta simulada la traiga. web-interna/ubicacion: no llama al mapa sin el rol, 403 → I3, aviso de `truncado`/`omitidos`, celda "Restringido" | Vitest + Testing Library, `fetch` simulado |
-| Carga x60 | Línea base N y pico 60N sobre una ficha durante 2 min, con y sin Redis | k6 en `pruebas-carga/`, contra un Compose **efímero** (`-p biohub-carga`, `down -v` al terminar), nunca contra las VMs |
+| Carga x60 | Línea base N y pico 60N sobre una ficha durante 2 min, con y sin Redis | k6 en `pruebas-carga/`, contra un Compose **efímero** (`-p biohub-carga`, `down -v` al terminar), nunca contra Aiven |
 
 ### J14. Riesgos técnicos
 | # | Riesgo | Mitigación |
 |---|---|---|
-| R1 | Pérdida de la llave = pérdida de todas las coordenadas | Copia de `UBICACION_CLAVES` fuera de la VM (custodia de Juanita); no retirar una versión con filas pendientes o con respaldos vigentes (`05` §12) |
+| R1 | Pérdida de la llave = pérdida de todas las coordenadas | Copia de `UBICACION_CLAVES` fuera del equipo donde corre el servicio (custodia de Juanita); no retirar una versión con filas pendientes o con respaldos vigentes (`05` §12) |
 | R2 | Evento no publicado tras el commit → portal desactualizado | Outbox recomendado a Hernando; los snapshots permiten reenviar sin daño |
 | R3 | DLQ acumulada si mysql-lectura cae | Procedimiento de reenvío (§J5); revisión manual de la DLQ en el panel |
 | R4 | Un rol revocado sigue válido hasta 5 min (vida del token) | Aceptado; si RF19 exige inmediatez real, Santiago debe bajar la vida del token o usar introspección |
