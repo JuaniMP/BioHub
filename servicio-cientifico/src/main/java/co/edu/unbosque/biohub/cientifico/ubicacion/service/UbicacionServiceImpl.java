@@ -1,7 +1,6 @@
 package co.edu.unbosque.biohub.cientifico.ubicacion.service;
 
 import java.time.Clock;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Optional;
@@ -11,13 +10,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CifradorCoordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Coordenadas;
-import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CoordenadasCifradas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Departamento;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.DetectorCoordenadasEnTexto;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgo;
-import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgoRepository;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.RepositorioUbicaciones;
 
 /** Implementación de {@link UbicacionService}: se ejecuta dentro de la transacción de registro. */
 @Service
@@ -27,16 +24,15 @@ class UbicacionServiceImpl implements UbicacionService {
     private static final int MAX_NOMBRE = 150;
     private static final int MAX_INVESTIGADOR = 100;
 
-    private final UbicacionHallazgoRepository repositorio;
+    // La cadena del Decorator (auditoría -> cifrado -> JPA) llega armada como una sola dependencia (ARQ-10)
+    private final RepositorioUbicaciones repositorio;
     private final CatalogoDepartamentos catalogo;
-    private final CifradorCoordenadas cifrador;
     private final Clock reloj;
 
-    UbicacionServiceImpl(UbicacionHallazgoRepository repositorio, CatalogoDepartamentos catalogo,
-                         CifradorCoordenadas cifrador, ObjectProvider<Clock> reloj) {
+    UbicacionServiceImpl(RepositorioUbicaciones repositorio, CatalogoDepartamentos catalogo,
+                         ObjectProvider<Clock> reloj) {
         this.repositorio = repositorio;
         this.catalogo = catalogo;
-        this.cifrador = cifrador;
         this.reloj = reloj.getIfAvailable(Clock::systemUTC);
     }
 
@@ -53,16 +49,13 @@ class UbicacionServiceImpl implements UbicacionService {
         Departamento departamento = resolverDepartamento(c.departamento());
         Optional<Coordenadas> coordenadas = validarCoordenadas(c.latitud(), c.longitud());
 
-        if (repositorio.existsById(c.hallazgoId())) {
+        if (repositorio.existe(c.hallazgoId())) {
             return ResultadoUbicacion.IGNORADA_DUPLICADA;
         }
         UbicacionHallazgo fila = new UbicacionHallazgo(c.hallazgoId(), c.version(), departamento.getCodigo(),
                 c.nombreCientifico().trim(), c.fechaRecoleccion(), c.investigador().trim(), c.estadoConservacion());
-        if (coordenadas.isPresent()) {
-            CoordenadasCifradas cifradas = cifrador.cifrar(c.hallazgoId(), coordenadas.get()); // IllegalStateException revierte la TX
-            fila.asignarCifrado(cifradas, Instant.now(reloj));
-        }
-        repositorio.saveAndFlush(fila);
+        // El decorador de cifrado cifra antes de persistir; si falla (IllegalStateException) se revierte la TX de registro
+        repositorio.guardar(fila, coordenadas.orElse(null));
         return ResultadoUbicacion.APLICADA;
     }
 
@@ -75,14 +68,14 @@ class UbicacionServiceImpl implements UbicacionService {
         validarComunes(c.hallazgoId(), c.version(), c.nombreCientifico(), c.fechaRecoleccion(), c.estadoConservacion());
         Departamento departamento = resolverDepartamento(c.departamento());
 
-        UbicacionHallazgo fila = repositorio.findById(c.hallazgoId())
+        UbicacionHallazgo fila = repositorio.porId(c.hallazgoId())
                 .orElseThrow(() -> new UbicacionNoEncontradaException(c.hallazgoId()));
         if (c.version() <= fila.getVersion()) {
             return ResultadoUbicacion.IGNORADA_VERSION_ANTIGUA;
         }
         fila.actualizarIndice(c.version(), departamento.getCodigo(), c.nombreCientifico().trim(),
                 c.fechaRecoleccion(), c.estadoConservacion());
-        repositorio.saveAndFlush(fila);
+        repositorio.guardar(fila, null);
         return ResultadoUbicacion.APLICADA;
     }
 

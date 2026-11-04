@@ -3,10 +3,10 @@ package co.edu.unbosque.biohub.cientifico.ubicacion.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -21,17 +21,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
-import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CifradorCoordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Departamento;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.RepositorioUbicaciones;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgo;
-import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgoRepository;
 
 /** Validaciones de {@link UbicacionServiceImpl} con colaboradores simulados (sin BD ni transacción). */
 class UbicacionServiceImplValidacionesTest {
 
-    private final UbicacionHallazgoRepository repo = mock(UbicacionHallazgoRepository.class);
+    private final RepositorioUbicaciones repo = mock(RepositorioUbicaciones.class);
     private final CatalogoDepartamentos catalogo = mock(CatalogoDepartamentos.class);
-    private final CifradorCoordenadas cifrador = mock(CifradorCoordenadas.class);
     private UbicacionServiceImpl servicio;
     private final UUID id = UUID.randomUUID();
 
@@ -41,7 +39,7 @@ class UbicacionServiceImplValidacionesTest {
         ObjectProvider<Clock> reloj = mock(ObjectProvider.class);
         // 2026-10-26 02:00 UTC = 2026-10-25 21:00 en Bogotá
         when(reloj.getIfAvailable(any())).thenReturn(Clock.fixed(Instant.parse("2026-10-26T02:00:00Z"), ZoneOffset.UTC));
-        servicio = new UbicacionServiceImpl(repo, catalogo, cifrador, reloj);
+        servicio = new UbicacionServiceImpl(repo, catalogo, reloj);
         when(catalogo.resolver(any())).thenReturn(Optional.empty());
         when(catalogo.resolver("15")).thenReturn(Optional.of(mock(Departamento.class)));
     }
@@ -56,8 +54,7 @@ class UbicacionServiceImplValidacionesTest {
             assertThat(e.campo()).isEqualTo(campo);
             assertThat(e.getMessage()).isEqualTo(mensaje);
         });
-        verify(repo, never()).saveAndFlush(any());
-        verifyNoInteractions(cifrador);
+        verify(repo, never()).guardar(any(), any());
     }
 
     private static final LocalDate HOY = LocalDate.of(2026, 10, 25);
@@ -95,8 +92,7 @@ class UbicacionServiceImplValidacionesTest {
                     EstadoConservacion.EN_PELIGRO)))
                     .isInstanceOfSatisfying(UbicacionInvalidaException.class, e -> assertThat(e.campo()).isEqualTo("nombreCientifico"));
         }
-        verify(repo, never()).saveAndFlush(any());
-        verifyNoInteractions(cifrador);
+        verify(repo, never()).guardar(any(), any());
         // nombres habituales (con números, subespecies, autoría y año) no son coordenadas
         for (String nombre : new String[] {"Atelopus ebenoides marinkellei", "Rhinella marina (Linnaeus, 1758)", "Boana sp. 2",
                 "Pristimantis cf. 3.200"}) {
@@ -116,18 +112,26 @@ class UbicacionServiceImplValidacionesTest {
 
     @Test
     void duplicadoSeIgnoraSinCifrarNiGuardar() {
-        when(repo.existsById(id)).thenReturn(true);
+        when(repo.existe(id)).thenReturn(true);
         assertThat(servicio.registrar(cmd(id, 1, "A b", HOY, "inv", "15", EstadoConservacion.SIN_EVALUAR, 1.0, 2.0)))
                 .isEqualTo(ResultadoUbicacion.IGNORADA_DUPLICADA);
-        verify(repo, never()).saveAndFlush(any());
-        verifyNoInteractions(cifrador);
+        verify(repo, never()).guardar(any(), any());
     }
 
     @Test
     void sinCoordenadasNoSeCifra() {
         servicio.registrar(cmd(id, 1, "A b", HOY, "inv", "15", EstadoConservacion.SIN_EVALUAR, null, null));
-        verifyNoInteractions(cifrador);
-        verify(repo).saveAndFlush(any(UbicacionHallazgo.class));
+        verify(repo).guardar(any(UbicacionHallazgo.class), isNull());
+    }
+
+    @Test
+    @DisplayName("ARQ-10: el servicio entrega las coordenadas en claro al repositorio decorado (que cifra) y no cifra por su cuenta (RNF9)")
+    void conCoordenadasSeEntreganAlRepositorioDecorado() {
+        servicio.registrar(cmd(id, 1, "A b", HOY, "inv", "15", EstadoConservacion.EN_PELIGRO, 5.5, -73.5));
+        org.mockito.ArgumentCaptor<co.edu.unbosque.biohub.cientifico.ubicacion.domain.Coordenadas> c =
+                org.mockito.ArgumentCaptor.forClass(co.edu.unbosque.biohub.cientifico.ubicacion.domain.Coordenadas.class);
+        verify(repo).guardar(any(UbicacionHallazgo.class), c.capture());
+        assertThat(c.getValue()).isEqualTo(new co.edu.unbosque.biohub.cientifico.ubicacion.domain.Coordenadas(5.5, -73.5));
     }
 
     @Test
@@ -137,11 +141,11 @@ class UbicacionServiceImplValidacionesTest {
                 .isInstanceOfSatisfying(UbicacionInvalidaException.class, e -> assertThat(e.campo()).isEqualTo("estadoConservacion"));
         assertThatThrownBy(() -> servicio.actualizar(new ActualizacionUbicacionComando(id, 2, "A b", HOY, "zz", EstadoConservacion.EN_PELIGRO)))
                 .isInstanceOfSatisfying(UbicacionInvalidaException.class, e -> assertThat(e.campo()).isEqualTo("departamento"));
-        when(repo.findById(id)).thenReturn(Optional.empty());
+        when(repo.porId(id)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> servicio.actualizar(base)).isInstanceOf(UbicacionNoEncontradaException.class);
 
         UbicacionHallazgo fila = new UbicacionHallazgo(id, 2, "15", "Viejo", HOY, "inv", EstadoConservacion.SIN_EVALUAR);
-        when(repo.findById(id)).thenReturn(Optional.of(fila));
+        when(repo.porId(id)).thenReturn(Optional.of(fila));
         assertThat(servicio.actualizar(base)).isEqualTo(ResultadoUbicacion.IGNORADA_VERSION_ANTIGUA); // 2 <= 2
         assertThat(fila.getNombreCientifico()).isEqualTo("Viejo");
         assertThat(servicio.actualizar(new ActualizacionUbicacionComando(id, 3, "Nuevo", HOY, "15", EstadoConservacion.EN_PELIGRO)))

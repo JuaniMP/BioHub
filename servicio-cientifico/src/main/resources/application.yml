@@ -73,6 +73,11 @@ biohub:
       # Solo con el perfil "dev": genera una llave efímera en memoria (las coordenadas guardadas
       # se pierden al reiniciar). Desactivado por defecto; jamás activarlo en las VMs.
       llave-efimera-dev: ${UBICACION_LLAVE_EFIMERA_DEV:false}
+      # Almacén de llaves (ARQ-11, Adapter): "entorno" (por defecto: UBICACION_CLAVES) o "keystore" (PKCS12 .p12
+      # con contraseña, ver README). Con "keystore", clave-activa es el alias de la llave que cifra.
+      proveedor: ${UBICACION_LLAVES_PROVEEDOR:entorno}
+      keystore-ruta: ${UBICACION_KEYSTORE_RUTA:}
+      keystore-password: ${UBICACION_KEYSTORE_PASSWORD:}
   eventos:
     exchange: biohub.eventos
     timeout-confirmacion: 5s

@@ -11,30 +11,31 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 
-import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CifradorCoordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CoordenadasCifradas;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.RepositorioUbicaciones;
 
 class ServicioDescifradoTest {
 
     @Test
     void sinRolAltoRangoNoSeTocaElCifrador() {
-        CifradorCoordenadas cifrador = mock(CifradorCoordenadas.class);
-        ServicioDescifrado servicio = new ServicioDescifrado(new PoliticaAccesoUbicacion(), cifrador);
+        RepositorioUbicaciones repositorio = mock(RepositorioUbicaciones.class);
+        ServicioDescifrado servicio = new ServicioDescifrado(new PoliticaAccesoUbicacion(), repositorio);
         TestingAuthenticationToken admin = new TestingAuthenticationToken("a", "x", "ROLE_administrador");
         admin.setAuthenticated(true);
         assertThatThrownBy(() -> servicio.descifrar(admin, UUID.randomUUID(),
                 new CoordenadasCifradas(new byte[32], new byte[12], "v1")))
                 .isInstanceOf(AccessDeniedException.class);
-        verifyNoInteractions(cifrador);
+        verifyNoInteractions(repositorio);
     }
 
     @Test
     void siElCifradorFallaDevuelveVacio() {
-        CifradorCoordenadas cifrador = mock(CifradorCoordenadas.class);
-        org.mockito.Mockito.when(cifrador.descifrar(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+        RepositorioUbicaciones repositorio = mock(RepositorioUbicaciones.class);
+        org.mockito.Mockito.when(repositorio.obtenerUbicacionExacta(org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                 .thenThrow(new co.edu.unbosque.biohub.cientifico.ubicacion.domain.CoordenadasNoDescifrablesException(
                         co.edu.unbosque.biohub.cientifico.ubicacion.domain.CoordenadasNoDescifrablesException.Motivo.INTEGRIDAD));
-        ServicioDescifrado servicio = new ServicioDescifrado(new PoliticaAccesoUbicacion(), cifrador);
+        ServicioDescifrado servicio = new ServicioDescifrado(new PoliticaAccesoUbicacion(), repositorio);
         TestingAuthenticationToken alto = new TestingAuthenticationToken("a", "x", "ROLE_cientifico_alto_rango");
         alto.setAuthenticated(true);
         assertThat(servicio.descifrar(alto, UUID.randomUUID(), new CoordenadasCifradas(new byte[32], new byte[12], "v1"))).isEmpty();

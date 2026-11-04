@@ -10,6 +10,8 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CriterioBusquedaInterna;
+
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Departamento;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.DepartamentoRepository;
 

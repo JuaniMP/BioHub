@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import co.edu.unbosque.biohub.cientifico.ubicacion.service.RecifradoService;
+import co.edu.unbosque.biohub.cientifico.ubicacion.service.vista.RecifradoResponse;
 
 /** Re-cifrado tras rotar la llave. Rol administrador; nunca devuelve coordenadas. */
 @RestController

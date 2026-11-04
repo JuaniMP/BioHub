@@ -8,14 +8,15 @@ import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
-import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CifradorCoordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Coordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CoordenadasCifradas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CoordenadasNoDescifrablesException;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.RepositorioUbicaciones;
 
 /**
- * Único punto de descifrado para consultas: vuelve a exigir el rol ANTES de tocar el cifrador
- * (segunda barrera, D21).
+ * Único punto de descifrado para consultas: vuelve a exigir el rol ANTES de pedir el descifrado
+ * (segunda barrera, D21). Solo lo recibe {@link VisibilidadExacta}. Descifra por medio del repositorio decorado
+ * ({@link RepositorioUbicaciones#obtenerUbicacionExacta}), de modo que cada acceso queda en la auditoría.
  */
 @Service
 public class ServicioDescifrado {
@@ -23,11 +24,11 @@ public class ServicioDescifrado {
     private static final Logger log = LoggerFactory.getLogger(ServicioDescifrado.class);
 
     private final PoliticaAccesoUbicacion politica;
-    private final CifradorCoordenadas cifrador;
+    private final RepositorioUbicaciones repositorio;
 
-    public ServicioDescifrado(PoliticaAccesoUbicacion politica, CifradorCoordenadas cifrador) {
+    public ServicioDescifrado(PoliticaAccesoUbicacion politica, RepositorioUbicaciones repositorio) {
         this.politica = politica;
-        this.cifrador = cifrador;
+        this.repositorio = repositorio;
     }
 
     /**
@@ -37,7 +38,7 @@ public class ServicioDescifrado {
     public Optional<Coordenadas> descifrar(Authentication autenticacion, UUID hallazgoId, CoordenadasCifradas cifradas) {
         politica.exigirCoordenadas(autenticacion);
         try {
-            return Optional.of(cifrador.descifrar(hallazgoId, cifradas));
+            return Optional.of(repositorio.obtenerUbicacionExacta(autenticacion.getName(), hallazgoId, cifradas));
         } catch (CoordenadasNoDescifrablesException e) {
             if (e.motivo() == CoordenadasNoDescifrablesException.Motivo.INTEGRIDAD) {
                 log.error("Integridad de ubicación fallida hallazgoId={} claveVersion={}", hallazgoId, cifradas.claveVersion());

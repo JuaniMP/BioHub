@@ -63,3 +63,57 @@ flyway -url="jdbc:mysql://HOST:PUERTO/cientifico?sslMode=VERIFY_CA&..." -user=ci
 ```
 
 A partir de esa versión (inclusive) Flyway ignora los archivos anteriores y aplica solo los posteriores. No actives `spring.flyway.baseline-on-migrate=true`: haría ese paso sin avisar en cualquier base no vacía, incluso si le faltan tablas.
+
+## Llaves de cifrado de coordenadas (ubicacion, RNF9, ASR6)
+
+El módulo `ubicacion` cifra con AES-256-GCM todas las coordenadas (D15). Las llaves se leen detrás del puerto `ProveedorDeLlaves`, que tiene dos adaptadores (ARQ-11, SAD §6.3.1). Se elige con `UBICACION_LLAVES_PROVEEDOR` y, si no se define, se usa `entorno`, que no cambia nada de lo que ya funcionaba.
+
+| `UBICACION_LLAVES_PROVEEDOR` | De dónde salen las llaves | Variables |
+|---|---|---|
+| `entorno` (por defecto) | Variables de entorno | `UBICACION_CLAVES=v1:<base64>[,v2:<base64>]`, `UBICACION_CLAVE_ACTIVA=v1` |
+| `keystore` | Un keystore PKCS12 (`.p12`) protegido con contraseña | `UBICACION_KEYSTORE_RUTA`, `UBICACION_KEYSTORE_PASSWORD`, `UBICACION_CLAVE_ACTIVA=<alias>` |
+
+Con `keystore`, cada **alias** es el id de una versión (`v1`, `v2`...) y debe guardar una llave secreta **AES de 256 bits**. `UBICACION_CLAVE_ACTIVA` es el alias que cifra lo nuevo; los demás solo descifran lo ya guardado. La rotación y el re-cifrado (`POST /api/cientifico/ubicacion/recifrado`) funcionan igual con los dos adaptadores. El servicio **no arranca** si el archivo no existe, la contraseña es incorrecta, un alias no es `vN`, una llave no mide 32 bytes o la activa no existe; los mensajes nunca muestran la contraseña ni las llaves.
+
+### Crear el keystore con `keytool`
+
+El `.p12` **nunca se versiona** (`*.p12` está en `.gitignore`): se crea en la máquina donde corre el servicio, fuera del repositorio.
+
+```bash
+# 1. Carpeta fuera del repo, solo legible por tu usuario
+mkdir -p ~/biohub-llaves && chmod 700 ~/biohub-llaves
+
+# 2. Primera llave (alias = id de versión). keytool pide la contraseña del keystore; usa una larga
+keytool -genseckey -alias v1 -keyalg AES -keysize 256 \
+        -storetype PKCS12 -keystore ~/biohub-llaves/ubicacion.p12
+chmod 600 ~/biohub-llaves/ubicacion.p12
+
+# 3. Revisar (muestra los alias, no las llaves)
+keytool -list -storetype PKCS12 -keystore ~/biohub-llaves/ubicacion.p12
+
+# 4. Rotación: agregar la versión siguiente al MISMO archivo (misma contraseña)
+keytool -genseckey -alias v2 -keyalg AES -keysize 256 \
+        -storetype PKCS12 -keystore ~/biohub-llaves/ubicacion.p12
+```
+
+Variables (en el `.env` del servicio, que tampoco se versiona; ver `.env.example`):
+
+```properties
+UBICACION_LLAVES_PROVEEDOR=keystore
+UBICACION_KEYSTORE_RUTA=/home/tu-usuario/biohub-llaves/ubicacion.p12
+UBICACION_KEYSTORE_PASSWORD=la-contraseña-que-pusiste-en-keytool
+UBICACION_CLAVE_ACTIVA=v1
+```
+
+Pasar de `entorno` a `keystore` con datos ya cifrados: el keystore debe contener las mismas llaves (mismos ids y bytes) que `UBICACION_CLAVES`. Si no, crea el keystore con la llave nueva `v2`, mantén también la `v1` y ejecuta el re-cifrado. Si pierdes una llave, sus coordenadas son irrecuperables: guarda una copia **fuera del servidor** y nunca junto a los respaldos de la base.
+
+## Patrones del SAD en `ubicacion` (D40)
+
+| Patrón | Clases |
+|---|---|
+| Strategy (RF12, RF13) | `EstrategiaVisibilidadUbicacion`, `VisibilidadGeneralizada` (por defecto), `VisibilidadExacta` (la única que recibe `ServicioDescifrado`), elegida por `PoliticaAccesoUbicacion.estrategiaPara(auth)` |
+| Decorator (RNF9, ASR6) | `RepositorioUbicaciones` -> `DecoradorAuditoriaAcceso` -> `DecoradorCifradoCoordenadas` -> `RepositorioUbicacionesJpa`, ensamblados en `ConfiguracionUbicacion` |
+| Adapter (ASR6) | puerto `ProveedorDeLlaves` con `ProveedorDeLlavesEntorno` y `ProveedorDeLlavesKeyStore` |
+| Observer | `ObservadorUbicacion` (`@EventListener` síncrono, misma transacción) escucha `HallazgoRegistrado` y `HallazgoReclasificado` de `cientifico.eventos.domain` y llama a `UbicacionService` (`MANDATORY`) |
+
+Para registro: en lugar de llamar a `UbicacionService`, publica el evento con `ApplicationEventPublisher.publishEvent(new HallazgoRegistrado(...))` dentro de su transacción (ver el javadoc de los eventos).

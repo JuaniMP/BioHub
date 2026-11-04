@@ -1,4 +1,4 @@
-package co.edu.unbosque.biohub.cientifico.ubicacion.controller;
+package co.edu.unbosque.biohub.cientifico.ubicacion.service.vista;
 
 import java.time.LocalDate;
 import java.util.UUID;

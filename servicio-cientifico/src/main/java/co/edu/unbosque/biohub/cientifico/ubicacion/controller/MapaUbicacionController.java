@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import co.edu.unbosque.biohub.cientifico.ubicacion.service.MapaService;
+import co.edu.unbosque.biohub.cientifico.ubicacion.service.vista.MapaResponse;
 
 /** HU-07: mapa con coordenadas exactas, solo cientifico_alto_rango. */
 @RestController

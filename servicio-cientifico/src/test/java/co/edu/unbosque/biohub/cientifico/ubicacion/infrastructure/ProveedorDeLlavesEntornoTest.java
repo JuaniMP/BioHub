@@ -60,7 +60,7 @@ class ProveedorDeLlavesEntornoTest {
 
     @Test
     void propiedadesNoExponenLlavesEnToString() {
-        assertThat(new PropiedadesCifrado("v1:" + K1, "v1", false).toString()).doesNotContain(K1);
+        assertThat(new PropiedadesCifrado("v1:" + K1, "v1", false, null, null, null).toString()).doesNotContain(K1);
         assertThat(new ProveedorDeLlavesEntorno("v1:" + K1, "v1").toString()).doesNotContain(K1);
     }
 
@@ -71,7 +71,12 @@ class ProveedorDeLlavesEntornoTest {
     static class Cfg {
     }
 
-    private final ApplicationContextRunner runner = new ApplicationContextRunner().withUserConfiguration(Cfg.class);
+    // La configuración también ensambla el repositorio decorado (ARQ-10): se le dan colaboradores simulados
+    private final ApplicationContextRunner runner = new ApplicationContextRunner().withUserConfiguration(Cfg.class)
+            .withBean(co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgoRepository.class,
+                    () -> org.mockito.Mockito.mock(co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgoRepository.class))
+            .withBean(jakarta.persistence.EntityManager.class, () -> org.mockito.Mockito.mock(jakarta.persistence.EntityManager.class))
+            .withBean(co.edu.unbosque.biohub.cientifico.ubicacion.service.AuditoriaAccesoUbicacion.class);
 
     @Test
     void elContextoNoArrancaSinLlaves() {

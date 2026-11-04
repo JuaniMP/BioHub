@@ -1,7 +1,10 @@
 package co.edu.unbosque.biohub.cientifico.ubicacion.infrastructure;
 
+import java.time.Clock;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -10,6 +13,10 @@ import org.springframework.core.env.Profiles;
 
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CifradorCoordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.ProveedorDeLlaves;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.RepositorioUbicaciones;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgoRepository;
+import co.edu.unbosque.biohub.cientifico.ubicacion.service.AuditoriaAccesoUbicacion;
+import jakarta.persistence.EntityManager;
 
 /** Configuración propia del módulo (no se toca {@code cientifico.config}, zona compartida). */
 @Configuration
@@ -18,8 +25,24 @@ public class ConfiguracionUbicacion {
 
     private static final Logger log = LoggerFactory.getLogger(ConfiguracionUbicacion.class);
 
+    /**
+     * Elige el adaptador del puerto {@link ProveedorDeLlaves} según {@code biohub.ubicacion.cifrado.proveedor}
+     * ({@code entorno} por defecto, o {@code keystore}); el resto del módulo no se entera (ARQ-11, SAD §6.3.1).
+     */
     @Bean
     ProveedorDeLlaves proveedorDeLlaves(PropiedadesCifrado propiedades, Environment entorno) {
+        if (PropiedadesCifrado.PROVEEDOR_KEYSTORE.equals(propiedades.proveedor())) {
+            String ruta = propiedades.keystoreRuta();
+            String clave = propiedades.keystorePassword();
+            if (ruta == null || ruta.isBlank()) {
+                throw new IllegalStateException("UBICACION_KEYSTORE_RUTA es obligatoria con el proveedor keystore");
+            }
+            return new ProveedorDeLlavesKeyStore(java.nio.file.Path.of(ruta.trim()),
+                    clave == null ? null : clave.toCharArray(), propiedades.claveActiva());
+        }
+        if (!PropiedadesCifrado.PROVEEDOR_ENTORNO.equals(propiedades.proveedor())) {
+            throw new IllegalStateException("biohub.ubicacion.cifrado.proveedor debe ser 'entorno' o 'keystore'");
+        }
         boolean sinClaves = propiedades.claves() == null || propiedades.claves().isBlank();
         if (sinClaves && propiedades.llaveEfimeraDev() && entorno.acceptsProfiles(Profiles.of("dev"))) {
             // SEC-J-06: la llave efímera solo es admisible contra una BD local; con una BD remota (p. ej. Aiven)
@@ -49,5 +72,20 @@ public class ConfiguracionUbicacion {
     @Bean
     CifradorCoordenadas cifradorCoordenadas(ProveedorDeLlaves proveedor) {
         return new CifradorAesGcm(proveedor);
+    }
+
+    /**
+     * Arma la cadena del Decorator (SAD §6.3.2, ARQ-10): auditoría -> cifrado -> JPA. Es el único
+     * {@link RepositorioUbicaciones} del contexto; los servicios inyectan la interfaz y no pueden saltarse
+     * el cifrado ni la auditoría.
+     */
+    @Bean
+    RepositorioUbicaciones repositorioUbicaciones(UbicacionHallazgoRepository jpa, EntityManager em,
+                                                  CifradorCoordenadas cifrador, AuditoriaAccesoUbicacion auditoria,
+                                                  ObjectProvider<Clock> reloj) {
+        RepositorioUbicaciones base = new RepositorioUbicacionesJpa(jpa, em);
+        RepositorioUbicaciones cifrado = new DecoradorCifradoCoordenadas(base, cifrador,
+                reloj.getIfAvailable(Clock::systemUTC));
+        return new DecoradorAuditoriaAcceso(cifrado, auditoria);
     }
 }

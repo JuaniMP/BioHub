@@ -2,37 +2,38 @@ package co.edu.unbosque.biohub.cientifico.ubicacion.service;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import co.edu.unbosque.biohub.cientifico.ubicacion.controller.HallazgoUbicacionResponse;
-import co.edu.unbosque.biohub.cientifico.ubicacion.controller.PaginaHallazgosResponse;
-import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Coordenadas;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CriterioBusquedaInterna;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.FilaHallazgo;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.RepositorioUbicaciones;
+import co.edu.unbosque.biohub.cientifico.ubicacion.service.vista.HallazgoUbicacionResponse;
+import co.edu.unbosque.biohub.cientifico.ubicacion.service.vista.PaginaHallazgosResponse;
 
-/** Búsqueda interna (HU-13): filtros combinables, paginación y descifrado solo de la página para alto rango. */
+/**
+ * Búsqueda interna (HU-13): filtros combinables, paginación y descifrado solo de la página para alto rango.
+ * La visibilidad la decide la {@link EstrategiaVisibilidadUbicacion} que entrega la política (ARQ-09), no un {@code if}.
+ */
 @Service
 public class BusquedaHallazgosService {
 
     static final String ENDPOINT = "GET /api/cientifico/ubicacion/hallazgos";
     static final int MAX_SIZE = 100;
 
-    private final ConsultorHallazgos consultor;
+    private final RepositorioUbicaciones repositorio;
     private final CatalogoDepartamentos catalogo;
     private final PoliticaAccesoUbicacion politica;
-    private final ServicioDescifrado descifrado;
     private final AuditoriaAccesoUbicacion auditoria;
 
-    BusquedaHallazgosService(ConsultorHallazgos consultor, CatalogoDepartamentos catalogo,
-                             PoliticaAccesoUbicacion politica, ServicioDescifrado descifrado,
-                             AuditoriaAccesoUbicacion auditoria) {
-        this.consultor = consultor;
+    BusquedaHallazgosService(RepositorioUbicaciones repositorio, CatalogoDepartamentos catalogo,
+                             PoliticaAccesoUbicacion politica, AuditoriaAccesoUbicacion auditoria) {
+        this.repositorio = repositorio;
         this.catalogo = catalogo;
         this.politica = politica;
-        this.descifrado = descifrado;
         this.auditoria = auditoria;
     }
 
@@ -40,9 +41,9 @@ public class BusquedaHallazgosService {
     public PaginaHallazgosResponse buscar(Authentication autenticacion, String especie, String desde, String hasta,
                                           String investigador, String departamento, String page, String size,
                                           String bbox) {
-        boolean puedeVer = politica.puedeVerCoordenadas(autenticacion);
+        EstrategiaVisibilidadUbicacion estrategia = politica.estrategiaPara(autenticacion);
         if (ValidadorConsulta.recortar(bbox) != null) {
-            if (!puedeVer) {
+            if (!estrategia.necesitaCoordenadasCifradas()) {
                 auditoria.registrar(autenticacion.getName(), ENDPOINT, false, "bbox", 0, 0);
                 throw new AccessDeniedException("bbox solo para alto rango");
             }
@@ -60,44 +61,28 @@ public class BusquedaHallazgosService {
         v.lanzarSiHayErrores();
 
         CriterioBusquedaInterna criterio = new CriterioBusquedaInterna(esp, d, h, inv, depto, null, false);
-        long total = consultor.contar(criterio);
-        List<FilaHallazgo> filas = consultor.buscar(criterio, pag[0] * pag[1], pag[1], puedeVer);
+        long total = repositorio.contar(criterio);
+        List<FilaHallazgo> filas = repositorio.buscar(criterio, pag[0] * pag[1], pag[1],
+                estrategia.necesitaCoordenadasCifradas());
 
         List<HallazgoUbicacionResponse> contenido = new ArrayList<>(filas.size());
         int omitidos = 0;
         for (FilaHallazgo fila : filas) {
-            HallazgoUbicacionResponse r = convertir(autenticacion, puedeVer, fila);
-            if ("NO_DISPONIBLES".equals(r.estadoCoordenadas())) {
+            UbicacionResuelta u = estrategia.resolver(autenticacion, fila);
+            if (u.estado() == UbicacionResuelta.Estado.NO_DISPONIBLES) {
                 omitidos++;
             }
-            contenido.add(r);
+            contenido.add(aRespuesta(fila, u));
         }
         auditoria.registrar(autenticacion.getName(), ENDPOINT, true,
-                criterio.resumen() + ",coordenadas=" + puedeVer, contenido.size(), omitidos);
+                criterio.resumen() + ",coordenadas=" + estrategia.necesitaCoordenadasCifradas(), contenido.size(), omitidos);
         long totalPaginas = (total + pag[1] - 1) / pag[1];
         return new PaginaHallazgosResponse(contenido, pag[0], pag[1], total, totalPaginas, omitidos);
     }
 
-    private HallazgoUbicacionResponse convertir(Authentication auth, boolean puedeVer, FilaHallazgo f) {
-        String estado;
-        Double lat = null;
-        Double lon = null;
-        if (!f.tieneCoordenadas()) {
-            estado = "SIN_COORDENADAS";
-        } else if (!puedeVer) {
-            estado = "PROTEGIDAS";
-        } else {
-            Optional<Coordenadas> c = descifrado.descifrar(auth, f.id(), f.cifradas());
-            if (c.isPresent()) {
-                estado = "VISIBLES";
-                lat = c.get().latitud();
-                lon = c.get().longitud();
-            } else {
-                estado = "NO_DISPONIBLES";
-            }
-        }
+    private static HallazgoUbicacionResponse aRespuesta(FilaHallazgo f, UbicacionResuelta u) {
         return new HallazgoUbicacionResponse(f.id(), f.nombreCientifico(), f.fechaRecoleccion(), f.investigador(),
-                f.departamento(), f.departamentoCodigo(), f.region(), f.estado().name(), estado,
-                "PROTEGIDAS".equals(estado), lat, lon);
+                u.departamento(), u.departamentoCodigo(), u.region(), f.estado().name(), u.estado().name(),
+                u.protegida(), u.latitud(), u.longitud());
     }
 }

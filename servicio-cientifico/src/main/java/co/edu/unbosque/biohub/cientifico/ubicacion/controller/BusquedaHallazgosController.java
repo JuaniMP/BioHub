@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import co.edu.unbosque.biohub.cientifico.ubicacion.service.BusquedaHallazgosService;
+import co.edu.unbosque.biohub.cientifico.ubicacion.service.vista.PaginaHallazgosResponse;
 
 /** HU-13: búsqueda interna. Solo alto rango recibe latitud/longitud (lo decide el servicio). */
 @RestController

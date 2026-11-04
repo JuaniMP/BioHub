@@ -1,4 +1,4 @@
-package co.edu.unbosque.biohub.cientifico.ubicacion.service;
+package co.edu.unbosque.biohub.cientifico.ubicacion.domain;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -11,7 +11,7 @@ import jakarta.persistence.Query;
  * Filtros combinables ya validados. Genera solo las condiciones de los filtros recibidos y enlaza
  * siempre parámetros (nunca SQL/JPQL concatenado con valores del cliente).
  */
-record CriterioBusquedaInterna(
+public record CriterioBusquedaInterna(
         String especie,
         LocalDate desde,
         LocalDate hasta,
@@ -22,7 +22,7 @@ record CriterioBusquedaInterna(
 
     private static final char ESCAPE = '!';
 
-    String clausulaWhere() {
+    public String clausulaWhere() {
         List<String> condiciones = new ArrayList<>();
         condiciones.add("h.eliminadoEn is null");
         if (hallazgoId != null) {
@@ -51,7 +51,7 @@ record CriterioBusquedaInterna(
         return String.join(" and ", condiciones);
     }
 
-    void enlazar(Query q) {
+    public void enlazar(Query q) {
         if (hallazgoId != null) {
             q.setParameter("hallazgoId", hallazgoId);
             return;
@@ -73,14 +73,14 @@ record CriterioBusquedaInterna(
         }
     }
 
-    static String escaparLike(String texto) {
+    public static String escaparLike(String texto) {
         return texto.replace("" + ESCAPE, "" + ESCAPE + ESCAPE)
                 .replace("%", ESCAPE + "%")
                 .replace("_", ESCAPE + "_");
     }
 
     /** Resumen de los filtros para la auditoría (sin coordenadas). */
-    String resumen() {
+    public String resumen() {
         List<String> partes = new ArrayList<>();
         if (hallazgoId != null) {
             partes.add("hallazgoId=" + hallazgoId);
