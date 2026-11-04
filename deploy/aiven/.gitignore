@@ -1,0 +1,4 @@
+# Copia con contrasenas reales de la plantilla de aprovisionamiento: NUNCA al repositorio
+01-bases-y-usuarios.sql
+*.pem
+*.p12

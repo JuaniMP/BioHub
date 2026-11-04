@@ -1,6 +1,6 @@
 # 05 – Modelo de datos: parte de Juanita Mejía (ubicación y consulta pública)
 
-Fecha: 2026-10-26. Motor: MySQL 8.4 (imagen `mysql:8.4` de `deploy/datos/docker-compose.yml`), InnoDB, `utf8mb4` / `utf8mb4_0900_ai_ci` (sin distinción de mayúsculas ni tildes, que es lo que exige HU-06.2 y sirve igual para HU-13).
+Fecha: 2026-10-26 (actualizado 2026-11-03: sección 16, MySQL en Aiven). Motor: MySQL 8 (8.4 en Docker local y en las pruebas con Testcontainers; MySQL administrado de Aiven en el despliegue, sección 16), InnoDB, `utf8mb4` / `utf8mb4_0900_ai_ci` (sin distinción de mayúsculas ni tildes, que es lo que exige HU-06.2 y sirve igual para HU-13).
 Fuentes que mandan: `01-requisitos.md` sección 9, `03-arquitectura.md` (D14, D15, D18) y `README.md` sección 9 (Flyway).
 
 Alcance (D18): solo tablas del módulo **ubicacion** en el esquema compartido `cientifico` (todas con prefijo `ubicacion_`) y el modelo de lectura en `consulta_publica`. **No se diseña ninguna tabla de Hernando** (hallazgos, fichas, historial). La referencia a su hallazgo es `hallazgo_id` sin FK por ahora (sección 6).
@@ -383,7 +383,7 @@ Como la tabla de hallazgos no existe, `ubicacion_hallazgo.hallazgo_id` **no tien
 7. `investigador` es el `preferred_username` del JWT (hasta 100 caracteres) y es el mismo valor por el que filtra la búsqueda interna; debe ser estable entre llamadas.
 8. `fechaRecoleccion` es una fecha (`DATE`), sin hora.
 
-**FK futura** (migración que añade quien cree la tabla de hallazgos, o Juanita cuando exista; no se ejecuta hoy). Fallará si hubiera filas huérfanas, lo cual no ocurre porque en las VMs no hay datos:
+**FK futura** (migración que añade quien cree la tabla de hallazgos, o Juanita cuando exista; no se ejecuta hoy). Fallará si hubiera filas huérfanas, lo cual no ocurre mientras las bases no tengan datos:
 
 ```sql
 -- V<fecha>__ubicacion_fk_hallazgo.sql  (SOLO cuando exista hallazgo(id) BINARY(16) PK)
@@ -509,7 +509,7 @@ Alternativa equivalente y más fácil de probar: en una transacción, `SELECT ve
 |---|---|---|
 | Latitud y longitud | `ubicacion_hallazgo.coord_cifrada` | AES-256-GCM, nonce aleatorio de 12 B por registro, AAD = UUID del hallazgo (impide copiar el cifrado a otra fila), `clave_version` junto al dato. Llaves **fuera de la BD** (`UBICACION_CLAVE_ACTIVA`, `UBICACION_CLAVES=v1:<b64>,v2:<b64>`), nunca en repo, logs ni respuestas. No hay copia en claro ni redondeada en ninguna tabla, caché, evento ni log. La etiqueta GCM detecta alteración |
 | Coordenadas en el modelo público | – | No existen columnas (D14). Los eventos con coordenadas se rechazan antes de llegar a la tabla |
-| `investigador` (nombre de usuario, dato personal) | `ubicacion_hallazgo` | Solo en `cientifico`, que solo es accesible desde la VM de backend por Tailscale. Se guarda en claro porque es el criterio de filtro y se muestra al personal interno; **no se replica** a `consulta_publica` ni al caché |
+| `investigador` (nombre de usuario, dato personal) | `ubicacion_hallazgo` | Solo en `cientifico`, cuyo usuario de aplicación no puede leer `consulta_publica` y que en Aiven exige SSL y una lista de IP permitidas (sección 16). Se guarda en claro porque es el criterio de filtro y se muestra al personal interno; **no se replica** a `consulta_publica` ni al caché |
 | `usuario` (JWT) | `ubicacion_acceso_log` | Solo en el log (Could); sin coordenadas |
 | Contraseñas / tokens | – | Ninguna tabla de esta parte los guarda; la identidad es de Keycloak |
 | Respaldos | `deploy/datos/backup` | Contienen solo texto cifrado. Las llaves no entran en el respaldo; hay que conservar de forma segura las llaves de cualquier versión que aún aparezca en un respaldo vigente |
@@ -520,20 +520,20 @@ Verificación automatizable (prueba de integración): ninguna tabla de los dos e
 
 ## 11. Permisos del usuario de aplicación
 
-Estado actual (`deploy/datos/init/01-transaccional.sh`, `01-usuario-unico.sh`): `cientifico_app` (variable `MYSQL_CIENTIFICO_USER`) tiene `ALL PRIVILEGES` sobre `cientifico.*` y el usuario de lectura (`MYSQL_LECTURA_USER`) sobre `consulta_publica.*`, ambos limitados al host de la VM de backend. **Con eso las migraciones propuestas funcionan sin cambios** (incluyen `CREATE TABLE`, `CREATE INDEX`, `FOREIGN KEY`, `INSERT` de catálogos). El usuario de `consulta_publica` no tiene acceso a `cientifico` (otra instancia), como pide el escenario de aislamiento.
+Estado vigente (Aiven, perfil `aiven`): **hay usuarios de aplicación y de migración separados** (SEC-11), creados por `deploy/aiven/01-bases-y-usuarios.sql.example` (sección 16.3). En Docker local sigue el usuario único con `ALL` sobre su esquema (`deploy/datos/init/*.sh`), válido solo para desarrollo.
 
-Endurecimiento propuesto (SEC-11, para devops/Santiago; **no lo aplico**, no toco las VMs). Separar el usuario de migraciones del de ejecución:
+| Usuario | Base | Privilegios | Lo usa |
+|---|---|---|---|
+| `cientifico_app` | `cientifico` | `SELECT, INSERT, UPDATE, DELETE` | el servicio en ejecución (`CIENTIFICO_DB_USER`) |
+| `cientifico_migr` | `cientifico` | DML + `CREATE, ALTER, DROP, INDEX, REFERENCES` | solo Flyway (`CIENTIFICO_MIGR_USER`) |
+| `consulta_app` | `consulta_publica` | `SELECT, INSERT, UPDATE, DELETE` | el servicio (`CONSULTA_DB_USER`) |
+| `consulta_migr` | `consulta_publica` | DML + DDL como arriba | solo Flyway (`CONSULTA_MIGR_USER`) |
 
-| Usuario | Esquema | Privilegios mínimos |
-|---|---|---|
-| migraciones (Flyway) | `cientifico` | `CREATE, ALTER, INDEX, REFERENCES, SELECT, INSERT, UPDATE, DELETE` (Flyway escribe `flyway_schema_history`) |
-| aplicación `cientifico_app` | `cientifico` | Sobre `ubicacion_hallazgo`: `SELECT, INSERT, UPDATE` (incluye el re-cifrado). Sobre `ubicacion_region` y `ubicacion_departamento`: `SELECT`. Sobre `ubicacion_acceso_log`: `SELECT, INSERT`. **Sin `DELETE`, `DROP`, `ALTER`** |
-| migraciones | `consulta_publica` | igual que arriba |
-| aplicación `consulta_app` | `consulta_publica` | `ficha_publica`: `SELECT, INSERT, UPDATE`; `departamento`: `SELECT`. Sin `DELETE` |
+Ningún usuario tiene acceso a la base del otro servicio (aislamiento HU-06.1), ni `GRANT OPTION`, `FILE`, `PROCESS`, `SUPER`, `TRIGGER` ni rutinas. Los permisos son sobre la base completa, no por tabla: cubren las tablas que Hernando agregue a `cientifico` sin tocar el aprovisionamiento.
 
-Para que esto se aplique, `servicio-cientifico` y `servicio-consulta-publica` necesitarían un datasource de Flyway aparte (`spring.flyway.user/password`). Mientras eso no exista, se mantiene el `ALL` actual.
+Endurecimiento posible (no aplicado): hoy el código no emite `DELETE` (los borrados son lógicos, `eliminado_en`), así que se podría quitar `DELETE` a `cientifico_app` y `consulta_app`. Se deja porque `DML` es el mínimo acordado y registro (Hernando) podría necesitarlo; quitarlo es un `REVOKE` y se vuelve a ejecutar el script.
 
-Nota: la FULLTEXT de InnoDB y los `CHECK` no necesitan privilegios adicionales. Los `CHECK` requieren MySQL 8.0.16+ (la imagen es 8.4).
+Nota: la FULLTEXT de InnoDB y los `CHECK` no necesitan privilegios adicionales. Los `CHECK` requieren MySQL 8.0.16+.
 
 ---
 
@@ -572,15 +572,15 @@ El UNIQUE `(clave_version, coord_nonce)` permite que dos versiones usen el mismo
 - Una carpeta por servicio, versiones con fecha, `out-of-order: true`, nunca se edita una migración aplicada (README sección 9). `V1__base.sql` queda vacía.
 - Orden en `cientifico`: `V20261026_1000` (catálogos) → `V20261026_1010` (`ubicacion_hallazgo`) → `V20261026_1020` (log, opcional). Los nombres son de Juanita; Hernando usa sus propias fechas y el esquema compartido no se pisa.
 - Nombres de tablas con prefijo `ubicacion_` y de constraints/índices con el nombre de tabla: no colisionan con las de Hernando (los nombres de constraint son únicos por esquema).
-- Cambios futuros previsibles, cada uno en migración nueva: FK a la tabla de hallazgos (sección 6); columna `municipio_codigo` si registro la aporta; `publicada` en `ficha_publica` si hay evento de baja; usuario Flyway separado (sección 11).
-- En producción de las VMs no hay datos: las migraciones no necesitan transformar nada. Se aplican con el arranque del servicio (Flyway) y `ddl-auto: validate` confirma que las entidades coinciden.
+- Cambios futuros previsibles, cada uno en migración nueva: FK a la tabla de hallazgos (sección 6); columna `municipio_codigo` si registro la aporta; `publicada` en `ficha_publica` si hay evento de baja; (el usuario Flyway separado ya existe: sección 11).
+- Las bases de Aiven son nuevas y vacías: las migraciones no transforman nada ni requieren baseline (D-I15-1). Se aplican con el arranque del servicio (Flyway) y `ddl-auto: validate` confirma que las entidades coinciden. La convención completa (nombre de archivo, no editar lo aplicado, `out-of-order`, historial, baseline) está en `servicio-cientifico/README.md` y `servicio-consulta-publica/README.md`.
 
-**Datos semilla (regla de la usuaria: ninguna fila de prueba en las BD de las VMs)**
+**Datos semilla (regla de la usuaria: ninguna fila de prueba en las bases compartidas, ni locales ni de Aiven)**
 - En `db/migration` solo van los catálogos de regiones y departamentos.
 - Los datos de prueba no son SQL estático: las coordenadas hay que **cifrarlas** con la llave de prueba, así que se cargan desde código de test, por `UbicacionService` (o un helper de test) y no desde `.sql`. Viven en `src/test/java` y se ejecutan con **Testcontainers** (MySQL 8.4 efímero, perfil `test`, llaves de prueba que nunca se reutilizan en despliegue). Cada test usa transacción revertida o contenedor desechable.
 - Generador de carga para HU-13.2 y HU-06.4: un `@TestConfiguration` (o clase de prueba `GeneradorDatosPrueba`) que inserta 10.000 hallazgos (20 % `EN_PELIGRO`) y 10.000 fichas **solo dentro del contenedor de test**. No se incluye en el jar de despliegue.
 - Controles sugeridos en CI: (1) una prueba que lea `db/migration` y falle si hay `INSERT` a tablas distintas de `ubicacion_region`, `ubicacion_departamento` y `departamento`; (2) la verificación de columnas sin coordenadas en claro de la sección 10.
-- Si se quiere una demo local, un perfil explícito `local-demo` que no se activa en las VMs (el script de despliegue no lo establece).
+- Si se quiere una demo local, un perfil explícito `local-demo` que ningún despliegue activa.
 
 ---
 
@@ -610,4 +610,64 @@ El UNIQUE `(clave_version, coord_nonce)` permite que dos versiones usen el mismo
 
 1. Confirmar con Hernando los ocho supuestos de la sección 6, en particular UUID `BINARY(16)` y que `departamento` llega como nombre oficial o código DANE.
 2. Si el Instituto quisiera `municipio`, se añade `municipio_codigo` (VARCHAR(5)) y un catálogo; hoy el evento no lo trae y no se inventa.
-3. SEC-11 (usuario Flyway separado) depende de devops/Santiago; el modelo no la exige.
+3. SEC-11 (usuario Flyway separado): resuelto para Aiven con `cientifico_migr` / `consulta_migr` (sección 16); devops debe cargar `*_MIGR_USER/PASSWORD` en el `.env` de cada servicio.
+
+---
+
+## 16. MySQL administrado en Aiven
+
+Estado: revisado el 2026-11-03 (Iteración 15). Aplica a `cientifico` (módulo ubicacion de Juanita y módulo registro de Hernando) y a `consulta_publica`. Las bases de Aiven son nuevas y vacías: Flyway aplica todo desde `V1`, **sin baseline**. Las VMs locales anteriores se descartan, por lo que ninguna migración existente se aplicó en un entorno compartido que importe conservar.
+
+### 16.1 Qué cambia respecto a un MySQL propio
+
+| Característica de Aiven MySQL 8 | Efecto en las migraciones | Estado |
+|---|---|---|
+| `sql_require_primary_key=ON` | Toda `CREATE TABLE` necesita PK, también `flyway_schema_history` | Cumple: las 5 tablas del proyecto tienen PK; Flyway 11.7.2 crea su tabla con `PRIMARY KEY (installed_rank)` (verificado) |
+| Sin privilegio `SUPER`; binlog activo | No se pueden crear triggers, funciones ni procedimientos (exigen `log_bin_trust_function_creators` = `SET GLOBAL`), ni usar `DEFINER=`, `SET GLOBAL`, `SET PERSIST` | Cumple: ninguna migración los usa |
+| `avnadmin` crea bases y usuarios | `CREATE DATABASE`, `CREATE USER`, `GRANT` no deben estar en migraciones | Cumple: están solo en `deploy/aiven/01-bases-y-usuarios.sql.example` |
+| `sql_mode` estricto, posiblemente con `ANSI` (`ANSI_QUOTES`, `PIPES_AS_CONCAT`, `IGNORE_SPACE`) y `TRADITIONAL` | Texto solo con comilla simple; `||` no es OR; fechas inválidas rechazadas | Cumple (migraciones) y verificado también con la aplicación (16.4). Comprobar el valor real con `SELECT @@sql_mode` |
+| Charset por defecto del servidor | `flyway_schema_history` y toda tabla sin charset heredan el de la base | Cumple: cada `CREATE TABLE` declara `utf8mb4` / `utf8mb4_0900_ai_ci`; el script crea las bases con el mismo charset |
+| Zona horaria del servidor UTC | `DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3)` queda en UTC; Hibernate escribe con `jdbc.time_zone=UTC` | Cumple. Recomendación a devops en 16.5 para no depender del valor del servidor |
+| `lower_case_table_names=0` (Linux) | Los nombres distinguen mayúsculas | Cumple: todos los nombres de tablas, columnas, índices y constraints están en minúsculas |
+| Eventos | `CREATE EVENT` no se administra sin `SUPER` | Cumple: ninguna migración los usa |
+| TLS obligatorio | Los usuarios llevan `REQUIRE SSL`; las URL usan `sslMode=VERIFY_CA` | Lo cubren `application-aiven.yml` y el script |
+| Versión del motor | Flyway 11.7.2 declara soporte hasta MySQL 8.1 y avisa (`Flyway upgrade recommended`) con 8.4; es solo una advertencia y los tests con 8.4 pasan | Sin acción. En Aiven conviene MySQL 8.0 si se puede elegir |
+
+Constructos revisados archivo por archivo (`servicio-cientifico/.../V1__base.sql`, `V20261026_1000__...`, `V20261026_1010__...`; `servicio-consulta-publica/.../V1__base.sql`, `V20261026_1000__...`, `V20261026_1010__...`): `CREATE TABLE` con PK y `ENGINE=InnoDB`, `CREATE INDEX`, `FULLTEXT INDEX`, `FOREIGN KEY`, `CHECK` (incluye `REGEXP`, `CHAR_LENGTH`, `TRIM`, `LENGTH`), `DEFAULT CURRENT_TIMESTAMP(3)` y `ON UPDATE CURRENT_TIMESTAMP(3)`, `INSERT` de catálogos. **No hay hallazgos que corregir: no se modificó ninguna migración.** `V1__base.sql` solo trae comentarios y Flyway la registra con éxito.
+
+Módulo registro (Hernando): su rama `feature/registro-cientifico` solo tiene `V1__base.sql` vacía; no hay migraciones suyas que revisar todavía. Cuando las suba, deben pasar `deploy/aiven/verificar-migraciones.sh`, que busca exactamente las incompatibilidades de la tabla anterior (tabla sin PK, triggers, funciones, `DEFINER`, `SET GLOBAL`, `CREATE DATABASE/USER`, `GRANT`, `CREATE TABLE ... SELECT`, `||`, comillas dobles). La revisión de su contenido y los cambios en sus archivos son de él.
+
+### 16.2 ¿Corregir en sitio o con migración nueva?
+
+No hizo falta corregir nada. Criterio para el futuro: una migración que **nunca** se aplicó fuera de tu máquina puede editarse en sitio (la base local se recrea); una que ya pasó por una base compartida o por Aiven **no se edita**, se corrige con una versión nueva. Hoy las únicas bases con estas migraciones son las VMs que se eliminan y bases locales desechables; Aiven está vacío.
+
+### 16.3 Usuarios y aprovisionamiento
+
+`deploy/aiven/01-bases-y-usuarios.sql.example` se ejecuta **una vez** con `avnadmin` (instrucciones y reemplazo de los marcadores `CAMBIAR_...` en el propio archivo; la copia con claves queda ignorada por git). Es idempotente (repetirlo rota contraseñas y recalcula permisos) y no contiene `DROP` ni `TRUNCATE`. Crea:
+
+- Bases `cientifico` y `consulta_publica` con `utf8mb4` / `utf8mb4_0900_ai_ci`.
+- Cuatro usuarios `'...'@'%' ... REQUIRE SSL` (Aiven no ofrece IP fija; el control de red es la lista *Allowed IP addresses* del servicio): `cientifico_app` / `consulta_app` (DML) y `cientifico_migr` / `consulta_migr` (DML + `CREATE, ALTER, DROP, INDEX, REFERENCES`). Detalle y variables de entorno en la sección 11.
+
+Para que Flyway use el usuario `*_migr`, el `.env` de cada servicio define `CIENTIFICO_MIGR_USER/PASSWORD` y `CONSULTA_MIGR_USER/PASSWORD` (el `application.yml` ya los lee con respaldo al usuario de aplicación; sin ellos las migraciones fallan por falta de `CREATE`).
+
+### 16.4 Cómo se verificó (reproducible)
+
+1. Contenedores `mysql:8.0` y `mysql:8.4` con `--sql-require-primary-key=ON --sql-mode=ANSI,TRADITIONAL --character-set-server=utf8mb4 --default-time-zone=+00:00`. Se ejecutó el script de aprovisionamiento (dos veces: idempotente) y Flyway 11.7.2 con `cientifico_migr` / `consulta_migr` y `out-of-order`: las seis migraciones se aplican, `validate` pasa y una segunda ejecución no aplica nada. `consulta_app` inserta y busca con `MATCH ... AGAINST` pero recibe `CREATE command denied`; una tabla sin PK es rechazada por el servidor (error 3750).
+2. Se repitió la suite de ambos servicios (sin `Qa*`) con una imagen `mysql:8.4` configurada con `sql_require_primary_key=ON` y `sql_mode=ANSI,TRADITIONAL`: Hibernate (`ddl-auto=validate`), el JDBC de búsqueda con FULLTEXT y las pruebas de migraciones pasan con esa configuración (cientifico 126 pruebas, consulta-publica 128, 0 fallos; sin `Qa*`).
+3. `deploy/aiven/verificar-migraciones.sh` revisa de forma estática todos los `db/migration` del repo: 0 problemas.
+
+Los tests existentes ya validan las migraciones contra un MySQL real: `MigracionesUbicacionTest` (Hibernate `validate` sobre Testcontainers `mysql:8.4`) y `MigracionesIntegracionTest` (Flyway de cero, idempotencia, constraints). `consulta_publica` no tiene entidades JPA para sus tablas (usa `JdbcClient`): el contrato con el esquema lo cubren esas pruebas y las de búsqueda, no `validate`.
+
+### 16.5 Propiedades que debe tener el yml (devops)
+
+Ya presentes: `spring.flyway.out-of-order=true`, `spring.flyway.user/password` desde `*_MIGR_USER/PASSWORD` con respaldo, `ddl-auto=validate`, `hibernate.jdbc.time_zone=UTC`, `sslMode=VERIFY_CA`. Recomendado añadir a la URL JDBC del perfil `aiven` (no es obligatorio para que funcione, endurece la zona horaria y el charset):
+
+`&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8`
+
+Con eso la sesión queda en UTC y los `DEFAULT CURRENT_TIMESTAMP(3)` de la base coinciden con las fechas que escribe Hibernate aunque el servidor tuviera otra zona. No se debe activar `spring.flyway.baseline-on-migrate`.
+
+### 16.6 Datos sensibles en Aiven
+
+- Contraseñas de `avnadmin` y de los cuatro usuarios: solo en el `.env` de cada servicio (ignorado por git) o en un gestor de secretos; nunca en el repo ni en la copia del script (`deploy/aiven/.gitignore`). Se generan con `openssl rand -hex 24`.
+- Aiven cifra el disco y los respaldos del servicio en reposo; las coordenadas siguen protegidas además con AES-256-GCM en la aplicación (sección 10), así que un respaldo o una lectura directa de la tabla no las revela. Las llaves `UBICACION_CLAVES` **no** se guardan en Aiven.
+- `avnadmin` no se usa en las aplicaciones.
