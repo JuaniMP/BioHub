@@ -1,0 +1,202 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Permisos minimos: el workflow solo lee el repo. No usa secretos de GitHub.
+permissions:
+  contents: read
+
+# Cancela la ejecucion anterior de la misma rama/PR cuando llega un push nuevo
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: web-publica (build y tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web-publica
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web-publica/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      # Solo dependencias de produccion; falla si hay vulnerabilidades altas o criticas
+      - run: npm audit --omit=dev --audit-level=high
+
+  backend:
+    name: backend (${{ matrix.servicio }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Para agregar otro servicio, anade su carpeta aqui, por ejemplo:
+        #   - servicio-equipos
+        #   - servicio-reportes
+        #   - api-gateway
+        # (los tests de integracion usan Testcontainers: ubuntu-latest ya trae Docker)
+        servicio:
+          - servicio-cientifico
+          - servicio-consulta-publica
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      # verify = compilar + tests unitarios e integracion (Testcontainers) + empaquetar
+      - run: mvn -B -ntp -pl ${{ matrix.servicio }} -am verify
+      - name: Informes de pruebas (si algo falla)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-${{ matrix.servicio }}
+          path: ${{ matrix.servicio }}/target/surefire-reports
+          if-no-files-found: ignore
+          retention-days: 7
+
+  bruno:
+    name: bruno (API de punta a punta)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Valores FICTICIOS, solo para este job efimero (no son secretos reales ni se usan en otro lado).
+      # Deben coincidir con los de infra/ci/init-mysql.sql y con los service containers de abajo.
+      CI_USUARIOS_PRUEBA_PASSWORD: ci-ficticia-usuarios
+      CI_RABBIT_PASSWORD: ci-ficticia-rabbit
+      CI_KEYCLOAK_ADMIN_PASSWORD: ci-ficticia-admin-kc
+      CI_MYSQL_ROOT_PASSWORD: ci-ficticia-root
+      # Llave AES-256 de prueba (32 bytes en base64). Nunca la de un entorno real.
+      CI_UBICACION_CLAVE: YmlvaHViLWNpLWNsYXZlLWZpY3RpY2lhLW5vLXVzYXI=
+      BRUNO_CLI_VERSION: 4.3.0
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-ficticia-root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+      rabbitmq:
+        image: rabbitmq:4.1-management
+        env:
+          RABBITMQ_DEFAULT_USER: biohub_ci
+          RABBITMQ_DEFAULT_PASS: ci-ficticia-rabbit
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd="rabbitmq-diagnostics -q ping"
+          --health-interval=15s --health-timeout=10s --health-retries=8
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s --health-timeout=3s --health-retries=5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Keycloak es el que mas tarda: se arranca primero. Es un docker run (y no un service container)
+      # porque necesita argumentos de comando (start-dev --import-realm) y montar el realm de infra/.
+      - name: Keycloak con el realm de infra/
+        run: |
+          docker run -d --name keycloak -p 8180:8080 \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+            -e KC_BOOTSTRAP_ADMIN_PASSWORD="$CI_KEYCLOAK_ADMIN_PASSWORD" \
+            -e KC_HOSTNAME=http://localhost:8180 \
+            -e KEYCLOAK_TEST_USERS_PASSWORD="$CI_USUARIOS_PRUEBA_PASSWORD" \
+            -v "$PWD/infra/keycloak:/opt/keycloak/data/import:ro" \
+            quay.io/keycloak/keycloak:26.8.1 start-dev --import-realm
+
+      - name: Compilar los dos servicios sin tests (los corre el job backend)
+        run: mvn -B -ntp -q -pl servicio-cientifico,servicio-consulta-publica -am package -DskipTests
+
+      - name: Crear bases y usuarios de prueba en MySQL
+        run: |
+          docker run --rm --network host -e MYSQL_PWD="$CI_MYSQL_ROOT_PASSWORD" \
+            -v "$PWD/infra/ci:/ci:ro" mysql:8.4 \
+            sh -c 'mysql -h127.0.0.1 -uroot < /ci/init-mysql.sql'
+
+      - name: Arrancar servicio-cientifico y servicio-consulta-publica (perfil local)
+        run: |
+          mkdir -p "$RUNNER_TEMP/logs"
+          # Perfil "local": mismas variables que el .env de desarrollo. Flyway migra al arrancar.
+          export SPRING_PROFILES_ACTIVE=local
+          export MYSQL_TRANSACCIONAL_HOST=127.0.0.1 MYSQL_TRANSACCIONAL_PORT=3306
+          export MYSQL_CIENTIFICO_USER=cientifico_ci MYSQL_CIENTIFICO_PASSWORD=ci-ficticia-cientifico
+          export MYSQL_LECTURA_HOST=127.0.0.1 MYSQL_LECTURA_PORT=3306
+          export MYSQL_LECTURA_USER=consulta_ci MYSQL_LECTURA_PASSWORD=ci-ficticia-consulta
+          export RABBITMQ_HOST=127.0.0.1 RABBITMQ_USER=biohub_ci RABBITMQ_PASSWORD="$CI_RABBIT_PASSWORD"
+          export REDIS_HOST=127.0.0.1 REDIS_PASSWORD=
+          export KEYCLOAK_ISSUER_URI=http://localhost:8180/realms/biohub
+          export UBICACION_CLAVES="v1:$CI_UBICACION_CLAVE" UBICACION_CLAVE_ACTIVA=v1
+          setsid nohup java -jar servicio-cientifico/target/servicio-cientifico-0.0.1-SNAPSHOT.jar \
+            > "$RUNNER_TEMP/logs/servicio-cientifico.log" 2>&1 &
+          setsid nohup java -jar servicio-consulta-publica/target/servicio-consulta-publica-0.0.1-SNAPSHOT.jar \
+            > "$RUNNER_TEMP/logs/servicio-consulta-publica.log" 2>&1 &
+
+      - name: Esperar a Keycloak y a los servicios
+        run: |
+          esperar() {  # esperar <nombre> <url>
+            for i in $(seq 1 90); do
+              if curl -fsS -o /dev/null "$2"; then echo "$1 listo"; return 0; fi
+              sleep 2
+            done
+            echo "::error::$1 no respondio a tiempo ($2)"; return 1
+          }
+          esperar keycloak http://localhost:8180/realms/biohub/.well-known/openid-configuration
+          esperar servicio-cientifico http://127.0.0.1:8081/actuator/health
+          esperar servicio-consulta-publica http://127.0.0.1:8083/actuator/health
+
+      # Datos de prueba solo para CI (NO es una migracion): 3 hallazgos con coordenadas cifradas con la
+      # llave ficticia. Los eventos hallazgo.* los publica la propia coleccion Bruno (carpeta setup/).
+      - name: Sembrar hallazgos de prueba en cientifico
+        run: |
+          java infra/ci/SembrarHallazgos.java "$CI_UBICACION_CLAVE" v1 > "$RUNNER_TEMP/semilla.sql"
+          docker run --rm -i --network host -e MYSQL_PWD=ci-ficticia-cientifico mysql:8.4 \
+            mysql -h127.0.0.1 -ucientifico_ci cientifico < "$RUNNER_TEMP/semilla.sql"
+
+      - name: Ejecutar la coleccion Bruno
+        working-directory: bruno
+        run: |
+          npx --yes @usebruno/cli@${BRUNO_CLI_VERSION} run --env ci \
+            --env-var passwordUsuarios="$CI_USUARIOS_PRUEBA_PASSWORD" \
+            --env-var rabbitPassword="$CI_RABBIT_PASSWORD" \
+            --reporter-skip-body \
+            --reporter-junit resultados/junit.xml \
+            --reporter-html resultados/informe.html
+
+      - name: Resultados y logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bruno-resultados
+          path: |
+            bruno/resultados
+            ${{ runner.temp }}/logs
+          if-no-files-found: warn
+          retention-days: 7

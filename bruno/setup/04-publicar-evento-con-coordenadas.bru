@@ -1,0 +1,65 @@
+meta {
+  name: publicar-evento-con-coordenadas
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{rabbitMgmtUrl}}/api/exchanges/%2F/biohub.eventos/publish
+  body: json
+  auth: basic
+}
+
+auth:basic {
+  username: {{rabbitUser}}
+  password: {{rabbitPassword}}
+}
+
+body:json {
+  {}
+}
+
+script:pre-request {
+  // El payload del evento va como TEXTO dentro del JSON de la API de management de RabbitMQ.
+  const id = bru.getEnvVar("hallazgoConCoordenadas");
+  const evento = {
+    id: bru.interpolate("{{$guid}}"),
+    tipo: "hallazgo.registrado",
+    origen: "servicio-cientifico",
+    fecha: new Date().toISOString(),
+    usuario: "investigador1",
+    datos: {
+      hallazgoId: id,
+      version: 1,
+      nombreCientifico: "Evento Malo",
+      nombreComun: "null",
+      familia: "Bufonidae",
+      tipoEspecimen: "Adulto",
+      fechaRecoleccion: "2026-03-14",
+      estadoConservacion: "EN_PELIGRO",
+      departamento: "15",
+      descripcion: "No debe publicarse",
+      latitud: 5.1234567,
+      longitud: -73.1234567
+    }
+  };
+  req.setBody({
+    properties: { delivery_mode: 2, content_type: "application/json", message_id: evento.id },
+    routing_key: evento.tipo,
+    payload: JSON.stringify(evento),
+    payload_encoding: "string"
+  });
+}
+
+tests {
+  test("RabbitMQ enruta el evento a alguna cola", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().routed).to.equal(true);
+  });
+}
+
+docs {
+  Evento PROHIBIDO por D14 (lleva latitud/longitud). El consumidor debe mandarlo a la DLQ sin crear ficha; se comprueba
+  en consulta-publica/ficha-con-coordenadas-no-existe.
+  Requisito: RF11, RNF9.
+}

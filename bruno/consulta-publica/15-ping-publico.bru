@@ -1,0 +1,37 @@
+meta {
+  name: ping-publico
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{baseConsulta}}/api/publica/ping
+  body: none
+  auth: none
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("200 anónimo", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().servicio).to.equal("servicio-consulta-publica");
+    expect(res.getBody().usuario).to.equal("anonimo");
+    expect(res.getBody().roles).to.deep.equal([]);
+  });
+}
+
+docs {
+  Requisito: RF10.
+}

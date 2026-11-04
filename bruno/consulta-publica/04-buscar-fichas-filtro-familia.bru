@@ -1,0 +1,49 @@
+meta {
+  name: buscar-fichas-filtro-familia
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseConsulta}}/api/publica/fichas?familia=ASTERACEAE
+  body: none
+  auth: none
+}
+
+params:query {
+  familia: ASTERACEAE
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("solo la familia pedida (sin distinguir mayúsculas)", function () {
+    expect(res.getStatus()).to.equal(200);
+    const c = res.getBody().content;
+    expect(c.length).to.be.at.least(1);
+    c.forEach(function (f) { expect(f.familia.toLowerCase()).to.equal("asteraceae"); });
+    expect(c.map(function (f) { return f.id; })).to.include(bru.getEnvVar("hallazgoC"));
+  });
+  test("la respuesta NUNCA contiene claves de coordenadas (D14)", function () {
+    expect(clavesDeCoordenadas(res.getBody())).to.deep.equal([]);
+    const crudo = JSON.stringify(res.getBody());
+    expect(crudo).to.not.contain("5.1234567");
+    expect(crudo).to.not.contain("-73.1234567");
+  });
+}
+
+docs {
+  Filtro por familia.
+  Requisito: RF10, HU-06.2.
+}

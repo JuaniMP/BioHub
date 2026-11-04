@@ -1,0 +1,57 @@
+meta {
+  name: buscar-fichas-q-demasiado-corta
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseConsulta}}/api/publica/fichas?q=a
+  body: none
+  auth: none
+}
+
+params:query {
+  q: a
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("400 problem+json PARAMETRO_INVALIDO con el campo q", function () {
+    expect(res.getStatus()).to.equal(400);
+    expect(res.getHeader("content-type")).to.contain("application/problem+json");
+    const b = res.getBody();
+    expect(b.codigo).to.equal("PARAMETRO_INVALIDO");
+    expect(b.errores.map(function (e) { return e.campo; })).to.include("q");
+  });
+  test("el error no es cacheable", function () {
+    expect(res.getHeader("cache-control")).to.equal("no-store");
+  });
+  test("el error no filtra trazas ni SQL", function () {
+    const crudo = JSON.stringify(res.getBody()).toLowerCase();
+    expect(crudo).to.not.contain("exception");
+    expect(crudo).to.not.contain("select ");
+  });
+  test("la respuesta NUNCA contiene claves de coordenadas (D14)", function () {
+    expect(clavesDeCoordenadas(res.getBody())).to.deep.equal([]);
+    const crudo = JSON.stringify(res.getBody());
+    expect(crudo).to.not.contain("5.1234567");
+    expect(crudo).to.not.contain("-73.1234567");
+  });
+}
+
+docs {
+  Validación: q de 1 carácter.
+  Requisito: RF10, HU-06.2.
+}

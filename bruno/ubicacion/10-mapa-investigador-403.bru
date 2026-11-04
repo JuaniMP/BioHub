@@ -1,0 +1,44 @@
+meta {
+  name: mapa-investigador-403
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseCientifico}}/api/cientifico/ubicacion/mapa
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_campo}}
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("403 ROL_INSUFICIENTE sin datos ni coordenadas", function () {
+    expect(res.getStatus()).to.equal(403);
+    expect(res.getBody().codigo).to.equal("ROL_INSUFICIENTE");
+    expect(clavesDeCoordenadas(res.getBody())).to.deep.equal([]);
+  });
+  test("Cache-Control no-store", function () {
+    expect(res.getHeader("cache-control")).to.contain("no-store");
+  });
+}
+
+docs {
+  investigador_campo no puede ver el mapa con coordenadas exactas.
+  Requisito: RF12, RF13, HU-07.
+}

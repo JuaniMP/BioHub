@@ -1,0 +1,41 @@
+meta {
+  name: buscar-fichas-size-fuera-de-rango
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseConsulta}}/api/publica/fichas?size=51
+  body: none
+  auth: none
+}
+
+params:query {
+  size: 51
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("400 por size > 50", function () {
+    expect(res.getStatus()).to.equal(400);
+    expect(res.getBody().codigo).to.equal("PARAMETRO_INVALIDO");
+    expect(res.getBody().errores[0].campo).to.equal("size");
+  });
+}
+
+docs {
+  Tope de página para proteger el servicio (RNF5/RNF1).
+  Requisito: RNF5 (ASR4), RNF1, RF10.
+}

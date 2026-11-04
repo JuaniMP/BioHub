@@ -1,0 +1,35 @@
+meta {
+  name: eventos-recibidos-solo-administrador-sin-token
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{baseConsulta}}/api/publica/eventos/recibidos
+  body: none
+  auth: none
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("401 sin token", function () {
+    expect(res.getStatus()).to.equal(401);
+  });
+}
+
+docs {
+  Aunque /api/publica/** GET sea público, esta ruta exige rol administrador.
+  Requisito: RF13 (validación de permisos), RF18.
+}

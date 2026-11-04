@@ -1,0 +1,61 @@
+meta {
+  name: hallazgos-investigador-coordenadas-protegidas
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseCientifico}}/api/cientifico/ubicacion/hallazgos?size=100
+  body: none
+  auth: bearer
+}
+
+params:query {
+  size: 100
+}
+
+auth:bearer {
+  token: {{token_campo}}
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("200 y rol sin permiso no recibe latitud/longitud", function () {
+    expect(res.getStatus()).to.equal(200);
+    const a = res.getBody().content.find(function (h) { return h.id === bru.getEnvVar("hallazgoA"); });
+    expect(a, "hallazgo A en la lista").to.exist;
+    expect(a.nombreCientifico).to.equal("Atelopus ebenoides");
+    expect(a.estadoCoordenadas).to.equal("PROTEGIDAS");
+    expect(a.ubicacionProtegida).to.equal(true);
+    expect(res.getBody().omitidos).to.equal(0);
+  });
+  test("ningún elemento trae coordenadas (RF12)", function () {
+    expect(clavesDeCoordenadas(res.getBody())).to.deep.equal([]);
+    expect(JSON.stringify(res.getBody())).to.not.contain("5.1234567");
+  });
+  test("hallazgo sin coordenadas figura como SIN_COORDENADAS", function () {
+    const c = res.getBody().content.find(function (h) { return h.id === bru.getEnvVar("hallazgoC"); });
+    expect(c.estadoCoordenadas).to.equal("SIN_COORDENADAS");
+    expect(c.ubicacionProtegida).to.equal(false);
+  });
+  test("Cache-Control no-store", function () {
+    expect(res.getHeader("cache-control")).to.contain("no-store");
+  });
+}
+
+docs {
+  Búsqueda interna con un rol sin permiso para ver coordenadas (investigador_campo).
+  Requisito: RF12, RF13, HU-13, HU-07.
+}

@@ -1,0 +1,47 @@
+meta {
+  name: recifrado-administrador-200
+  type: http
+  seq: 17
+}
+
+post {
+  url: {{baseCientifico}}/api/cientifico/ubicacion/recifrado
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_admin}}
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("200 con la llave activa y sin fallos; nunca devuelve coordenadas", function () {
+    expect(res.getStatus()).to.equal(200);
+    const b = res.getBody();
+    expect(b.claveActiva).to.equal("v1");
+    expect(b.fallidos).to.equal(0);
+    expect(b).to.include.keys(["revisados", "recifrados", "pendientesPorVersion"]);
+    expect(clavesDeCoordenadas(b)).to.deep.equal([]);
+  });
+  test("Cache-Control no-store", function () {
+    expect(res.getHeader("cache-control")).to.contain("no-store");
+  });
+}
+
+docs {
+  Re-cifrado tras rotar la llave (HU-UBI-02). Con una sola llave no hay nada pendiente. Idempotente.
+  Requisito: RNF9, ASR6.
+}

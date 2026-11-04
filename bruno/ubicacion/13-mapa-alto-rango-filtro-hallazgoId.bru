@@ -1,0 +1,47 @@
+meta {
+  name: mapa-alto-rango-filtro-hallazgoId
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{baseCientifico}}/api/cientifico/ubicacion/mapa?hallazgoId={{hallazgoB}}
+  body: none
+  auth: bearer
+}
+
+params:query {
+  hallazgoId: {{hallazgoB}}
+}
+
+auth:bearer {
+  token: {{token_alto}}
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("exactamente 1 feature para el hallazgoId pedido", function () {
+    expect(res.getStatus()).to.equal(200);
+    const b = res.getBody();
+    expect(b.features.length).to.equal(1);
+    expect(b.features[0].id).to.equal(bru.getEnvVar("hallazgoB"));
+    expect(b.features[0].geometry.coordinates).to.deep.equal([-74.0654321, 4.7654321]);
+  });
+}
+
+docs {
+  Caso 'Ver en el mapa' desde un resultado.
+  Requisito: RF12, HU-07.
+}

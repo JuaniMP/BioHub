@@ -1,0 +1,4 @@
+# Resultados de ejecuciones locales y CI
+resultados/
+# Valores reales de entornos locales (nunca al repo)
+environments/*.local.bru

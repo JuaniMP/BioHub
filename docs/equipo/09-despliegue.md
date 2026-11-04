@@ -171,3 +171,47 @@ Estos servicios no se tocaron; siguen con los MySQL del compose. Para llevarlos 
 - Sin HTTPS entre tus servicios y Keycloak/RabbitMQ locales (todo en `127.0.0.1`).
 - El tráfico a Aiven va cifrado y verificado, pero depende de la lista de IP permitidas y de la contraseña del usuario.
 - No hay despliegue de las webs (Vercel) en esta iteración.
+
+## 10. CI (GitHub Actions) y pruebas de API con Bruno
+
+Workflow: `.github/workflows/ci.yml`, en cada `push` y `pull_request` (permisos `contents: read`, cancela ejecuciones viejas de la misma rama). No usa secretos de GitHub: los valores del job `bruno` son ficticios y existen solo en el job.
+
+| Job | Qué hace | Falla si |
+|---|---|---|
+| `frontend` | `web-publica`: Node 22, `npm ci`, `npm run build`, `npm test` (vitest), `npm audit --omit=dev --audit-level=high` | build, tests o auditoría fallan |
+| `backend` (matriz) | `mvn -B -pl <servicio> -am verify` para `servicio-cientifico` y `servicio-consulta-publica`, Java 21 Temurin, caché Maven. Los tests usan Testcontainers: `ubuntu-latest` ya trae Docker. Para sumar servicios, añadirlos a la matriz (hay un comentario en el archivo) | compilación o tests fallan |
+| `bruno` | MySQL 8.4, RabbitMQ 4.1 y Redis 7.4 como service containers; Keycloak 26.8.1 con `docker run` e importando `infra/keycloak/realm-biohub.json`; crea las bases con `infra/ci/init-mysql.sql`; arranca los jars con el perfil `local` (Flyway migra); siembra hallazgos con `infra/ci/SembrarHallazgos.java`; espera los healthchecks de actuator; ejecuta `@usebruno/cli@4.3.0 run --env ci` | cualquier test de la colección falla |
+
+El job `bruno` sube el artefacto `bruno-resultados` (JUnit XML, informe HTML sin cuerpos ni cabeceras, y los logs de los dos servicios).
+
+### 10.1 Colección Bruno (`bruno/`)
+
+- `bruno.json`, `collection.bru`, `environments/ci.bru`, `environments/local.bru` (sin secretos: `passwordUsuarios` y `rabbitPassword` son `vars:secret` y se pasan con `--env-var`).
+- Carpetas, en este orden: `auth` (token de Keycloak por password grant con el cliente `biohub-pruebas` y los usuarios `cientifico1`, `investigador1`, `admin1`), `setup` (publica eventos `hallazgo.*` en el exchange `biohub.eventos` con la API HTTP de management de RabbitMQ, porque el publicador de registro aún no existe), `consulta-publica` (18 requests) y `ubicacion` (17 requests). Cada `.bru` lleva en `docs` el ID del requisito.
+- Los datos de `servicio-cientifico` (no hay otro punto de entrada que el módulo registro) se siembran con `infra/ci/SembrarHallazgos.java`, que cifra las coordenadas igual que el servicio. Es solo para CI/pruebas: no es una migración ni va en los jars.
+- Las peticiones van directo a los servicios (8081 y 8083), no por el gateway.
+
+Ejecutarla en local (con `docker compose up -d` y los dos servicios arriba; usa una base descartable, no la de desarrollo):
+
+```bash
+# 1) bases descartables y siembra (el MySQL científico ya tiene las migraciones tras arrancar el servicio)
+#    arrancar los servicios con CIENTIFICO_DB_URL / CONSULTA_DB_URL a esas bases y UBICACION_CLAVES=v1:<clave de prueba>
+java infra/ci/SembrarHallazgos.java <clave-base64-de-prueba> v1 | mysql ... cientifico_bruno
+# 2) colección
+cd bruno
+npx @usebruno/cli@4.3.0 run --env local \
+  --env-var passwordUsuarios="$KEYCLOAK_TEST_USERS_PASSWORD" --env-var rabbitPassword="$RABBITMQ_PASSWORD"
+```
+
+Los eventos de la carpeta `setup` quedan también en `reportes.eventos` y uno malo en `consulta-publica.eventos.dlq`; usar solo en el RabbitMQ local o efímero, nunca en uno compartido.
+
+### 10.2 Variables del job `bruno`
+
+| Variable | Valor en CI | Uso |
+|---|---|---|
+| `CI_USUARIOS_PRUEBA_PASSWORD` | ficticio | `KEYCLOAK_TEST_USERS_PASSWORD` del realm y `passwordUsuarios` de Bruno |
+| `CI_RABBIT_PASSWORD` | ficticio | usuario `biohub_ci` de RabbitMQ y `rabbitPassword` de Bruno |
+| `CI_MYSQL_ROOT_PASSWORD`, `CI_KEYCLOAK_ADMIN_PASSWORD` | ficticios | root de MySQL y admin de Keycloak del job |
+| `CI_UBICACION_CLAVE` | clave AES-256 ficticia | `UBICACION_CLAVES` (`v1`) y la siembra |
+
+Los usuarios de MySQL (`cientifico_ci`, `consulta_ci`) y sus contraseñas ficticias están en `infra/ci/init-mysql.sql`. Si algún día el job debe usar un secreto real (por ejemplo un registry privado), definirlo en Settings > Secrets and variables > Actions y leerlo con `secrets.*`; nunca en el repo.

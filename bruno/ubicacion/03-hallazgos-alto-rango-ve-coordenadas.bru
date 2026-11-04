@@ -1,0 +1,56 @@
+meta {
+  name: hallazgos-alto-rango-ve-coordenadas
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseCientifico}}/api/cientifico/ubicacion/hallazgos?size=100
+  body: none
+  auth: bearer
+}
+
+params:query {
+  size: 100
+}
+
+auth:bearer {
+  token: {{token_alto}}
+}
+
+tests {
+  // Busca en cualquier nivel claves de coordenadas (sin distinguir mayúsculas). Devuelve las halladas.
+  function clavesDeCoordenadas(o, hallado) {
+    hallado = hallado || [];
+    const prohibidas = ["latitud", "longitud", "lat", "lon", "lng", "coordenadas", "coordinates", "geometry", "geom", "ubicacionexacta"];
+    if (Array.isArray(o)) { o.forEach(function (x) { clavesDeCoordenadas(x, hallado); }); }
+    else if (o && typeof o === "object") {
+      Object.keys(o).forEach(function (k) {
+        if (prohibidas.indexOf(k.toLowerCase()) >= 0) { hallado.push(k); }
+        clavesDeCoordenadas(o[k], hallado);
+      });
+    }
+    return hallado;
+  }
+  test("200 y cientifico_alto_rango recibe latitud y longitud exactas (descifradas)", function () {
+    expect(res.getStatus()).to.equal(200);
+    const a = res.getBody().content.find(function (h) { return h.id === bru.getEnvVar("hallazgoA"); });
+    expect(a, "hallazgo A en la lista").to.exist;
+    expect(a.estadoCoordenadas).to.equal("VISIBLES");
+    expect(a.ubicacionProtegida).to.equal(false);
+    expect(a.latitud).to.equal(5.1234567);
+    expect(a.longitud).to.equal(-73.1234567);
+  });
+  test("el hallazgo sin coordenadas no trae las claves latitud/longitud", function () {
+    const c = res.getBody().content.find(function (h) { return h.id === bru.getEnvVar("hallazgoC"); });
+    expect(c).to.not.have.any.keys("latitud", "longitud");
+    expect(c.estadoCoordenadas).to.equal("SIN_COORDENADAS");
+  });
+  test("Cache-Control no-store", function () {
+    expect(res.getHeader("cache-control")).to.contain("no-store");
+  });
+}
+
+docs {
+  Requisito: RF12, RF13, RNF9 (las coordenadas se guardan cifradas y se descifran solo para alto rango), ASR6, HU-13, HU-07.
+}
