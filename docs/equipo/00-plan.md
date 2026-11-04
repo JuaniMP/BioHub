@@ -109,10 +109,14 @@ Despliegue de bases, Redis y RabbitMQ en VMs locales con una VPN de malla, y su 
 | 15h verificación + 2 ciclos (sesión 2026-11-04) | 10.89 en esta sesión (≥ 20.25 acumulado; 15f–15g no se midió) | ciberseguridad (opus, 4.08 en 2 tareas) | backend ciclo 2 sonnet/**medium** (matriz: high): solo reglas ArchUnit ya diseñadas por seguridad |
 | 15h ciclo 1 re-verificación | (incluido en la fila anterior) | — | ciberseguridad opus/**medium** (matriz: high): solo re-verifica un diff acotado de su propia auditoría |
 | 15h CI en GitHub + arreglo WebKit/Bruno (sesión 2026-11-04) | 13.80 en esta sesión (≥ 23.16 acumulado) | ciberseguridad (opus, 4.08) | — |
+| Cierre 2026-11-04: PR #3–#5 a develop, Aiven escritura y lectura reales, credenciales al equipo | 20.02 en esta sesión (≥ 29.38 acumulado) | sesión principal (opus, 10.77) | devops sonnet/medium se cortó por límite de uso; el Tech Lead terminó la limpieza y el aprovisionamiento |
 
 ## Pendientes tras la 15h
 - Corridas k6 que exige D42: degradación activa, 1 vs 2 réplicas en saturación (ARQ-30, ARQ-31) y par ASR4 `CIENTIFICA=0/1` (ARQ-32).
 - SEC-J-12, SEC-J-13 (guarda de coordenadas en el publicador, sube de prioridad), SEC-J-04/05/07/08(3)/09, SEC-04/SEC-D-03 (un usuario AMQP por servicio, Santiago).
 - ARQ-05 (segundo servicio Aiven sin evidencia), ARQ-07 (Hernando), ARQ-28/29/33, Aiven real sin probar. CI en GitHub: verde en run 41891195794 (740bb37), los 4 jobs.
 - Condición D44: nada de registro (Hernando) entra sin pasar las reglas ArchUnit actuales.
-- Usuario: purgar `consulta-publica.eventos.dlq` (76 mensajes de prueba de QA) y copiar las 2 líneas `BIOHUB_EVENTOS_*` de `.env.example` al `.env`.
+- Hecho por la usuaria: DLQ purgada, `.env` actualizado, contraseñas de `avnadmin` rotadas, credenciales y llave de cifrado en gestor de contraseñas, zips enviados por privado.
+- Usuaria: agregar en Aiven (Allowed IP addresses) las IP que envíen Hernando, Nicolás y Santiago.
+- Corridas k6 (D42) pospuestas por decisión de la usuaria hasta que los servicios de todos estén completos; repetir todo sobre `develop` antes de la entrega.
+- Cuando `develop` esté estable: PR `develop` → `main`.
