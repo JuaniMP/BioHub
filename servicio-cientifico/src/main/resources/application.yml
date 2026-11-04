@@ -20,6 +20,8 @@ spring:
       hibernate:
         jdbc:
           time_zone: UTC   # DATETIME(3) en UTC (05-modelo-datos §3)
+          batch_size: 100  # re-cifrado por lotes (ARQ-12); con rewriteBatchedStatements en el perfil aiven
+        order_updates: true
   flyway:
     enabled: true
     locations: classpath:db/migration
