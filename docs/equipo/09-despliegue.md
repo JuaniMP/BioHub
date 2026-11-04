@@ -283,3 +283,11 @@ Los eventos de la carpeta `setup` quedan también en `reportes.eventos` y uno ma
 | `CI_UBICACION_CLAVE` | clave AES-256 ficticia | `UBICACION_CLAVES` (`v1`) y la siembra |
 
 Los usuarios de MySQL (`cientifico_ci`, `consulta_ci`) y sus contraseñas ficticias están en `infra/ci/init-mysql.sql`. Si algún día el job debe usar un secreto real (por ejemplo un registry privado), definirlo en Settings > Secrets and variables > Actions y leerlo con `secrets.*`; nunca en el repo.
+
+### 4.5 Verificación contra Aiven real (2026-11-04)
+- Servicio de escritura creado (MySQL 8.4.11, `sql_require_primary_key=ON`, `sql_mode` con `ANSI`). Conexión con `--ssl-mode=VERIFY_CA` OK.
+- `01-escritura-bases-y-usuarios.sql` ejecutado dos veces (idempotente). Corrección: en Aiven `REVOKE ALL PRIVILEGES, GRANT OPTION FROM u` falla con ERROR 3879 (sin permisos sobre `sys`); los scripts ahora revocan solo sobre la base propia con `REVOKE IF EXISTS ... IGNORE UNKNOWN USER`.
+- Permisos resultantes: `*_app` solo DML y `*_migr` DML + DDL, cada uno solo en su base; `equipos_app` no ve `cientifico` (ERROR 1044).
+- `servicio-cientifico` con `SPRING_PROFILES_ACTIVE=aiven`: Flyway aplicó 3 migraciones con `cientifico_migr` y el servicio arrancó.
+- Sin cliente `mysql` instalado se puede usar Docker: `docker run --rm -it -v "$PWD/certs:/certs:ro" mysql:8.4 mysql --ssl-mode=VERIFY_CA --ssl-ca=/certs/ca.pem -h <HOST> -P <PUERTO> -u avnadmin -p`.
+- La llave `UBICACION_CLAVES` usada contra Aiven debe ser la misma para todos los que usen la base `cientifico` y no puede perderse (sin ella las coordenadas cifradas son irrecuperables).
