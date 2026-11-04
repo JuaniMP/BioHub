@@ -130,6 +130,13 @@ Despliegue de bases, Redis y RabbitMQ en VMs locales con una VPN de malla, y su 
 | # | Tarea | Responsable | Modelo | Estado |
 |---|---|---|---|---|
 | 16a | ARQ-33: comentarios de `application-aiven.yml` (cientifico y consulta-publica) | Tech Lead | opus/medium | Hecho |
-| 16b | SEC-J-13, SEC-J-12, SEC-J-08.3, ARQ-28, ARQ-29 en `servicio-cientifico` | backend-senior | sonnet/high | En curso |
-| 16c | SEC-J-04 (zoom con un punto y `referrerPolicy`) en `web-interna/src/ubicacion` | frontend-senior | sonnet/medium | En curso |
-| 16d | Verificación: tests y re-auditoría del diff | qa-tester · ciberseguridad | sonnet/medium · opus/medium | Pendiente |
+| 16b | SEC-J-13, SEC-J-12, SEC-J-08.3, ARQ-28, ARQ-29 en `servicio-cientifico` | backend-senior | sonnet/high | Hecho (786f4e1, 57ab7ad, 1e449ac, 25d2175, aeb67d8; queda ARQ-28b aceptado) |
+| 16c | SEC-J-04 (zoom con un punto y `referrerPolicy`) en `web-interna/src/ubicacion` | frontend-senior | sonnet/medium | Hecho (47b5cc9) |
+| 16d | Verificación: tests y re-auditoría del diff | qa-tester · ciberseguridad | sonnet/medium · opus/medium | Hecho: QA APROBADO (27a6dd9, BUG-J4 tests herméticos frente al `.env`; cientifico 264/0/2 omitidos, consulta-publica 194/0, web-interna 46/46, web-publica 32/32). Seguridad APROBADO CON OBSERVACIONES (d249733): SEC-J-12 Cerrado; SEC-J-04, 08 y 13 Parciales; nuevos SEC-J-17 y SEC-J-18 (Bajos) |
+
+**Pendientes tras la iteración 16 (de Juanita):** SEC-J-17 (guarda de coordenadas eludible; condición previa para publicar `hallazgo.*` reales), SEC-J-18 (auditoría falla abierta), SEC-J-I14 (verificar teselas OSM con `no-referrer` en el navegador), ARQ-28b. Usuaria: borrar las VMs retiradas `biohub-backend` y `biohub-datos` (el borrado desde la sesión fue bloqueado por permisos).
+
+**Modelos y consumo (iteración 16):**
+| Fase | USD | Agente que más consumió | Cambios de modelo (motivo) |
+|---|---:|---|---|
+| 16a–16d (sesión 2026-11-04 tarde) | 4.91 en esta sesión (≥ 34.29 acumulado) | backend-senior (sonnet, 1.79) | ciberseguridad opus/**medium** (matriz: high): re-verificación de un diff acotado, como en 15h |
