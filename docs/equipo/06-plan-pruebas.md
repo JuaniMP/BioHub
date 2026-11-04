@@ -148,7 +148,7 @@ Los tests opt-in se omiten si `QA_RMQ_PORT` no está definido (no afectan a `mvn
 
 ## 8 y 9. Artefactos de despliegue en VMs y procedimiento E2E contra las VMs
 
-Sección retirada en la iteración 15 (Tailscale eliminado; ver 09-despliegue.md).
+Sección retirada en la iteración 15 (VPN de malla eliminada; ver 09-despliegue.md).
 
 ---
 

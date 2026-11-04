@@ -436,7 +436,7 @@ Verificado tras recrear la infraestructura desde cero (`docker compose down -v` 
 
 # Iteración despliegue (D11-D13) e iteración 14
 
-Sección retirada en la iteración 15 (Tailscale eliminado; ver 09-despliegue.md). Se conservan solo los hallazgos que no dependían de Tailscale y que otras secciones citan (SEC-D-03 y SEC-D-07).
+Sección retirada en la iteración 15 (VPN de malla eliminada; ver 09-despliegue.md). Se conservan solo los hallazgos que no dependían de la VPN y que otras secciones citan (SEC-D-03 y SEC-D-07).
 
 ## Hallazgos que siguen vigentes
 

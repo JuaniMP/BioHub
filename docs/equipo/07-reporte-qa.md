@@ -154,19 +154,19 @@ Verificado además contra un RabbitMQ real cargado con el `definitions.json` gen
 
 ## Artefactos de despliegue (estático)
 
-Sección retirada en la iteración 15 (Tailscale eliminado; ver 09-despliegue.md).
+Sección retirada en la iteración 15 (VPN de malla eliminada; ver 09-despliegue.md).
 
 ## Bugs
 No se encontraron bugs Críticos, Altos ni Medios. Hallazgos menores:
 
-BUG-04 (`.env.example` de `deploy/`): sección retirada en la iteración 15 (Tailscale eliminado; ver 09-despliegue.md).
+BUG-04 (`.env.example` de `deploy/`): sección retirada en la iteración 15 (VPN de malla eliminada; ver 09-despliegue.md).
 
 ### Observaciones (para ciberseguridad / Tech Lead)
 - O-9: Los tests opt-in dependen de variables de entorno; no hay prueba automática en CI de las definitions reales. Sugerencia: añadir un IT que cargue `definitions.json` generado en Testcontainers.
 - O-10: Sin cobertura medida (JaCoCo) ni E2E automatizado del flujo de eventos por el gateway; queda el procedimiento manual (plan, sección 9).
 
 ## Veredicto: APROBADO CON OBSERVACIONES
-El código de RabbitMQ cumple el contrato (73/73 tests con broker real, 0 omitidos) y los permisos por usuario funcionan contra un RabbitMQ real con las definitions generadas. La verificación de los artefactos de despliegue en VMs fue retirada en la iteración 15 (Tailscale eliminado; ver 09-despliegue.md).
+El código de RabbitMQ cumple el contrato (73/73 tests con broker real, 0 omitidos) y los permisos por usuario funcionan contra un RabbitMQ real con las definitions generadas. La verificación de los artefactos de despliegue en VMs fue retirada en la iteración 15 (VPN de malla eliminada; ver 09-despliegue.md).
 
 ---
 # Iteración 15h – verificación final (2026-11-04)
@@ -226,7 +226,7 @@ Los tests no citan los IDs del plan (`CF-01`, etc.), así que no existe trazabil
 - **CG-01..CG-11** (carga): solo hay k6 para pico x60 (≈CG-03/05), carga científica simultánea (CG-04, afectado por BUG-J2) y registro; sin script para CG-02, CG-06 (Redis caído en pico), CG-07 (degradado en pico), CG-08 (`-Dgroups=rendimiento`: no existe ese grupo), CG-09, CG-10; CG-11 bloqueado por rate limit.
 - **WP-15** (axe-core), **WP-16** (responsive), **WP-18** (humo real con compose), **WP-11** (matriz de navegadores incl. móvil real y Edge) y **UX-01..UX-05** (usabilidad, manuales): sin automatizar; WP-11 en WebKit además no ejecutable aquí. WP-10 (consola limpia) y WP-12/WP-13 solo parcialmente (Vitest y `erroresCsp`, no E2E completo).
 - Ahora **cubiertos por QA 15h**: WP-14, WP-08.
-- Bloqueados por dependencias de otros equipos (sin cambios): IE-01..IE-04, SG-17..SG-19, CG-11, WI-13, DX-01..DX-04 (requieren autorización y despliegue; Tailscale/VMs ya retirado, estos casos están obsoletos).
+- Bloqueados por dependencias de otros equipos (sin cambios): IE-01..IE-04, SG-17..SG-19, CG-11, WI-13, DX-01..DX-04 (requieren autorización y despliegue; VPN y VMs ya retiradas, estos casos están obsoletos).
 - Casos de `web-interna` (WI-*, WC-*): 9 tests pasan, 2 archivos no ejecutables por dependencia no instalada (ver §2); no verificados.
 
 ## Veredicto 15h: APROBADO CON OBSERVACIONES

@@ -73,13 +73,13 @@ Despliegue de bases, Redis y RabbitMQ en VMs locales con una VPN de malla, y su 
 - Cada integrante conserva sus responsabilidades: no se toca código de registro, equipos/reportes ni seguridad/acceso.
 
 ---
-# Iteración 15: retiro de Tailscale, MySQL en Aiven, CI y cierre de la parte de Juanita
+# Iteración 15: retiro de la VPN de malla, MySQL en Aiven, CI y cierre de la parte de Juanita
 
 **Fecha:** 2026-11-03 · **Rama:** `feature/ubicacion-consulta-publica` (en `~/biohub`; se retiró el worktree `~/biohub-ubicacion`) · **Modo de presupuesto:** equilibrado, sin tope.
 
-**Objetivo:** quitar Tailscale de todo el repo; conectar los servicios de Juanita a MySQL en Aiven (SSL) con perfil `local` (Docker) y perfil `aiven`; Flyway trazable; GitHub Actions (build web-publica, JUnit, Bruno); completar y verificar la parte de Juanita contra SRS/SAD.
+**Objetivo:** quitar la VPN de malla de todo el repo; conectar los servicios de Juanita a MySQL en Aiven (SSL) con perfil `local` (Docker) y perfil `aiven`; Flyway trazable; GitHub Actions (build web-publica, JUnit, Bruno); completar y verificar la parte de Juanita contra SRS/SAD.
 
-**Alcance:** solo la parte de Juanita: `servicio-cientifico` módulo `ubicacion`, `servicio-consulta-publica`, `web-publica`. Otros servicios solo se tocan lo mínimo para que el de Juanita funcione, y se marca en la matriz. Tailscale se retira de todo el repo (autorizado por Juanita).
+**Alcance:** solo la parte de Juanita: `servicio-cientifico` módulo `ubicacion`, `servicio-consulta-publica`, `web-publica`. Otros servicios solo se tocan lo mínimo para que el de Juanita funcione, y se marca en la matriz. la VPN de malla anterior se retira de todo el repo (autorizado por Juanita).
 
 **Fuentes de verdad:** `docs/entregas/` (SRS, SAD y C4 en PDF + texto extraído; no versionado, excluido en `.git/info/exclude`).
 
@@ -93,8 +93,8 @@ Despliegue de bases, Redis y RabbitMQ en VMs locales con una VPN de malla, y su 
 |---|---|---|---|---|
 | 15a | Reconocimiento, documentos a `docs/entregas/`, línea base de tests | Tech Lead | opus/medium | Hecho |
 | 15b | Matriz de trazabilidad `trazabilidad.md` | product-owner | sonnet/medium | Hecho (13 de Juanita: 4 Cumple, 9 Parcial; 14 ambigüedades A1–A14) |
-| 15c | Verificación del código contra el SAD; impacto de Aiven/Flyway en ASR; quitar Tailscale de `03-arquitectura.md` | arquitecto-software | opus/high | Hecho (504a36f; 25 hallazgos: de Juanita 2 Altos ARQ-05, ARQ-06 y 11 Medios/Bajos; ARQ-12 y ARQ-15 corregidos en 8bdac84) |
-| 15d | Quitar Tailscale (resto del repo); perfiles local/aiven con SSL; `.env.example` | devops | sonnet/medium | Hecho (fe1bb43, 52ac256; perfil aiven probado con SSL contra MySQL local, falta Aiven real) |
+| 15c | Verificación del código contra el SAD; impacto de Aiven/Flyway en ASR; quitar la VPN de malla de `03-arquitectura.md` | arquitecto-software | opus/high | Hecho (504a36f; 25 hallazgos: de Juanita 2 Altos ARQ-05, ARQ-06 y 11 Medios/Bajos; ARQ-12 y ARQ-15 corregidos en 8bdac84) |
+| 15d | Quitar la VPN de malla (resto del repo); perfiles local/aiven con SSL; `.env.example` | devops | sonnet/medium | Hecho (fe1bb43, 52ac256; perfil aiven probado con SSL contra MySQL local, falta Aiven real) |
 | 15e | Migraciones compatibles con Aiven; convención en README de cada servicio | dba | sonnet/high | Hecho (6d64b9e, 62f304c; 6 migraciones compatibles, sin baseline) |
 | 15f | GitHub Actions + colecciones Bruno | devops + qa-tester | sonnet/medium | Hecho (Bruno 44/44 requests, 77/77 tests en local; actionlint OK; job en GitHub sin ejecutar aún) |
 | 15g | Completar la parte de Juanita (SEC-J-01..03 y faltantes) | backend-senior / frontend-senior | sonnet/high · sonnet/medium | Hecho (d92c920, 31fd86b, 98e0021, 0e959d2; 2 ciclos de corrección: ARQ-26 Alto + SEC-J-10/11/14/15/16, BUG-J2/J3) |
@@ -104,7 +104,7 @@ Despliegue de bases, Redis y RabbitMQ en VMs locales con una VPN de malla, y su 
 | Fase | USD acumulado | Agente que más consumió | Cambios de modelo (motivo) |
 |---|---:|---|---|
 | 15a Reconocimiento | 0.80 | sesión principal (opus) | — |
-| 15b–15e Diseño, Tailscale, Aiven, Flyway | 9.36 | arquitecto-software (opus, 3.45) | — (todos según matriz equilibrado) |
+| 15b–15e Diseño, retiro de la VPN, Aiven, Flyway | 9.36 | arquitecto-software (opus, 3.45) | — (todos según matriz equilibrado) |
 | 15f–15g (sesión 2026-11-03, sin medir aparte) | — | — | — |
 | 15h verificación + 2 ciclos (sesión 2026-11-04) | 10.89 en esta sesión (≥ 20.25 acumulado; 15f–15g no se midió) | ciberseguridad (opus, 4.08 en 2 tareas) | backend ciclo 2 sonnet/**medium** (matriz: high): solo reglas ArchUnit ya diseñadas por seguridad |
 | 15h ciclo 1 re-verificación | (incluido en la fila anterior) | — | ciberseguridad opus/**medium** (matriz: high): solo re-verifica un diff acotado de su propia auditoría |
