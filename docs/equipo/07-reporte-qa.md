@@ -274,3 +274,46 @@ Los tres hallazgos (BUG-J2, BUG-J3, O-11) quedan cerrados con evidencia ejecutad
 ### CI en GitHub, primera ejecución (2026-11-04, run 41876849186)
 - backend cientifico y consulta-publica: OK. Bruno: 44/44 requests, 77/77 tests, pero el job salía con código 2 porque Bruno CLI no crea `resultados/` → `mkdir -p resultados` en `ci.yml`.
 - web-publica: 2 E2E fallaban solo en WebKit por `style-src-attr` "inline" en `<select>` nativos: artefacto de WebKit (se reproduce con un `<select>` estático en HTML puro con `style-src 'self'`), no de la app. El fixture `erroresCsp` ahora usa el evento `securitypolicyviolation` e ignora solo esa combinación exacta; 3 tests de guarda demuestran que `<style>`, `style=` y `<select style=...>` siguen detectándose. WebKit verificado en Docker (`mcr.microsoft.com/playwright:v1.64.1-noble`): 18 pasan, 1 omitido previo. CSP sin cambios (sin `'unsafe-inline'`).
+
+## Iteración 16 (2026-11-04): verificación de 81f4e28..HEAD
+
+Commits revisados: ARQ-33 (81f4e28), SEC-J-04 web-interna (47b5cc9), SEC-J-13 (786f4e1), SEC-J-12 (57ab7ad), SEC-J-08.3 (1e449ac), ARQ-29 (25d2175), ARQ-28 (aeb67d8).
+
+### Bug encontrado y corregido
+
+**BUG-J4 (Medio, responsable: QA, solo tests): `mvn verify` a secas falla con un `.env` local del perfil Aiven.**
+- Pasos: con un `.env` que define `CIENTIFICO_MIGR_USER/PASSWORD` (o `CONSULTA_MIGR_*`) en la raíz o en el servicio, ejecutar `mvn -B verify` en `servicio-cientifico` o `servicio-consulta-publica`.
+- Esperado: las pruebas son herméticas y no dependen del entorno del desarrollador. Obtenido: `spring.config.import` carga el `.env`, Flyway usa `cientifico_migr` contra el MySQL de Testcontainers y falla con `Access denied for user 'cientifico_migr'` (científico: decenas de errores de contexto, p. ej. MigracionesUbicacionTest 6/6 y QaSeguridadJwtTest 30/30; consulta-publica: igual). En CI no se ve porque no hay `.env`.
+- Primer intento descartado: sobrescribir `spring.config.import` en un `application.properties` de pruebas no sirve, porque Spring procesa los imports de cada archivo de configuración aunque otro tenga precedencia.
+- Corrección: `src/test/resources/application.properties` en ambos servicios con `spring.flyway.user=${spring.datasource.username}` y `spring.flyway.password=${spring.datasource.password}`. Solo afecta al classpath de pruebas; producción intacta; no se leyó ni copió ningún valor de los `.env`.
+- Evidencia tras la corrección, con el `.env` real presente y sin variables sobrescritas: científico 264 ejecutadas, 0 fallos, 0 errores, 2 omitidas, BUILD SUCCESS; consulta-publica 194, 0, 0, 0 omitidas, BUILD SUCCESS.
+
+### Resultados
+
+| Proyecto | Comando | Resultado |
+|---|---|---|
+| servicio-cientifico | `mvn -B verify` | 264 / 0 fallos / 0 errores / 2 omitidas |
+| servicio-consulta-publica | `mvn -B verify` | 194 / 0 / 0 / 0 omitidas |
+| web-interna | `npm test` y `npm run build` | 46 de 46 (4 archivos); build OK |
+| web-publica | `npm test` y `npm run build` | 32 de 32 (3 archivos); build OK |
+
+Las 2 omitidas de científico son las pruebas opt-in contra el broker desplegado (requieren `QA_RMQ_*`).
+
+### Revisión de que las pruebas nuevas prueban lo que dicen
+
+- SEC-J-13: `HallazgoRegistradoSerializacionTest` comprueba JSON y `convertValue` sin claves ni valores de coordenadas, y que siguen en memoria. `PublicadorEventosTest` cubre claves (6 variantes, sin distinguir mayúsculas), anidadas (mapa, lista, mapa), texto (decimal, grados, "lat:/lon:"), que el mensaje no filtra el valor, que no se llama al broker, un caso sin coordenadas con números con coma que se publica (sin falso positivo) y que `prueba.*` no se revisa. Sin hueco relevante.
+- SEC-J-12: `ProveedorDeLlavesKeyStoreTest` cubre 600 aceptado y 644/640/604 rechazados sin revelar la ruta.
+- SEC-J-08.3: `AuditoriaLogbackTest` carga el `logback-spring.xml` real con Joran: archivo propio, solo esas líneas, anexado entre reinicios, nivel INFO fijo aunque la raíz sea ERROR.
+- ARQ-29: regla ArchUnit sobre bytecode (con `allowEmptyShould`, hoy `registro` solo tiene `package-info`, así que la regla es preventiva) más comprobación sobre el código fuente que sí atrapa un import. Aceptable.
+- ARQ-28: `layeredArchitecture` en ambos servicios más reglas explícitas; en consulta-publica la deuda `service.vista`/`CriterioBusquedaPublica` queda congelada y documentada. Nota: en ubicacion la capa Infrastructure solo se restringe con `mayNotBeAccessedByAnyLayer`, y el acceso Service→Infrastructure queda cubierto por `infrastructureNoDependeDeService` y el resto de reglas D43.
+- SEC-J-04: `PaginaMapa.test.jsx` verifica `maxZoom` 8 con un punto, 10 con varios (`padding` incluido) y `referrerPolicy="no-referrer"` en la capa de teselas.
+
+No añadí casos nuevos: no vi huecos relevantes. Observación (Bajo, no bloquea): las comprobaciones de keystore 600/644 dependen de POSIX; en un sistema de archivos sin POSIX la prueba de 644 no es significativa.
+
+### No ejecutado
+
+E2E contra servicios desplegados y k6 (D42, pospuesto por la usuaria): fuera del alcance de esta iteración.
+
+### Veredicto Iteración 16: APROBADO
+
+Los siete commits cumplen lo declarado y las pruebas nuevas son significativas. El único bug (BUG-J4, aislamiento de pruebas) estaba en los tests y quedó corregido; sin bugs abiertos de producción.
