@@ -37,7 +37,7 @@ FROM flyway_schema_history ORDER BY installed_rank;
 
 Esperado hoy: `1 base`, `20261026.1000 catalogo departamentos`, `20261026.1010 ficha publica`, todas con `success = 1`. Con el CLI de Flyway: `flyway info`.
 
-**Usuario de migración**: la aplicación usa `consulta_app` (solo DML); Flyway necesita DDL, así que define `CONSULTA_MIGR_USER` y `CONSULTA_MIGR_PASSWORD` (`consulta_migr`), que `application.yml` pasa a `spring.flyway.user/password`. Sin ellos Flyway usa el usuario de la aplicación y falla por falta de `CREATE`. Los usuarios se crean con `deploy/aiven/01-bases-y-usuarios.sql.example`.
+**Usuario de migración**: la aplicación usa `consulta_app` (solo DML); Flyway necesita DDL, así que define `CONSULTA_MIGR_USER` y `CONSULTA_MIGR_PASSWORD` (`consulta_migr`), que `application.yml` pasa a `spring.flyway.user/password`. Sin ellos Flyway usa el usuario de la aplicación y falla por falta de `CREATE`. Los usuarios se crean con `deploy/aiven/02-lectura-bases-y-usuarios.sql.example`.
 
 **Si la base ya tiene tablas (baseline)**
 

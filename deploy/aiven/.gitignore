@@ -1,4 +1,5 @@
-# Copia con contrasenas reales de la plantilla de aprovisionamiento: NUNCA al repositorio
-01-bases-y-usuarios.sql
+# Copias con contrasenas reales de las plantillas de aprovisionamiento: NUNCA al repositorio
+01-escritura-bases-y-usuarios.sql
+02-lectura-bases-y-usuarios.sql
 *.pem
 *.p12

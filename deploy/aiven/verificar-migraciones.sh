@@ -20,7 +20,7 @@ REGLAS = [  # (regex, mensaje)
     (r"\bCREATE\s+(?:DEFINER\s*=\s*\S+\s+)?EVENT\b", "EVENT: el planificador de eventos no se administra sin SUPER"),
     (r"\bDEFINER\s*=", "DEFINER=: el usuario de migracion no puede asignar otro definer"),
     (r"\bSET\s+(?:GLOBAL|PERSIST|PERSIST_ONLY)\b", "SET GLOBAL/PERSIST: requiere SUPER o SYSTEM_VARIABLES_ADMIN"),
-    (r"\bCREATE\s+(?:DATABASE|SCHEMA)\b", "CREATE DATABASE: las bases las crea 01-bases-y-usuarios.sql con avnadmin"),
+    (r"\bCREATE\s+(?:DATABASE|SCHEMA)\b", "CREATE DATABASE: las bases las crean 01-escritura-... y 02-lectura-bases-y-usuarios.sql con avnadmin"),
     (r"\b(?:CREATE|ALTER|DROP)\s+USER\b", "CREATE/ALTER/DROP USER: solo en el aprovisionamiento con avnadmin"),
     (r"\bGRANT\b|\bREVOKE\b", "GRANT/REVOKE: solo en el aprovisionamiento con avnadmin"),
     (r"\bLOAD\s+DATA\b|\bINTO\s+(?:OUTFILE|DUMPFILE)\b", "LOAD DATA / OUTFILE: requiere FILE, no disponible"),

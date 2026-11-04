@@ -520,7 +520,7 @@ Verificación automatizable (prueba de integración): ninguna tabla de los dos e
 
 ## 11. Permisos del usuario de aplicación
 
-Estado vigente (Aiven, perfil `aiven`): **hay usuarios de aplicación y de migración separados** (SEC-11), creados por `deploy/aiven/01-bases-y-usuarios.sql.example` (sección 16.3). En Docker local sigue el usuario único con `ALL` sobre su esquema (`deploy/datos/init/*.sh`), válido solo para desarrollo.
+Estado vigente (Aiven, perfil `aiven`): **hay usuarios de aplicación y de migración separados** (SEC-11), creados por `deploy/aiven/01-escritura-bases-y-usuarios.sql.example` (cientifico, equipos) y `02-lectura-bases-y-usuarios.sql.example` (consulta_publica, reportes, gateway) (sección 16.3; D39). En Docker local sigue el usuario único con `ALL` sobre su esquema (`deploy/datos/init/*.sh`), válido solo para desarrollo.
 
 | Usuario | Base | Privilegios | Lo usa |
 |---|---|---|---|
@@ -528,6 +528,9 @@ Estado vigente (Aiven, perfil `aiven`): **hay usuarios de aplicación y de migra
 | `cientifico_migr` | `cientifico` | DML + `CREATE, ALTER, DROP, INDEX, REFERENCES` | solo Flyway (`CIENTIFICO_MIGR_USER`) |
 | `consulta_app` | `consulta_publica` | `SELECT, INSERT, UPDATE, DELETE` | el servicio (`CONSULTA_DB_USER`) |
 | `consulta_migr` | `consulta_publica` | DML + DDL como arriba | solo Flyway (`CONSULTA_MIGR_USER`) |
+| `equipos_app` / `equipos_migr` | `equipos` | DML / DML + DDL | `EQUIPOS_DB_USER` / `EQUIPOS_MIGR_USER` |
+| `reportes_app` / `reportes_migr` | `reportes` | DML / DML + DDL | `REPORTES_DB_USER` / `REPORTES_MIGR_USER` |
+| `gateway_app` / `gateway_migr` | `gateway` | DML / DML + DDL | `GATEWAY_DB_USER` / `GATEWAY_MIGR_USER` |
 
 Ningún usuario tiene acceso a la base del otro servicio (aislamiento HU-06.1), ni `GRANT OPTION`, `FILE`, `PROCESS`, `SUPER`, `TRIGGER` ni rutinas. Los permisos son sobre la base completa, no por tabla: cubren las tablas que Hernando agregue a `cientifico` sin tocar el aprovisionamiento.
 
@@ -624,7 +627,7 @@ Estado: revisado el 2026-11-03 (Iteración 15). Aplica a `cientifico` (módulo u
 |---|---|---|
 | `sql_require_primary_key=ON` | Toda `CREATE TABLE` necesita PK, también `flyway_schema_history` | Cumple: las 5 tablas del proyecto tienen PK; Flyway 11.7.2 crea su tabla con `PRIMARY KEY (installed_rank)` (verificado) |
 | Sin privilegio `SUPER`; binlog activo | No se pueden crear triggers, funciones ni procedimientos (exigen `log_bin_trust_function_creators` = `SET GLOBAL`), ni usar `DEFINER=`, `SET GLOBAL`, `SET PERSIST` | Cumple: ninguna migración los usa |
-| `avnadmin` crea bases y usuarios | `CREATE DATABASE`, `CREATE USER`, `GRANT` no deben estar en migraciones | Cumple: están solo en `deploy/aiven/01-bases-y-usuarios.sql.example` |
+| `avnadmin` crea bases y usuarios | `CREATE DATABASE`, `CREATE USER`, `GRANT` no deben estar en migraciones | Cumple: están solo en `deploy/aiven/01-escritura-bases-y-usuarios.sql.example` y `02-lectura-bases-y-usuarios.sql.example` |
 | `sql_mode` estricto, posiblemente con `ANSI` (`ANSI_QUOTES`, `PIPES_AS_CONCAT`, `IGNORE_SPACE`) y `TRADITIONAL` | Texto solo con comilla simple; `||` no es OR; fechas inválidas rechazadas | Cumple (migraciones) y verificado también con la aplicación (16.4). Comprobar el valor real con `SELECT @@sql_mode` |
 | Charset por defecto del servidor | `flyway_schema_history` y toda tabla sin charset heredan el de la base | Cumple: cada `CREATE TABLE` declara `utf8mb4` / `utf8mb4_0900_ai_ci`; el script crea las bases con el mismo charset |
 | Zona horaria del servidor UTC | `DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3)` queda en UTC; Hibernate escribe con `jdbc.time_zone=UTC` | Cumple. Recomendación a devops en 16.5 para no depender del valor del servidor |
@@ -643,12 +646,17 @@ No hizo falta corregir nada. Criterio para el futuro: una migración que **nunca
 
 ### 16.3 Usuarios y aprovisionamiento
 
-`deploy/aiven/01-bases-y-usuarios.sql.example` se ejecuta **una vez** con `avnadmin` (instrucciones y reemplazo de los marcadores `CAMBIAR_...` en el propio archivo; la copia con claves queda ignorada por git). Es idempotente (repetirlo rota contraseñas y recalcula permisos) y no contiene `DROP` ni `TRUNCATE`. Crea:
+Hay **dos servicios de Aiven** (D39) y un script por servicio, cada uno se ejecuta **una vez** con el `avnadmin` de SU servicio (instrucciones y reemplazo de los marcadores `CAMBIAR_...` en el propio archivo; la copia con claves queda ignorada por git). Son idempotentes (repetirlos rota contraseñas y recalcula permisos) y no contienen `DROP` ni `TRUNCATE`:
 
-- Bases `cientifico` y `consulta_publica` con `utf8mb4` / `utf8mb4_0900_ai_ci`.
-- Cuatro usuarios `'...'@'%' ... REQUIRE SSL` (Aiven no ofrece IP fija; el control de red es la lista *Allowed IP addresses* del servicio): `cientifico_app` / `consulta_app` (DML) y `cientifico_migr` / `consulta_migr` (DML + `CREATE, ALTER, DROP, INDEX, REFERENCES`). Detalle y variables de entorno en la sección 11.
+| Script | Servicio de Aiven | Bases | Usuarios (todos `REQUIRE SSL`, sin `GRANT OPTION`) |
+|---|---|---|---|
+| `deploy/aiven/01-escritura-bases-y-usuarios.sql.example` | escritura | `cientifico`, `equipos` | `cientifico_app`, `cientifico_migr`, `equipos_app`, `equipos_migr` |
+| `deploy/aiven/02-lectura-bases-y-usuarios.sql.example` | lectura | `consulta_publica`, `reportes`, `gateway` | `consulta_app`, `consulta_migr`, `reportes_app`, `reportes_migr`, `gateway_app`, `gateway_migr` |
 
-Para que Flyway use el usuario `*_migr`, el `.env` de cada servicio define `CIENTIFICO_MIGR_USER/PASSWORD` y `CONSULTA_MIGR_USER/PASSWORD` (el `application.yml` ya los lee con respaldo al usuario de aplicación; sin ellos las migraciones fallan por falta de `CREATE`).
+- Bases con `utf8mb4` / `utf8mb4_0900_ai_ci`.
+- Usuarios `'...'@'%' ... REQUIRE SSL` (Aiven no ofrece IP fija; el control de red es la lista *Allowed IP addresses* del servicio): `*_app` (DML) y `*_migr` (DML + `CREATE, ALTER, DROP, INDEX, REFERENCES`), cada uno solo sobre su base. Detalle y variables de entorno en la sección 11.
+
+Para que Flyway use el usuario `*_migr`, el `.env` de cada servicio define `<SERVICIO>_MIGR_USER/PASSWORD` (`CIENTIFICO`, `EQUIPOS`, `CONSULTA`, `REPORTES`, `GATEWAY`; el `application.yml` ya los lee con respaldo al usuario de aplicación; sin ellos las migraciones fallan por falta de `CREATE`).
 
 ### 16.4 Cómo se verificó (reproducible)
 
@@ -668,6 +676,6 @@ Con eso la sesión queda en UTC y los `DEFAULT CURRENT_TIMESTAMP(3)` de la base 
 
 ### 16.6 Datos sensibles en Aiven
 
-- Contraseñas de `avnadmin` y de los cuatro usuarios: solo en el `.env` de cada servicio (ignorado por git) o en un gestor de secretos; nunca en el repo ni en la copia del script (`deploy/aiven/.gitignore`). Se generan con `openssl rand -hex 24`.
+- Contraseñas de `avnadmin` y de los usuarios `*_app`/`*_migr`: solo en el `.env` de cada servicio (ignorado por git) o en un gestor de secretos; nunca en el repo ni en la copia del script (`deploy/aiven/.gitignore`). Se generan con `openssl rand -hex 24`.
 - Aiven cifra el disco y los respaldos del servicio en reposo; las coordenadas siguen protegidas además con AES-256-GCM en la aplicación (sección 10), así que un respaldo o una lectura directa de la tabla no las revela. Las llaves `UBICACION_CLAVES` **no** se guardan en Aiven.
 - `avnadmin` no se usa en las aplicaciones.

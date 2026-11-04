@@ -50,7 +50,7 @@ FROM flyway_schema_history ORDER BY installed_rank;
 
 Esperado hoy: `1 base`, `20261026.1000 ubicacion catalogo departamentos`, `20261026.1010 ubicacion hallazgo` (más las de registro cuando existan), todas con `success = 1`. Aplica a Docker local y a Aiven por igual. Con el CLI de Flyway: `flyway info`.
 
-**Usuario de migración**: en Aiven el servicio se conecta como `cientifico_app` (solo DML). Las migraciones necesitan DDL, así que define `CIENTIFICO_MIGR_USER` y `CIENTIFICO_MIGR_PASSWORD` (`cientifico_migr`); `application.yml` los pasa a `spring.flyway.user/password`. Sin ellos Flyway usa el usuario de la aplicación y fallará por falta de `CREATE`. Los usuarios se crean con `deploy/aiven/01-bases-y-usuarios.sql.example`.
+**Usuario de migración**: en Aiven el servicio se conecta como `cientifico_app` (solo DML). Las migraciones necesitan DDL, así que define `CIENTIFICO_MIGR_USER` y `CIENTIFICO_MIGR_PASSWORD` (`cientifico_migr`); `application.yml` los pasa a `spring.flyway.user/password`. Sin ellos Flyway usa el usuario de la aplicación y fallará por falta de `CREATE`. Los usuarios se crean con `deploy/aiven/01-escritura-bases-y-usuarios.sql.example`.
 
 **Si la base ya tiene tablas (baseline)**
 
