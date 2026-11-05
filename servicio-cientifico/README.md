@@ -117,3 +117,56 @@ Pasar de `entorno` a `keystore` con datos ya cifrados: el keystore debe contener
 | Observer | `ObservadorUbicacion` (`@EventListener` síncrono, misma transacción) escucha `HallazgoRegistrado` y `HallazgoReclasificado` de `cientifico.eventos.domain` y llama a `UbicacionService` (`MANDATORY`) |
 
 Para registro: en lugar de llamar a `UbicacionService`, publica el evento con `ApplicationEventPublisher.publishEvent(new HallazgoRegistrado(...))` dentro de su transacción (ver el javadoc de los eventos).
+
+## Módulo `registro` (Hernando): hallazgos, fichas e historial
+
+Cubre HU-01 (registro de hallazgos), HU-02 (fichas con atributos flexibles), HU-03 (reclasificación) y
+HU-05 (auditoría histórica). Los endpoints y sus reglas están en
+[docs/equipo/04-contrato-api.md](../docs/equipo/04-contrato-api.md), sección 10.
+
+### Tablas
+
+| Tabla | Para qué |
+|---|---|
+| `hallazgo` | estado actual; `id` es `BINARY(16)` y `version` crece con cada cambio |
+| `hallazgo_version` | historial inmutable: un snapshot por versión, con justificación y autor |
+| `hallazgo_auditoria` | cambios campo a campo: valor previo, valor nuevo, justificación, autor y fecha |
+| `ficha_plantilla` | atributos configurables por especie; cada cambio es una versión nueva |
+| `hallazgo_evidencia` | metadatos de fotografías y audios (el archivo vive en el volumen) |
+
+Ninguna guarda coordenadas: viven solo cifradas en `ubicacion_hallazgo`. Hay una prueba de esquema
+(`MigracionesRegistroTest`) que lo verifica contra MySQL.
+
+### Patrones del SAD en `registro`
+
+| Patrón | Clases |
+|---|---|
+| Builder (§6.2.1) | `VersionHallazgo.Builder`: la única forma de crear una versión; `build()` exige el snapshot, el autor y, desde la versión 2, la justificación científica |
+| Observer (§6.4.2) | `HallazgoService` publica `HallazgoRegistrado`/`HallazgoReclasificado` con `ApplicationEventPublisher` dentro de su transacción; los escucha `ObservadorUbicacion` |
+
+### Cómo colabora con `ubicacion`
+
+`HallazgoService` inserta el hallazgo, luego publica el evento de dominio y ubicación cifra las
+coordenadas **en la misma transacción**. Si ubicación rechaza algo, la excepción revierte el registro
+completo y el controlador responde `400` con el campo que falló. Registro no importa ninguna clase
+interna de ubicación: solo `EstadoConservacion` y sus excepciones públicas, que es lo que el contrato
+permite (lo verifica `ModuloRegistroNoDependeDeUbicacionInternaTest`).
+
+### Inmutabilidad del historial (ASR7)
+
+Tres barreras: el código no expone operaciones de modificación, los triggers de
+`V20261104_1010__registro_historial_inmutable.sql` rechazan `UPDATE` y `DELETE`, y el usuario de
+aplicación solo debería tener `INSERT` y `SELECT` sobre esas tablas.
+
+> Crear triggers exige el privilegio `TRIGGER` del usuario de migración. **Falta verificar que Aiven lo
+> permita**; si no, se omite esa migración y la inmutabilidad queda en los `GRANT`.
+
+### Pruebas
+
+```bash
+# Unitarias (no necesitan Docker)
+mvn test -pl servicio-cientifico -Dtest='*Registro*,HallazgoServiceTest,FichaPlantillaServiceTest,HistorialServiceTest,VersionHallazgoBuilderTest,CategoriaUicnTest,ValidadorTextoPublicoTest'
+
+# De integración con MySQL real (requieren Docker en marcha)
+mvn test -pl servicio-cientifico -Dtest='MigracionesRegistroTest,RegistroConUbicacionTest'
+```
