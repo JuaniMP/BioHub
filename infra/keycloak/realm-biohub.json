@@ -9,7 +9,7 @@
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
   "bruteForceProtected": true,
-  "failureFactor": 5,
+  "failureFactor": 3,
   "permanentLockout": false,
   "maxFailureWaitSeconds": 900,
   "waitIncrementSeconds": 60,
@@ -119,6 +119,19 @@
       ]
     },
     {
+      "clientId": "biohub-gateway",
+      "name": "BioHub - cuenta de servicio del API Gateway",
+      "description": "Administra usuarios y roles (HU-10). Solo client credentials; no sirve para iniciar sesion.",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${KEYCLOAK_GATEWAY_CLIENT_SECRET}",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
+    },
+    {
       "clientId": "admin-cli",
       "name": "${client_admin-cli}",
       "enabled": true,
@@ -221,6 +234,34 @@
       "realmRoles": [
         "administrador"
       ]
+    },
+    {
+      "username": "sinrol1",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Sin",
+      "lastName": "Rol",
+      "email": "sinrol1@biohub.test",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_TEST_USERS_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "service-account-biohub-gateway",
+      "enabled": true,
+      "serviceAccountClientId": "biohub-gateway",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users",
+          "view-realm"
+        ]
+      }
     }
   ],
   "eventsEnabled": true,
