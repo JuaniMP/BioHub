@@ -154,6 +154,67 @@ class ProxyServiceTest {
     }
 
     @Test
+    void laApiExternaTraduceLaUrlPublicaALaInterna() {
+        servidor.expect(requestTo("http://publica:8083/api/publica/fichas?q=rana&page=0"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(headerDoesNotExist("X-API-Key"))
+                .andExpect(headerDoesNotExist("Authorization"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/externa/fichas");
+        req.setQueryString("q=rana&page=0");
+        req.addHeader("X-API-Key", "secreta");
+        req.addHeader("Authorization", "Bearer ajeno");
+
+        assertThat(proxy.reenviarApiExterna(req).getStatusCode()).isEqualTo(HttpStatus.OK);
+        servidor.verify();
+    }
+
+    @Test
+    void laApiExternaConservaElIdentificadorDeLaFicha() {
+        servidor.expect(requestTo("http://publica:8083/api/publica/fichas/abc"))
+                .andRespond(withSuccess());
+
+        proxy.reenviarApiExterna(new MockHttpServletRequest("GET", "/api/v1/externa/fichas/abc"));
+        servidor.verify();
+    }
+
+    @Test
+    void laRespuestaExternaNoQuedaEnCachesCompartidas() {
+        servidor.expect(requestTo("http://publica:8083/api/publica/fichas"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON).header("Cache-Control", "public, max-age=30"));
+
+        ResponseEntity<byte[]> respuesta = proxy.reenviarApiExterna(
+                new MockHttpServletRequest("GET", "/api/v1/externa/fichas"));
+
+        assertThat(respuesta.getHeaders().getCacheControl()).contains("private").doesNotContain("public");
+    }
+
+    @Test
+    void laApiExternaPropagaLosErroresDelServicio() {
+        servidor.expect(requestTo("http://publica:8083/api/publica/fichas/x"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertThat(proxy.reenviarApiExterna(new MockHttpServletRequest("GET", "/api/v1/externa/fichas/x"))
+                .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void laApiExternaSoloAtiendeFichas() {
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/externa/eventos/recibidos");
+
+        assertThatThrownBy(() -> proxy.reenviarApiExterna(req)).isInstanceOf(IllegalArgumentException.class);
+        servidor.verify();
+    }
+
+    @Test
+    void laApiExternaRechazaRutasNoNormalizadas() {
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/externa/fichas/%2e%2e/eventos");
+
+        assertThatThrownBy(() -> proxy.reenviarApiExterna(req)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void queryMalCodificadaLanzaIllegalArgument() {
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/cientifico/ping");
         req.setQueryString("a=%zz");

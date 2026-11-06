@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.net.URI;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -11,6 +12,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +21,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import co.edu.unbosque.biohub.gateway.config.GatewayProperties;
+import co.edu.unbosque.biohub.gateway.config.RutasGateway;
 import jakarta.servlet.http.HttpServletRequest;
 
 /** Reenvía la petición al servicio correspondiente según el prefijo /api/&lt;prefijo&gt;/... */
@@ -48,6 +51,10 @@ public class ProxyService {
             "/../", "/./", "//", "%2e", "%2f", "%5c", "\\", ";", "%00", "%25");
 
     private static final Set<String> METODOS_SIN_CUERPO = Set.of("GET", "HEAD", "OPTIONS", "DELETE", "TRACE");
+
+    /** Servicio que atiende la API externa. */
+    private static final String PREFIJO_PUBLICO = "publica";
+    private static final Duration VIDA_CACHE_EXTERNA = Duration.ofSeconds(30);
 
     private final RestClient restClient;
     private final Map<String, String> rutas;
@@ -86,7 +93,39 @@ public class ProxyService {
         if (destino.isEmpty()) {
             throw new RutaNoEncontradaException();
         }
-        URI uri = UriComponentsBuilder.fromUriString(destino.get())
+        return reenviarA(destino.get(), ruta, request, true);
+    }
+
+    /**
+     * Reenvía la API externa a consulta-publica traduciendo la URL pública a la interna:
+     * {@code /api/v1/externa/fichas/x} → {@code /api/publica/fichas/x}. Esa traducción es lo que permite
+     * cambiar lo interno sin que el consumidor lo note (ASR9). El consumidor nunca envía JWT, y la respuesta
+     * no puede quedar en cachés compartidas: una copia ahí seguiría sirviendo a una key ya revocada.
+     */
+    public ResponseEntity<byte[]> reenviarApiExterna(HttpServletRequest request) {
+        String ruta = request.getRequestURI();
+        String prefijo = RutasGateway.PREFIJO_API_EXTERNA + RutasGateway.RECURSO_FICHAS;
+        if (!rutaNormalizada(ruta) || !ruta.startsWith(prefijo)) {
+            throw new IllegalArgumentException("Ruta no normalizada");
+        }
+        String destino = rutas.get(PREFIJO_PUBLICO);
+        if (destino == null) {
+            throw new RutaNoEncontradaException();
+        }
+        String rutaInterna = "/api/" + PREFIJO_PUBLICO + RutasGateway.RECURSO_FICHAS + ruta.substring(prefijo.length());
+        ResponseEntity<byte[]> respuesta = reenviarA(destino, rutaInterna, request, false);
+        if (!respuesta.getStatusCode().is2xxSuccessful()) {
+            return respuesta;
+        }
+        return ResponseEntity.status(respuesta.getStatusCode())
+                .headers(respuesta.getHeaders())
+                .cacheControl(CacheControl.maxAge(VIDA_CACHE_EXTERNA).cachePrivate())
+                .body(respuesta.getBody());
+    }
+
+    private ResponseEntity<byte[]> reenviarA(String destino, String ruta, HttpServletRequest request,
+                                             boolean conAuthorization) {
+        URI uri = UriComponentsBuilder.fromUriString(destino)
                 .path(ruta)
                 .query(request.getQueryString())
                 .build(true)
@@ -96,7 +135,7 @@ public class ProxyService {
         RestClient.RequestBodySpec peticion = restClient
                 .method(HttpMethod.valueOf(metodo))
                 .uri(uri)
-                .headers(h -> copiarCabeceras(request, h));
+                .headers(h -> copiarCabeceras(request, h, conAuthorization));
         if (!METODOS_SIN_CUERPO.contains(metodo)) {
             byte[] cuerpo = leerCuerpoAcotado(request);
             if (cuerpo.length > 0) {
@@ -143,9 +182,9 @@ public class ProxyService {
         return CABECERAS_EXCLUIDAS.contains(n) || PREFIJOS_EXCLUIDOS.stream().anyMatch(n::startsWith);
     }
 
-    private void copiarCabeceras(HttpServletRequest request, HttpHeaders destino) {
+    private void copiarCabeceras(HttpServletRequest request, HttpHeaders destino, boolean conAuthorization) {
         for (String nombre : Collections.list(request.getHeaderNames())) {
-            if (!excluida(nombre)) {
+            if (!excluida(nombre) && (conAuthorization || !HttpHeaders.AUTHORIZATION.equalsIgnoreCase(nombre))) {
                 destino.addAll(nombre, Collections.list(request.getHeaders(nombre)));
             }
         }
