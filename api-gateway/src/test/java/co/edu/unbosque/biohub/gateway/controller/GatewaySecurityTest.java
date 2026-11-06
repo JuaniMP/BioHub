@@ -1,6 +1,7 @@
 package co.edu.unbosque.biohub.gateway.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
@@ -11,35 +12,31 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import co.edu.unbosque.biohub.gateway.config.GatewayProperties;
-import co.edu.unbosque.biohub.gateway.config.SecurityConfig;
-import co.edu.unbosque.biohub.gateway.infrastructure.filtro.ApiKeyRateLimitFilter;
+import co.edu.unbosque.biohub.gateway.domain.LimitadorPeticiones;
+import co.edu.unbosque.biohub.gateway.domain.RegistroRevocaciones;
+import co.edu.unbosque.biohub.gateway.domain.ResultadoLimite;
 import co.edu.unbosque.biohub.gateway.service.ProxyService;
+import co.edu.unbosque.biohub.gateway.service.ServicioApiKeys;
+import co.edu.unbosque.biohub.gateway.soporte.SeguridadGatewayEnPrueba;
 import jakarta.servlet.http.HttpServletRequest;
 
 @WebMvcTest({ProxyController.class, PingController.class})
-@Import({SecurityConfig.class, ApiKeyRateLimitFilter.class})
-@EnableConfigurationProperties(GatewayProperties.class)
-@TestPropertySource(properties = {
-        "biohub.gateway.rutas-publicas=publica",
-        "biohub.gateway.origenes-permitidos=http://localhost:5173"
-})
+@SeguridadGatewayEnPrueba
 class GatewaySecurityTest {
 
     @Autowired
@@ -50,6 +47,21 @@ class GatewaySecurityTest {
 
     @MockitoBean
     private JwtDecoder jwtDecoder;
+
+    @MockitoBean
+    private ServicioApiKeys apiKeys;
+
+    @MockitoBean
+    private LimitadorPeticiones limitador;
+
+    @MockitoBean
+    private RegistroRevocaciones revocaciones;
+
+    @BeforeEach
+    void limitadorPermite() {
+        given(limitador.consumir(anyString(), anyInt(), any()))
+                .willReturn(new ResultadoLimite(true, 120, 119, Duration.ofSeconds(60)));
+    }
 
     private void tokenValidoPara(String usuario, String... roles) {
         given(jwtDecoder.decode(anyString())).willReturn(Jwt.withTokenValue("t")
@@ -108,5 +120,14 @@ class GatewaySecurityTest {
                         .header("Origin", "http://malicioso.com")
                         .header("Access-Control-Request-Method", "GET"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void corsExponeRetryAfterALaWeb() throws Exception {
+        given(proxyService.reenviar(any(HttpServletRequest.class))).willReturn(ResponseEntity.ok("ok".getBytes()));
+
+        mvc.perform(get("/api/publica/ping").header("Origin", "http://localhost:5173"))
+                .andExpect(header().string("Access-Control-Expose-Headers",
+                        org.hamcrest.Matchers.containsString("Retry-After")));
     }
 }
