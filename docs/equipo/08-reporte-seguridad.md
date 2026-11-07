@@ -1126,3 +1126,14 @@ Sección retirada en la iteración 15 (VPN de malla eliminada; ver 09-despliegue
 - **SEC-J-10** queda **parcial**, con un riesgo residual que baja de Medio a **Bajo** (SEC-J-15 y SEC-J-16).
 - D44 es aceptable con esta condición: **SEC-J-15 y SEC-J-16 deben estar corregidos antes de que registro (Hernando) integre código en servicio-cientifico**. Si entra código de registro sin esas reglas, SEC-J-10 vuelve a **Medio**.
 - **SEC-J-13** pasa a ser **condición previa a publicar `hallazgo.*` reales**, porque con el `user_id` correcto el publicador ya no actúa como filtro.
+
+# Seguimiento de la parte de Santiago (2026-11-05)
+
+| ID | Estado | Verificación |
+|---|---|---|
+| SEC-02 | **Corregido en el gateway.** `denyAll` por defecto y roles por prefijo. Falta `denyAll` en los 4 servicios (lista en `11-seguridad-y-acceso.md`) | `MatrizAccesoGatewayTest` |
+| SEC-04, SEC-D-03 | **Infraestructura lista.** Permisos mínimos por usuario. Corrige SEC-D-03: los consumidores necesitan `write` sobre `biohub.eventos.dlx` para declarar su cola. Falta que cada servicio migre su `.env` | Corrida completa con `cientifico_mq` y `consulta_mq`; un consumidor recibe `ACCESS_REFUSED` al publicar en `biohub.eventos` |
+| SEC-05 | **Corregido.** Fallar cerrado con `ROLE_API_CLIENT` y mismos `RequestMatcher` en el filtro y en SecurityConfig. La rama de portal queda por IP (D16) | `ApiKeyRateLimitFilterTest` |
+| SEC-J-05 | **Corregido.** Rate limit por IP y `maxmemory` en Redis | `GatewayIntegracionTest` |
+| SEC-J-09 | **Corregido en parte.** Revocación de rol inmediata (D49). MFA sigue fuera del alcance del SRS | `GatewayIntegracionTest` |
+| ARQ-03, ARQ-21 | **Corregidos.** API Keys, límites y bloqueo a los 3 intentos | `KeycloakAdminAdapterIntegracionTest` |

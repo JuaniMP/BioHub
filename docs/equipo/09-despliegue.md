@@ -257,7 +257,7 @@ El job `bruno` sube el artefacto `bruno-resultados` (JUnit XML, informe HTML sin
 - `bruno.json`, `collection.bru`, `environments/ci.bru`, `environments/local.bru` (sin secretos: `passwordUsuarios` y `rabbitPassword` son `vars:secret` y se pasan con `--env-var`).
 - Carpetas, en este orden: `auth` (token de Keycloak por password grant con el cliente `biohub-pruebas` y los usuarios `cientifico1`, `investigador1`, `admin1`), `setup` (publica eventos `hallazgo.*` en el exchange `biohub.eventos` con la API HTTP de management de RabbitMQ, porque el publicador de registro aún no existe), `consulta-publica` (18 requests) y `ubicacion` (17 requests). Cada `.bru` lleva en `docs` el ID del requisito.
 - Los datos de `servicio-cientifico` (no hay otro punto de entrada que el módulo registro) se siembran con `infra/ci/SembrarHallazgos.java`, que cifra las coordenadas igual que el servicio. Es solo para CI/pruebas: no es una migración ni va en los jars.
-- Las peticiones van directo a los servicios (8081 y 8083), no por el gateway.
+- Las peticiones van directo a los servicios (8081 y 8083), no por el gateway, salvo la carpeta `gateway`, que entra por el 8080.
 
 Ejecutarla en local (con `docker compose up -d` y los dos servicios arriba; usa una base descartable, no la de desarrollo):
 
@@ -281,6 +281,7 @@ Los eventos de la carpeta `setup` quedan también en `reportes.eventos` y uno ma
 | `CI_RABBIT_PASSWORD` | ficticio | usuario `biohub_ci` de RabbitMQ y `rabbitPassword` de Bruno |
 | `CI_MYSQL_ROOT_PASSWORD`, `CI_KEYCLOAK_ADMIN_PASSWORD` | ficticios | root de MySQL y admin de Keycloak del job |
 | `CI_UBICACION_CLAVE` | clave AES-256 ficticia | `UBICACION_CLAVES` (`v1`) y la siembra |
+| `CI_KEYCLOAK_GATEWAY_SECRET` | ficticio | Secreto del cliente `biohub-gateway` en el realm y en el gateway |
 
 Los usuarios de MySQL (`cientifico_ci`, `consulta_ci`) y sus contraseñas ficticias están en `infra/ci/init-mysql.sql`. Si algún día el job debe usar un secreto real (por ejemplo un registry privado), definirlo en Settings > Secrets and variables > Actions y leerlo con `secrets.*`; nunca en el repo.
 
@@ -293,3 +294,19 @@ Los usuarios de MySQL (`cientifico_ci`, `consulta_ci`) y sus contraseñas fictic
 - La llave `UBICACION_CLAVES` usada contra Aiven debe ser la misma para todos los que usen la base `cientifico` y no puede perderse (sin ella las coordenadas cifradas son irrecuperables).
 - Servicio de lectura creado en otro proyecto de Aiven, distinto al de escritura (el plan Free admite un solo MySQL por proyecto u organización). `02-lectura-bases-y-usuarios.sql` ejecutado dos veces; `reportes_app` no ve `consulta_publica` (ERROR 1044). `servicio-consulta-publica` con perfil `aiven`: Flyway aplicó 3 migraciones, `GET /api/publica/fichas` responde 200.
 - Cada servicio de Aiven tiene **su propio CA** (`ca.pem` distinto por proyecto): los servicios que van al de escritura usan un truststore hecho con el CA de escritura y los de lectura con el de lectura.
+
+## 11. Gateway: API Keys, límites y usuarios
+
+Guía para el equipo: `11-seguridad-y-acceso.md`.
+
+| Variable | Dónde | Para qué |
+|---|---|---|
+| `KEYCLOAK_GATEWAY_CLIENT_SECRET` | `.env` raíz | Obligatoria en Compose. Sin ella en el gateway, `/api/gateway/usuarios` responde 503 y lo demás funciona |
+| `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` | `.env` raíz | Contadores y caché. Sin Redis el gateway sigue en modo respaldo |
+| `GATEWAY_LIMITE_CONSUMIDOR_POR_MINUTO`, `GATEWAY_LIMITE_IP_PORTAL_POR_MINUTO`, `GATEWAY_LIMITE_FALLOS_KEY_POR_MINUTO` | Opcionales | Por defecto 60, 120 y 20 |
+| `REDIS_MAXMEMORY` | Opcional, solo Compose | Por defecto `256mb` |
+| `RABBITMQ_CIENTIFICO_PASSWORD`, `RABBITMQ_CONSULTA_PASSWORD`, `RABBITMQ_REPORTES_PASSWORD` | Opcionales, `.env` raíz | Crean los usuarios por servicio (SEC-04) |
+
+- **Cambios del realm:** `failureFactor` 3, cliente `biohub-gateway` y usuario de prueba `sinrol1`. Hay que reimportar el realm.
+- **Migración del gateway en Aiven:** la aplica `gateway_migr` al arrancar con el perfil `aiven`. Una vez aplicada no se edita.
+- **Detrás de un proxy:** `getRemoteAddr()` devolverá la IP del proxy y todos los visitantes compartirían cupo. Antes de poner NGINX delante, hay que configurar `server.forward-headers-strategy` con ese proxy como única fuente de confianza.

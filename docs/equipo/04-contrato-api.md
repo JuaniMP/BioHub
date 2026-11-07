@@ -8,10 +8,11 @@ Base: `http://localhost:8080` (API Gateway). Autenticación: `Authorization: Bea
 | `/api/gateway/**` | el propio gateway | Sí |
 | `/api/cientifico/**` | servicio-cientifico (8081) | Sí |
 | `/api/equipos/**` | servicio-equipos (8082) | Sí |
-| `/api/publica/**` | servicio-consulta-publica (8083) | No (solo GET). Futuro: `X-API-Key` |
+| `/api/publica/**` | servicio-consulta-publica (8083) | No (solo GET). Límite por IP |
 | `/api/reportes/**` | servicio-reportes (8084) | Sí |
+| `/api/v1/externa/fichas/**` | servicio-consulta-publica, reescrita a `/api/publica/fichas/**` | No: exige `X-API-Key` (solo GET) |
 
-La ruta se reenvía completa (`/api/cientifico/x` → `http://localhost:8081/api/cientifico/x`).
+La ruta se reenvía completa (`/api/cientifico/x` → `http://localhost:8081/api/cientifico/x`), salvo la API externa. Roles por capacidad: `11-seguridad-y-acceso.md` §2.
 
 ## GET /api/{gateway|cientifico|equipos|publica|reportes}/ping
 Prueba de punta a punta.
@@ -130,7 +131,8 @@ Fecha: 2026-10-26. Diseño: `03-arquitectura.md` (D14–D31, sección "Parte de 
 | `ROL_INSUFICIENTE` | 403 | cientifico | JWT válido sin el rol requerido. Sin datos en el cuerpo |
 | `NO_ENCONTRADO` | 404 | servicio | El recurso no existe |
 | `CONFLICTO` | 409 | cientifico | Ya hay un re-cifrado en curso |
-| `LIMITE_EXCEDIDO` | 429 | **gateway (Santiago)** | Rate limit por IP superado. Lleva la cabecera `Retry-After: <segundos>` |
+| `LIMITE_EXCEDIDO` | 429 | **gateway (Santiago)** | Límite por IP, por consumidor o de keys inválidas superado. Lleva la cabecera `Retry-After: <segundos>` |
+| `API_KEY_INVALIDA` | 401 | **gateway (Santiago)** | API Key ausente, desconocida, revocada o vencida. Lleva `WWW-Authenticate: ApiKey` y `Cache-Control: no-store`. El mensaje es el mismo en todos los casos |
 | `SERVICIO_NO_DISPONIBLE` | 503 | servicio | BD no disponible (consulta-publica: mysql-lectura caída y dato fuera de caché) |
 | `ERROR_INTERNO` | 500 | servicio | Error no previsto (sin detalles) |
 | – | 502 | gateway | Servicio destino caído (ya existe) |
@@ -624,8 +626,55 @@ Nicolás (reportes) recibe los mismos eventos por su cola `reportes.eventos` y p
 ## 8. Rutas del gateway para la parte de Juanita (las implementa o confirma Santiago)
 | Ruta | Destino | JWT | Acción |
 |---|---|---|---|
-| `GET /api/publica/fichas`, `GET /api/publica/fichas/{id}` | consulta-publica (8083) | No | **Confirmar** (ya cubiertas por `/api/publica/**` en `rutas-publicas`). Sin API Key (D16). **Añadir** rate limit por IP (propuesta 120/min) con 429 `LIMITE_EXCEDIDO` + `Retry-After` |
-| `GET /api/cientifico/ubicacion/hallazgos`, `GET /api/cientifico/ubicacion/mapa`, `POST /api/cientifico/ubicacion/recifrado` | cientifico (8081) | Sí | **Confirmar** (ya cubiertas por `/api/cientifico/**`). El rol lo valida el servicio |
-| `/api/v1/externa/fichas/**` (API externa, D16) | consulta-publica, **reescribiendo** a `/api/publica/fichas/**` | No (API Key) | **Añadir** si se crea: el proxy actual reenvía la ruta completa y no hay servicio para el prefijo `v1` |
-| CORS | – | – | **Añadir** el origen de web-publica en Vercel cuando exista; `Access-Control-Expose-Headers: Retry-After` |
-| Cabeceras de respuesta | – | – | **Confirmar** que `Cache-Control` sigue pasando sin filtrar |
+| `GET /api/publica/fichas`, `GET /api/publica/fichas/{id}` | consulta-publica (8083) | No | **Hecho.** Sin API Key (D16), 120 por minuto por IP, 429 `LIMITE_EXCEDIDO` + `Retry-After` |
+| `GET /api/cientifico/ubicacion/hallazgos`, `GET /api/cientifico/ubicacion/mapa`, `POST /api/cientifico/ubicacion/recifrado` | cientifico (8081) | Sí | **Hecho.** El gateway exige uno de los 5 roles; el rol de cada endpoint lo valida el servicio |
+| `/api/v1/externa/fichas/**` (API externa, D16) | consulta-publica, **reescribiendo** a `/api/publica/fichas/**` | No (API Key) | **Hecho.** Ver §9 |
+| CORS | – | – | `Access-Control-Expose-Headers: Retry-After` **hecho**. **Falta** el origen de web-publica en Vercel cuando exista |
+| Cabeceras de respuesta | – | – | **Hecho.** `Cache-Control` pasa sin filtrar, salvo en la API externa, donde `public` pasa a `private` (D47) |
+
+## 9. API externa (HU-08, RF14, RNF11, RNF12)
+
+Para universidades y ONG. Estas URL no cambian aunque los servicios internos cambien de lugar (ASR9).
+
+| Ruta en el gateway | Respuesta |
+|---|---|
+| `GET /api/v1/externa/fichas` | Igual que §4.1, con los mismos parámetros |
+| `GET /api/v1/externa/fichas/{id}` | Igual que §4.2 |
+
+- **Autenticación:** cabecera `X-API-Key: bh_pub_xxxxxxxx_...`. Nunca en la URL.
+- **Límite:** 60 peticiones por minuto por consumidor, salvo que tenga uno propio. Dos keys del mismo consumidor comparten el cupo. La ventana es de 60 segundos desde la primera petición.
+- **Cabeceras de éxito:** `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Cache-Control: private, max-age=30`.
+- **401:** `API_KEY_INVALIDA`. **429:** `LIMITE_EXCEDIDO` + `Retry-After`. Tras 20 keys inválidas en un minuto, la IP también recibe 429. **503:** `SERVICIO_NO_DISPONIBLE` si no se puede validar la key.
+
+## 10. Administración de consumidores y API Keys (HU-12, RNF11)
+
+Requieren JWT con rol `administrador`. Sin token: 401. Otro rol: 403 `ROL_INSUFICIENTE`. Errores: 400 `PARAMETRO_INVALIDO` (con `errores[]`), 404 `NO_ENCONTRADO`, 409 `CONFLICTO`.
+
+| Método y ruta | Cuerpo | Respuesta |
+|---|---|---|
+| `POST /api/gateway/consumidores` | `{ nombre, contactoEmail, limitePorMinuto? }` | 201 + consumidor. 409 si el nombre existe |
+| `GET /api/gateway/consumidores?page&size` | – | 200 + página. `size` entre 1 y 100 |
+| `GET /api/gateway/consumidores/{id}` | – | 200 + consumidor |
+| `PUT /api/gateway/consumidores/{id}/limite` | `{ limitePorMinuto }` entre 1 y 100.000; `null` vuelve al valor por defecto | 200 + consumidor. Se aplica de inmediato |
+| `POST /api/gateway/consumidores/{id}/keys` | `{ expiraEn? }` opcional, ISO-8601 futura | 201 + `{ id, apiKey, prefijo, expiraEn, creadaEn }`, con `no-store`. **`apiKey` solo se muestra aquí** |
+| `GET /api/gateway/consumidores/{id}/keys` | – | 200 + `[{ id, prefijo, estado, expiraEn, ultimoUsoEn, creadaEn, revocadaEn }]`. Nunca la key ni su hash |
+| `DELETE /api/gateway/keys/{id}` | – | 204. Revoca de inmediato y es idempotente |
+
+Consumidor: `{ id, nombre, contactoEmail, limitePorMinuto, limiteEfectivo, creadoEn }`. `limitePorMinuto` es `null` si usa el valor por defecto; `limiteEfectivo` siempre trae el número aplicado. `ultimoUsoEn` se actualiza cada 5 minutos.
+
+## 11. Administración de usuarios internos (HU-10, RF17, RF19)
+
+Requieren JWT con rol `administrador`. `id` es el `sub` de Keycloak. Si Keycloak no responde: 503 `SERVICIO_NO_DISPONIBLE`.
+
+| Método y ruta | Cuerpo | Respuesta |
+|---|---|---|
+| `GET /api/gateway/usuarios?busqueda&page&size` | – | 200 + página de usuarios. `size` entre 1 y 50 |
+| `GET /api/gateway/usuarios/{id}` | – | 200 + usuario |
+| `POST /api/gateway/usuarios` | `{ usuario, email, nombre, apellido, rol }`, todo obligatorio | 201 + `{ id, contrasenaTemporal }`, con `no-store`. Se muestra una sola vez y Keycloak obliga a cambiarla |
+| `PUT /api/gateway/usuarios/{id}/rol` | `{ rol }` | 200 + usuario, con exactamente ese rol |
+| `DELETE /api/gateway/usuarios/{id}/rol` | – | 204. El usuario queda sin acceso a módulos internos |
+| `PUT /api/gateway/usuarios/{id}/estado` | `{ activo }` | 200 + usuario |
+
+Usuario: `{ id, usuario, email, nombre, apellido, activo, roles }`. Valores de `rol`: `investigador_campo`, `auditor_cientifico`, `cientifico_alto_rango`, `analista_ambiental`, `administrador`.
+
+Un cambio de rol, quitar el rol o desactivar la cuenta invalidan los tokens anteriores desde la siguiente petición (el usuario recibe 401 y debe entrar de nuevo). Un administrador no puede cambiar su propio rol ni desactivarse: 409 `CONFLICTO`.

@@ -1,6 +1,6 @@
 # api-gateway
 
-API Gateway (enruta `/api/<prefijo>/**`, valida JWT; su base guarda API Keys y límites). Base propia: `gateway` (Flyway en `src/main/resources/db/migration/`, convención `VAAAAMMDD_HHMM__descripcion.sql`, `out-of-order`). Ejecución y Aiven: [`docs/equipo/09-despliegue.md`](../docs/equipo/09-despliegue.md).
+API Gateway (enruta `/api/<prefijo>/**`, valida JWT, controla el acceso por rol y administra API Keys, límites y usuarios; su base guarda consumidores y API Keys). Guía del equipo: [`docs/equipo/11-seguridad-y-acceso.md`](../docs/equipo/11-seguridad-y-acceso.md). Base propia: `gateway` (Flyway en `src/main/resources/db/migration/`, convención `VAAAAMMDD_HHMM__descripcion.sql`, `out-of-order`). Ejecución y Aiven: [`docs/equipo/09-despliegue.md`](../docs/equipo/09-despliegue.md).
 
 ## Base de datos: perfiles `local` y `aiven`
 
@@ -28,3 +28,20 @@ Esta base vive en el servicio de Aiven de **lectura**. Los usuarios (`gateway_ap
 **Pool (Hikari, `application-aiven.yml`)**: `maximum-pool-size` 5, `connection-timeout` 3 s, `max-lifetime` 10 min, `keepalive-time` 2 min (`docs/equipo/09-despliegue.md` §4.4).
 
 **Migraciones compatibles con Aiven MySQL 8**: toda tabla con `PRIMARY KEY`, sin `DEFINER`, triggers, funciones ni `SET GLOBAL`, utf8mb4. Antes de subir una migración: `deploy/aiven/verificar-migraciones.sh`.
+
+## Estructura
+
+| Paquete | Contiene |
+|---|---|
+| `config` | Seguridad (`SecurityConfig`), rutas (`RutasGateway`) y propiedades |
+| `controller` | Proxy, API externa y administración de consumidores y usuarios |
+| `service` | Reglas: API Keys, consumidores, usuarios y proxy |
+| `domain` | Entidades, repositorios y puertos (`LimitadorPeticiones`, `AlmacenCredenciales`, `ClienteIdentidad`, `RegistroRevocaciones`) |
+| `infrastructure.filtro` | `ApiKeyRateLimitFilter`, `RevocacionTokenFilter`, `EscritorProblema` |
+| `infrastructure.limite` | Limitador en Redis, en memoria y decorador con respaldo |
+| `infrastructure.credenciales` | Credenciales desde la BD y caché en Redis |
+| `infrastructure.identidad` | Adaptador de Keycloak y revocaciones en Redis |
+
+## Pruebas
+
+`mvn -pl api-gateway test` desde la raíz. Requiere Docker: Testcontainers levanta MySQL con las reglas de Aiven, Redis y Keycloak con el realm real. Nunca se conecta a Aiven (D30).
