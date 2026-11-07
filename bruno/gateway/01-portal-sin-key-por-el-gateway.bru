@@ -1,0 +1,21 @@
+meta {
+  name: portal-sin-key-por-el-gateway
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseGateway}}/api/publica/fichas?q=atelopus
+  body: none
+  auth: none
+}
+
+tests {
+  test("el portal no pide API Key", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+}
+
+docs {
+  Requisito: RF10, D16.
+}

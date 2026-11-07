@@ -1,0 +1,21 @@
+meta {
+  name: consumidores-sin-token-401
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseGateway}}/api/gateway/consumidores
+  body: none
+  auth: none
+}
+
+tests {
+  test("sin token no se administra nada", function () {
+    expect(res.getStatus()).to.equal(401);
+  });
+}
+
+docs {
+  Requisito: HU-12.
+}

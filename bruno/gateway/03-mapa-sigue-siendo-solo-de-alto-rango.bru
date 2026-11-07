@@ -1,0 +1,25 @@
+meta {
+  name: mapa-sigue-siendo-solo-de-alto-rango
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseGateway}}/api/cientifico/ubicacion/mapa
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_admin}}
+}
+
+tests {
+  test("el gateway deja pasar y el servicio decide por rol", function () {
+    expect(res.getStatus()).to.equal(403);
+  });
+}
+
+docs {
+  Requisito: RF12, SEC-02.
+}

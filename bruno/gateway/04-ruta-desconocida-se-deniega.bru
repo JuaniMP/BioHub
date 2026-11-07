@@ -1,0 +1,25 @@
+meta {
+  name: ruta-desconocida-se-deniega
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseGateway}}/api/otra/cosa
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_admin}}
+}
+
+tests {
+  test("denyAll por defecto", function () {
+    expect(res.getStatus()).to.equal(403);
+  });
+}
+
+docs {
+  Requisito: SEC-02.
+}

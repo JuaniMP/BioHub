@@ -1,0 +1,25 @@
+meta {
+  name: usuarios-rol-sin-permiso-403
+  type: http
+  seq: 22
+}
+
+get {
+  url: {{baseGateway}}/api/gateway/usuarios
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_campo}}
+}
+
+tests {
+  test("solo administrador", function () {
+    expect(res.getStatus()).to.equal(403);
+  });
+}
+
+docs {
+  Requisito: HU-10.
+}

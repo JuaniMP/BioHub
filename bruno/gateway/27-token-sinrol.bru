@@ -1,0 +1,32 @@
+meta {
+  name: token-sinrol
+  type: http
+  seq: 27
+}
+
+post {
+  url: {{keycloakUrl}}/realms/{{realm}}/protocol/openid-connect/token
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  grant_type: password
+  client_id: {{clientId}}
+  username: sinrol1
+  password: {{passwordUsuarios}}
+}
+
+script:post-response {
+  bru.setVar("token_sinrol", res.getBody().access_token);
+}
+
+tests {
+  test("token del usuario sin rol", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+}
+
+docs {
+  Requisito: HU-10 c.2.
+}

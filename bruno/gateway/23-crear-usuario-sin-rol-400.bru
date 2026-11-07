@@ -1,0 +1,32 @@
+meta {
+  name: crear-usuario-sin-rol-400
+  type: http
+  seq: 23
+}
+
+post {
+  url: {{baseGateway}}/api/gateway/usuarios
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_admin}}
+}
+
+body:json {
+  { "usuario": "sinrol", "email": "sinrol@biohub.test", "nombre": "Sin", "apellido": "Rol" }
+}
+
+tests {
+  test("el rol es obligatorio", function () {
+    expect(res.getStatus()).to.equal(400);
+  });
+  test("codigo PARAMETRO_INVALIDO", function () {
+    expect(res.getBody().codigo).to.equal("PARAMETRO_INVALIDO");
+  });
+}
+
+docs {
+  Requisito: HU-10 c.1.
+}

@@ -1,0 +1,32 @@
+meta {
+  name: consumidor-repetido-409
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseGateway}}/api/gateway/consumidores
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_admin}}
+}
+
+body:json {
+  { "nombre": "{{nombreConsumidor}}", "contactoEmail": "datos@universidad.test" }
+}
+
+tests {
+  test("el nombre es unico", function () {
+    expect(res.getStatus()).to.equal(409);
+  });
+  test("codigo CONFLICTO", function () {
+    expect(res.getBody().codigo).to.equal("CONFLICTO");
+  });
+}
+
+docs {
+  Requisito: HU-12.
+}

@@ -5,7 +5,8 @@ docs {
   (`/api/cientifico/ubicacion/**`). Las peticiones van directo a cada servicio (8083 y 8081), no por el gateway.
   
   Orden: `auth` (tokens de Keycloak) -> `setup` (siembra eventos `hallazgo.*` por la API de management de RabbitMQ)
-  -> `consulta-publica` -> `ubicacion`.
+  -> `consulta-publica` -> `ubicacion` -> `gateway`. La carpeta `gateway` es la única que entra por el gateway (8080):
+  API Keys, límites, usuarios y roles, de punta a punta.
   
   Secretos (no están en el repo): `passwordUsuarios` (usuarios de prueba del realm) y `rabbitPassword`.
   Se pasan con `--env-var passwordUsuarios=... --env-var rabbitPassword=...`. Ver docs/equipo/09-despliegue.md (sección CI).

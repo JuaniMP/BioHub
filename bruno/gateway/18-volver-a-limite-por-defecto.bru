@@ -1,0 +1,29 @@
+meta {
+  name: volver-a-limite-por-defecto
+  type: http
+  seq: 18
+}
+
+put {
+  url: {{baseGateway}}/api/gateway/consumidores/{{consumidorId}}/limite
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_admin}}
+}
+
+body:json {
+  { "limitePorMinuto": null }
+}
+
+tests {
+  test("null vuelve al valor por defecto", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+}
+
+docs {
+  Requisito: RNF11.
+}
