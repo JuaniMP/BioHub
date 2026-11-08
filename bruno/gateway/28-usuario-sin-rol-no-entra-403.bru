@@ -1,0 +1,28 @@
+meta {
+  name: usuario-sin-rol-no-entra-403
+  type: http
+  seq: 28
+}
+
+get {
+  url: {{baseGateway}}/api/cientifico/ubicacion/hallazgos
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_sinrol}}
+}
+
+tests {
+  test("autenticado sin rol: fuera de los modulos internos", function () {
+    expect(res.getStatus()).to.equal(403);
+  });
+  test("codigo ROL_INSUFICIENTE", function () {
+    expect(res.getBody().codigo).to.equal("ROL_INSUFICIENTE");
+  });
+}
+
+docs {
+  Requisito: HU-10 c.2.
+}

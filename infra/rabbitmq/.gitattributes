@@ -1,0 +1,2 @@
+# El script corre dentro de un contenedor Linux: con CRLF de Windows fallaría.
+*.sh text eol=lf

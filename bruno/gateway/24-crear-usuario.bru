@@ -1,0 +1,40 @@
+meta {
+  name: crear-usuario
+  type: http
+  seq: 24
+}
+
+post {
+  url: {{baseGateway}}/api/gateway/usuarios
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_admin}}
+}
+
+body:json {
+  { "usuario": "{{usuarioNuevo}}", "email": "{{usuarioNuevo}}@biohub.test", "nombre": "Nueva", "apellido": "Persona", "rol": "auditor_cientifico" }
+}
+
+script:pre-request {
+  bru.setVar("usuarioNuevo", "prueba" + Date.now());
+}
+
+script:post-response {
+  bru.setVar("usuarioNuevoId", res.getBody().id);
+}
+
+tests {
+  test("usuario creado", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+  test("entrega una contrasena temporal", function () {
+    expect(res.getBody().contrasenaTemporal).to.have.length.above(11);
+  });
+}
+
+docs {
+  Requisito: HU-10 c.1, RF17.
+}

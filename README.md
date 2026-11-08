@@ -213,6 +213,7 @@ La consola de Keycloak usa `KEYCLOAK_ADMIN_USER` / `KEYCLOAK_ADMIN_PASSWORD` del
 | cientifico1 | cientifico_alto_rango |
 | analista1 | analista_ambiental |
 | admin1 | administrador |
+| sinrol1 | ninguno: solo sirve para probar que un usuario sin rol no entra a los módulos internos |
 
 La contraseña de todos es el valor de `KEYCLOAK_TEST_USERS_PASSWORD` **de tu propio `.env`**.
 
@@ -249,6 +250,8 @@ Las coordina **Santiago**:
 - `config/` de `servicio-cientifico` (la comparten Hernando y Juanita)
 
 Cualquier cambio en estas zonas se **avisa al equipo** antes de abrir el PR.
+
+**Seguridad y acceso:** antes de crear un endpoint o tocar roles, lee [docs/equipo/11-seguridad-y-acceso.md](docs/equipo/11-seguridad-y-acceso.md). Incluye la matriz de roles y las tareas pendientes de cada integrante.
 
 ## 8. Flujo de ramas
 
@@ -324,6 +327,7 @@ Guía completa (consola de Aiven, conversión del CA, variables, rollback, migra
 - [docs/equipo/04-contrato-api.md](docs/equipo/04-contrato-api.md): contrato de API.
 - [docs/equipo/06-plan-pruebas.md](docs/equipo/06-plan-pruebas.md) y [07-reporte-qa.md](docs/equipo/07-reporte-qa.md): pruebas y resultados.
 - [docs/equipo/08-reporte-seguridad.md](docs/equipo/08-reporte-seguridad.md): auditoría de seguridad y **requisitos de seguridad para las próximas historias** (léelo antes de empezar tu historia).
+- [docs/equipo/11-seguridad-y-acceso.md](docs/equipo/11-seguridad-y-acceso.md): cómo entra cada petición, matriz de roles y qué le toca a cada integrante.
 
 ## 13. Autores y licencia
 

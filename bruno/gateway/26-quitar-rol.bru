@@ -1,0 +1,25 @@
+meta {
+  name: quitar-rol
+  type: http
+  seq: 26
+}
+
+delete {
+  url: {{baseGateway}}/api/gateway/usuarios/{{usuarioNuevoId}}/rol
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_admin}}
+}
+
+tests {
+  test("rol revocado", function () {
+    expect(res.getStatus()).to.equal(204);
+  });
+}
+
+docs {
+  Requisito: RF19.
+}

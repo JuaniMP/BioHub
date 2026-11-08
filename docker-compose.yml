@@ -90,8 +90,10 @@ services:
     restart: unless-stopped
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Falta en .env}
-    # La contraseña se escribe en un .conf dentro del contenedor (no queda en los argumentos del proceso)
-    command: ["sh", "-c", "umask 077 && printf 'appendonly yes\\nrequirepass %s\\n' \"$$REDIS_PASSWORD\" > /tmp/redis.conf && exec redis-server /tmp/redis.conf"]
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-256mb}
+    # La contraseña se escribe en un .conf dentro del contenedor (no queda en los argumentos del proceso).
+    # Memoria acotada (SEC-J-05): todas las claves de BioHub vencen, y si se llena sale la menos usada.
+    command: ["sh", "-c", "umask 077 && printf 'appendonly yes\\nrequirepass %s\\nmaxmemory %s\\nmaxmemory-policy volatile-lru\\n' \"$$REDIS_PASSWORD\" \"$$REDIS_MAXMEMORY\" > /tmp/redis.conf && exec redis-server /tmp/redis.conf"]
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
@@ -122,6 +124,27 @@ services:
       retries: 6
       start_period: 20s
 
+  # Tarea de una sola vez: crea los usuarios de RabbitMQ por servicio (SEC-04) y termina.
+  rabbitmq-usuarios:
+    image: curlimages/curl:8.11.1
+    container_name: biohub-rabbitmq-usuarios
+    restart: "no"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_ADMIN_USER: ${RABBITMQ_USER:?Falta en .env}
+      RABBITMQ_ADMIN_PASSWORD: ${RABBITMQ_PASSWORD:?Falta en .env}
+      RABBITMQ_CIENTIFICO_USER: ${RABBITMQ_CIENTIFICO_USER:-cientifico_mq}
+      RABBITMQ_CIENTIFICO_PASSWORD: ${RABBITMQ_CIENTIFICO_PASSWORD:-}
+      RABBITMQ_CONSULTA_USER: ${RABBITMQ_CONSULTA_USER:-consulta_mq}
+      RABBITMQ_CONSULTA_PASSWORD: ${RABBITMQ_CONSULTA_PASSWORD:-}
+      RABBITMQ_REPORTES_USER: ${RABBITMQ_REPORTES_USER:-reportes_mq}
+      RABBITMQ_REPORTES_PASSWORD: ${RABBITMQ_REPORTES_PASSWORD:-}
+    entrypoint: ["sh", "/scripts/crear-usuarios.sh"]
+    volumes:
+      - ./infra/rabbitmq:/scripts:ro
+
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.1
     container_name: biohub-keycloak
@@ -136,6 +159,8 @@ services:
       KC_HEALTH_ENABLED: "true"
       # Usada por el placeholder del realm-biohub.json para los usuarios de prueba
       KEYCLOAK_TEST_USERS_PASSWORD: ${KEYCLOAK_TEST_USERS_PASSWORD:?Falta en .env}
+      # Secreto del cliente biohub-gateway del realm (administración de usuarios, HU-10)
+      KEYCLOAK_GATEWAY_CLIENT_SECRET: ${KEYCLOAK_GATEWAY_CLIENT_SECRET:?Falta en .env}
     ports:
       - "127.0.0.1:${KEYCLOAK_PORT:-8180}:8080"
     volumes:

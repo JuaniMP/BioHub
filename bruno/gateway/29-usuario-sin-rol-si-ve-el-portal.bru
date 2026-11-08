@@ -1,0 +1,25 @@
+meta {
+  name: usuario-sin-rol-si-ve-el-portal
+  type: http
+  seq: 29
+}
+
+get {
+  url: {{baseGateway}}/api/publica/fichas
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_sinrol}}
+}
+
+tests {
+  test("el portal publico sigue abierto", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+}
+
+docs {
+  Requisito: HU-10 c.2.
+}

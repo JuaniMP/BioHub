@@ -1,0 +1,24 @@
+meta {
+  name: externa-sin-key-401
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseGateway}}/api/v1/externa/fichas
+  body: none
+  auth: none
+}
+
+tests {
+  test("sin key no entra", function () {
+    expect(res.getStatus()).to.equal(401);
+  });
+  test("codigo API_KEY_INVALIDA", function () {
+    expect(res.getBody().codigo).to.equal("API_KEY_INVALIDA");
+  });
+}
+
+docs {
+  Requisito: HU-12 c.3.
+}

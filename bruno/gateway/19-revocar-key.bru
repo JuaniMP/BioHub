@@ -1,0 +1,25 @@
+meta {
+  name: revocar-key
+  type: http
+  seq: 19
+}
+
+delete {
+  url: {{baseGateway}}/api/gateway/keys/{{apiKeyId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_admin}}
+}
+
+tests {
+  test("key revocada", function () {
+    expect(res.getStatus()).to.equal(204);
+  });
+}
+
+docs {
+  Requisito: HU-12 c.2.
+}
