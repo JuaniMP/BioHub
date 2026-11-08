@@ -26,6 +26,7 @@ import org.springframework.util.unit.DataSize;
 import org.springframework.web.client.RestClient;
 
 import co.edu.unbosque.biohub.gateway.config.GatewayProperties;
+import co.edu.unbosque.biohub.gateway.config.PropiedadesCircuito;
 
 class ProxyServiceTest {
 
@@ -39,7 +40,8 @@ class ProxyServiceTest {
         GatewayProperties props = new GatewayProperties(
                 Map.of("cientifico", "http://cientifico:8081", "publica", "http://publica:8083"),
                 List.of("publica"), List.of(), Duration.ofSeconds(1), Duration.ofSeconds(1), DataSize.ofBytes(10));
-        proxy = new ProxyService(builder.build(), props);
+        proxy = new ProxyService(builder.build(), props,
+                new CircuitoServicios(new PropiedadesCircuito(3, Duration.ofSeconds(10))));
     }
 
     @Test
@@ -212,6 +214,35 @@ class ProxyServiceTest {
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/externa/fichas/%2e%2e/eventos");
 
         assertThatThrownBy(() -> proxy.reenviarApiExterna(req)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void trasVariosFallosDeConexionRespondeSinIntentarlo() {
+        for (int i = 0; i < 3; i++) {
+            servidor.expect(requestTo("http://cientifico:8081/api/cientifico/ping"))
+                    .andRespond(request -> { throw new java.net.ConnectException("rechazada"); });
+        }
+        for (int i = 0; i < 3; i++) {
+            assertThatThrownBy(() -> proxy.reenviar(new MockHttpServletRequest("GET", "/api/cientifico/ping")))
+                    .isInstanceOf(org.springframework.web.client.ResourceAccessException.class);
+        }
+
+        assertThatThrownBy(() -> proxy.reenviar(new MockHttpServletRequest("GET", "/api/cientifico/ping")))
+                .isInstanceOf(CircuitoAbiertoException.class);
+        servidor.verify();
+    }
+
+    @Test
+    void unErrorDelServicioNoAbreElCircuito() {
+        for (int i = 0; i < 4; i++) {
+            servidor.expect(requestTo("http://publica:8083/api/publica/fichas"))
+                    .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+        }
+        for (int i = 0; i < 4; i++) {
+            assertThat(proxy.reenviar(new MockHttpServletRequest("GET", "/api/publica/fichas")).getStatusCode())
+                    .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        }
+        servidor.verify();
     }
 
     @Test

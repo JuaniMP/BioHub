@@ -60,6 +60,8 @@ import co.edu.unbosque.biohub.gateway.soporte.ServicioFalso;
         "biohub.gateway.limites.por-consumidor=60",
         "biohub.gateway.limites.fallos-key-por-ip=3",
         "biohub.gateway.limites.ventana=60s",
+        "biohub.gateway.rutas.equipos=http://127.0.0.1:1",
+        "biohub.gateway.circuito.fallos-para-abrir=3",
         "biohub.gateway.identidad.client-secret="
 })
 @ActiveProfiles("test")
@@ -372,6 +374,22 @@ class GatewayIntegracionTest {
 
         assertThat(respuesta.statusCode()).isEqualTo(503);
         assertThat(cuerpo(respuesta).get("codigo").asText()).isEqualTo("SERVICIO_NO_DISPONIBLE");
+    }
+
+    @Test
+    void unServicioCaidoAbreElCircuitoYResponde503AlInstante() throws Exception {
+        String token = "Bearer investigador";
+        for (int i = 0; i < 3; i++) {
+            assertThat(obtener("/api/equipos/activos", "Authorization", token).statusCode()).isEqualTo(502);
+        }
+
+        HttpResponse<String> abierto = obtener("/api/equipos/activos", "Authorization", token);
+        assertThat(abierto.statusCode()).isEqualTo(503);
+        assertThat(abierto.headers().firstValue("Retry-After")).isPresent();
+        assertThat(cuerpo(abierto).get("codigo").asText()).isEqualTo("SERVICIO_NO_DISPONIBLE");
+
+        // Los demás servicios no se ven afectados.
+        assertThat(obtener("/api/cientifico/hallazgos", "Authorization", token).statusCode()).isEqualTo(200);
     }
 
     @Test
