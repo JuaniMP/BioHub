@@ -136,6 +136,7 @@ Fecha: 2026-10-26. Diseño: `03-arquitectura.md` (D14–D31, sección "Parte de 
 | `SERVICIO_NO_DISPONIBLE` | 503 | servicio | BD no disponible (consulta-publica: mysql-lectura caída y dato fuera de caché) |
 | `ERROR_INTERNO` | 500 | servicio | Error no previsto (sin detalles) |
 | – | 502 | gateway | Servicio destino caído (ya existe) |
+| `SERVICIO_NO_DISPONIBLE` | 503 | **gateway (Santiago)** | El servicio destino falló varias veces seguidas y su circuito está abierto (D52). Lleva `Retry-After` |
 
 ## 3. Cabeceras de caché
 | Respuesta | `Cache-Control` |

@@ -5,8 +5,10 @@ import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -15,6 +17,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
+import co.edu.unbosque.biohub.gateway.service.CircuitoAbiertoException;
 import co.edu.unbosque.biohub.gateway.service.ConflictoException;
 import co.edu.unbosque.biohub.gateway.service.CuerpoDemasiadoGrandeException;
 import co.edu.unbosque.biohub.gateway.service.DatosRechazadosException;
@@ -33,6 +36,16 @@ public class GatewayExceptionHandler {
         log.warn("Servicio destino no disponible: {}", ex.getMessage());
         return problema(HttpStatus.BAD_GATEWAY, "Servicio no disponible",
                 "El servicio solicitado no está disponible en este momento.");
+    }
+
+    /** Circuit breaker abierto (ARQ-20): el servicio no responde y no se intenta de nuevo todavía. */
+    @ExceptionHandler(CircuitoAbiertoException.class)
+    public ResponseEntity<ProblemDetail> circuitoAbierto(CircuitoAbiertoException ex) {
+        ProblemDetail problema = conCodigo(HttpStatus.SERVICE_UNAVAILABLE, "Servicio no disponible",
+                "El servicio solicitado no está disponible en este momento. Intenta de nuevo.", "SERVICIO_NO_DISPONIBLE");
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.segundosParaReintentar()))
+                .body(problema);
     }
 
     @ExceptionHandler(CuerpoDemasiadoGrandeException.class)

@@ -136,11 +136,15 @@ Despliegue de bases, Redis y RabbitMQ en VMs locales con una VPN de malla, y su 
 | 16h | Usuarios RabbitMQ por servicio (SEC-04) y `maxmemory` en Redis | Hecho; falta que cada servicio migre su `.env` |
 | 16i | Gateway en CI y carpeta Bruno `gateway/` | Hecho; el workflow no se ha ejecutado en GitHub |
 | 16j | Router, menú por rol, montaje de `src/ubicacion/`, pantallas de API Keys y usuarios | Pendiente, al final |
+| 16k | Circuit breaker en el gateway (ARQ-20, D52) | Hecho |
+| 16l | Acciones de GitHub en versiones con Node 24 (`checkout@v5`, `setup-java@v5`, `setup-node@v5`, `upload-artifact@v6`) | Hecho; falta verlo en una corrida de GitHub |
 
 **Verificación (2026-11-05):**
-- `mvn -pl api-gateway test`: 156 pruebas, 0 fallos, 0 omitidas (Testcontainers con MySQL con reglas de Aiven, Redis y Keycloak con el realm real).
+- `mvn -pl api-gateway test`: 156 pruebas, 0 fallos, 0 omitidas (168 tras 16k) (Testcontainers con MySQL con reglas de Aiven, Redis y Keycloak con el realm real).
 - Colección Bruno completa en un entorno desechable, con el JDK y Node locales: 73 de 73 peticiones, con `servicio-cientifico` conectado como `cientifico_mq` y `servicio-consulta-publica` como `consulta_mq`.
 - Pruebas de mutación manuales: con multipart activado y con `failureFactor: 5`, las pruebas correspondientes fallan.
 - Sin ejecutar: la migración en Aiven real y los servicios de Nicolás con su usuario `reportes_mq`.
 
 **Hallazgos durante la verificación:** el proxy dejaba vacíos los adjuntos multipart (D51) y SEC-D-03 estaba equivocado sobre `biohub.eventos.dlx` (D50).
+
+**CI tras el PR #6 (2026-11-08):** `develop` quedó en rojo por dos pruebas inestables de otra parte, sin relación con el gateway: `ValidadorDatosHallazgoTest.contenidoEstrictoFechaYCaracteresDeControl` (consulta-publica) calcula "mañana" con la zona del servidor y el validador con la de Bogotá, así que falla entre las 00:00 y las 05:00 UTC; y `RecifradoServiceTest.lasFilasIlegiblesQuedanPendientesYSeCuentanComoFallidas` (científico) falló una vez y pasó en las corridas siguientes. Dueña: Juanita.

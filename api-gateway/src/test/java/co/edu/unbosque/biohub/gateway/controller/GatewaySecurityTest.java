@@ -123,6 +123,18 @@ class GatewaySecurityTest {
     }
 
     @Test
+    void circuitoAbiertoDa503ConRetryAfter() throws Exception {
+        tokenValidoPara("auditor1", "auditor_cientifico");
+        given(proxyService.reenviar(any(HttpServletRequest.class)))
+                .willThrow(new co.edu.unbosque.biohub.gateway.service.CircuitoAbiertoException(7));
+
+        mvc.perform(get("/api/equipos/ping").header("Authorization", "Bearer t"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "7"))
+                .andExpect(jsonPath("$.codigo").value("SERVICIO_NO_DISPONIBLE"));
+    }
+
+    @Test
     void corsExponeRetryAfterALaWeb() throws Exception {
         given(proxyService.reenviar(any(HttpServletRequest.class))).willReturn(ResponseEntity.ok("ok".getBytes()));
 

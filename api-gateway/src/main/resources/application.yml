@@ -93,6 +93,10 @@ biohub:
       # Intentos con API Key inválida, por IP: evita saturar la BD con keys inventadas.
       fallos-key-por-ip: ${GATEWAY_LIMITE_FALLOS_KEY_POR_MINUTO:20}
       ventana: 60s
+    circuito:
+      # ARQ-20: tras estos fallos de conexión seguidos, el servicio recibe 503 inmediato durante tiempo-abierto.
+      fallos-para-abrir: ${GATEWAY_CIRCUITO_FALLOS:5}
+      tiempo-abierto: ${GATEWAY_CIRCUITO_TIEMPO_ABIERTO:10s}
     identidad:
       # Cuenta de servicio del gateway ante Keycloak (HU-10). Sin secreto, /api/gateway/usuarios responde 503.
       keycloak-url: ${KEYCLOAK_ADMIN_URL:http://localhost:${KEYCLOAK_PORT:8180}}

@@ -17,6 +17,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -59,11 +60,13 @@ public class ProxyService {
     private final RestClient restClient;
     private final Map<String, String> rutas;
     private final long tamanoMaximoCuerpo;
+    private final CircuitoServicios circuito;
 
-    public ProxyService(RestClient proxyRestClient, GatewayProperties props) {
+    public ProxyService(RestClient proxyRestClient, GatewayProperties props, CircuitoServicios circuito) {
         this.restClient = proxyRestClient;
         this.rutas = props.rutas();
         this.tamanoMaximoCuerpo = props.tamanoMaximoCuerpo().toBytes();
+        this.circuito = circuito;
     }
 
     /** Devuelve la URL base del servicio destino para la ruta, si existe. */
@@ -142,17 +145,29 @@ public class ProxyService {
                 peticion.body(cuerpo);
             }
         }
-        return peticion.exchange((req, res) -> {
-            HttpHeaders cabeceras = new HttpHeaders();
-            res.getHeaders().forEach((nombre, valores) -> {
-                if (!excluida(nombre)) {
-                    cabeceras.addAll(nombre, valores);
-                }
+        // Después de leer el cuerpo: si este fallara, no debe quedar una prueba del circuito sin resolver.
+        circuito.permitir(destino);
+        try {
+            ResponseEntity<byte[]> respuesta = peticion.exchange((req, res) -> {
+                HttpHeaders cabeceras = new HttpHeaders();
+                res.getHeaders().forEach((nombre, valores) -> {
+                    if (!excluida(nombre)) {
+                        cabeceras.addAll(nombre, valores);
+                    }
+                });
+                return ResponseEntity.status(res.getStatusCode())
+                        .headers(cabeceras)
+                        .body(res.getBody().readAllBytes());
             });
-            return ResponseEntity.status(res.getStatusCode())
-                    .headers(cabeceras)
-                    .body(res.getBody().readAllBytes());
-        });
+            circuito.registrarExito(destino);
+            return respuesta;
+        } catch (ResourceAccessException e) {
+            circuito.registrarFallo(destino);
+            throw e;
+        } catch (RuntimeException e) {
+            circuito.liberar(destino);
+            throw e;
+        }
     }
 
     static boolean rutaNormalizada(String ruta) {
