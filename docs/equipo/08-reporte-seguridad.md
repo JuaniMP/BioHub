@@ -1137,3 +1137,4 @@ Sección retirada en la iteración 15 (VPN de malla eliminada; ver 09-despliegue
 | SEC-J-05 | **Corregido.** Rate limit por IP y `maxmemory` en Redis | `GatewayIntegracionTest` |
 | SEC-J-09 | **Corregido en parte.** Revocación de rol inmediata (D49). MFA sigue fuera del alcance del SRS | `GatewayIntegracionTest` |
 | ARQ-03, ARQ-21 | **Corregidos.** API Keys, límites y bloqueo a los 3 intentos | `KeycloakAdminAdapterIntegracionTest` |
+| ARQ-20 | **Corregido.** Circuit breaker por servicio destino (D52) | `CircuitoServiciosTest`, `ProxyServiceTest`, `GatewayIntegracionTest` |

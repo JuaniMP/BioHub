@@ -16,6 +16,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 ### Changed (acceso y gateway)
 - Realm: bloqueo a los 3 intentos, cliente `biohub-gateway` y usuario `sinrol1`. Requiere `KEYCLOAK_GATEWAY_CLIENT_SECRET` en `.env` y reimportar el realm.
 
+### Added (acceso y gateway, 2)
+- Circuit breaker por servicio destino en el gateway: 503 inmediato con `Retry-After` cuando un servicio falla varias veces seguidas.
+
+### Changed (acceso y gateway, 2)
+- CI: acciones de GitHub en versiones que corren con Node 24.
+
 ### Fixed (acceso y gateway)
 - El proxy dejaba vacíos los adjuntos multipart.
 
