@@ -29,7 +29,13 @@ public class SecurityConfig {
                         // Deja llegar los errores (400/500) al cliente en vez de convertirlos en 401
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
-                        .anyRequest().authenticated())
+                        // Control grueso por prefijo: hace falta un JWT válido. El rol de cada endpoint lo exige su
+                        // @PreAuthorize (lo verifica ArquitecturaSeguridadTest), de modo que un 403 por rol insuficiente
+                        // llega al UbicacionExceptionHandler: problem+json ROL_INSUFICIENTE y auditoría (contrato 04 §5.1).
+                        // No se usa hasAnyRole aquí: un JWT sin ningún rol interno recibiría un 403 vacío y sin auditar.
+                        .requestMatchers("/api/cientifico/**").authenticated()
+                        // Lo que no está en el prefijo se deniega, aunque el usuario tenga rol
+                        .anyRequest().denyAll())
                 .oauth2ResourceServer(oauth -> oauth
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(new KeycloakJwtAuthenticationConverter())));
         return http.build();

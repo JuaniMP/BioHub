@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,6 +18,7 @@ public class PingController {
     static final String SERVICIO = "servicio-cientifico";
 
     @GetMapping("/ping")
+    @PreAuthorize("hasAnyRole('investigador_campo','auditor_cientifico','cientifico_alto_rango','analista_ambiental','administrador')")
     public PingResponse ping(Authentication autenticacion) {
         if (autenticacion == null || autenticacion instanceof AnonymousAuthenticationToken) {
             return new PingResponse(SERVICIO, "anonimo", List.of(), Instant.now());
