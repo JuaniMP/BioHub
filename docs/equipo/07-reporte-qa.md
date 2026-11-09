@@ -431,3 +431,80 @@ Las pruebas de integración de `servicio-cientifico` leen `servicio-cientifico/.
 ## Veredicto Iteración 17: APROBADO
 
 Las tres suites de CI pasan en UTC y en America/Bogota (322, 239 y 168 pruebas, 0 fallos), las pruebas antes inestables (`RecifradoServiceTest`, `BusquedaHallazgosApiTest`, `ValidadorDatosHallazgoTest`) pasaron 10 de 10 veces, y los 50 casos E2E por el gateway coinciden con la matriz de `11-seguridad-y-acceso.md`, el 403 de `sinrol1` es problem+json `ROL_INSUFICIENTE` (D55) y las API Keys y el límite por IP funcionan sin romper las rutas internas con JWT. Solo hay una observación de formato de error (Bajo).
+
+---
+
+# Iteración 18: verificación de SEC-J-19 y SEC-J-20
+
+Fecha: 2026-11-09. Rama `feature/ubicacion-consulta-publica`. Commits verificados: SEC-J-19 (`ArquitecturaSeguridadTest` sin vías de elusión) y SEC-J-20 (`ProblemaSeguridadHandler`: 403 problem+json `ROL_INSUFICIENTE` y 401 del contrato en todo el servicio). Durante la sesión el historial se reescribió: los hashes actuales son `fc769a9` (SEC-J-19) y `efed795` (SEC-J-20); el contenido es el mismo que los `d718be5` y `e49373a` del encargo.
+
+## Resumen de ejecución (`mvn -B -pl servicio-cientifico,servicio-consulta-publica -am verify`)
+
+| Ejecución | servicio-cientifico | servicio-consulta-publica | Resultado |
+|---|---|---|---|
+| TZ=UTC | 434 pruebas, 0 fallos, 2 omitidas | 339, 0 fallos, 0 omitidas | BUILD SUCCESS |
+| TZ=America/Bogota (1.ª) | 434, 0, 2 omitidas | 339, **1 fallo**, 0 | BUILD FAILURE (ver BUG-J18-1) |
+| TZ=America/Bogota (repetición completa) | 434, 0, 2 omitidas | 339, 0, 0 | BUILD SUCCESS |
+
+- La suma de los XML de `surefire-reports` de científico da 437 (2 omitidas), como midió el Tech Lead; el resumen de Maven da 434. Es una diferencia de conteo del informe (probablemente pruebas dinámicas/anidadas), no un fallo; las 2 omitidas coinciden (broker desplegado opt-in).
+- Repetí 5 veces `PublicadorNoPermitidoIntegracionTest` aislada en Bogota: 5/5 en verde. El fallo es intermitente (1 de 7 ejecuciones en total).
+- Cobertura (JaCoCo): no disponible en este build, no medida.
+
+## Cobertura de las pruebas nuevas (revisadas leyendo el código y ejecutadas)
+
+| Requisito | Dónde se prueba | Estado |
+|---|---|---|
+| 403 problem+json `ROL_INSUFICIENTE`, `Cache-Control: no-store`, cuerpo fijo (`type`, `title`, `status`, `detail`, `instance`, `codigo`) fuera de `ubicacion` | científico: `SeguridadEndpointsTest` (todo endpoint con JWT sin roles y con rol no permitido, `/api/cientifico/ping`, `/api/cientifico/eventos/prueba`, denyAll en `/`, `/actuator/*`, `/api/publica/*`...). consulta-pública: `/api/publica/eventos/recibidos` con 6 roles y sin roles, y rutas denyAll | Cubierto |
+| 401 sin cuerpo, `WWW-Authenticate: Bearer`, `no-store` | ambos `SeguridadEndpointsTest` (sin token en todos los endpoints; ruta pública con token malo) | Cubierto |
+| 401 sin la descripción interna del decodificador JWT | `unJwtInvalidoDa401SinCuerpoSinFiltrarElMotivoInterno` en ambos: cabecera exacta `Bearer error="invalid_token"`, sin "firma rota" ni "interno-7" | Cubierto |
+| `UbicacionExceptionHandler` sigue respondiendo y auditando primero en `ubicacion` | Sin prueba nueva en SEC-J-20; lo cubren las existentes `MapaApiTest.losDemasRolesRecibenElMapaDenegado` (problem+json, no-store, `ROL_INSUFICIENTE`) y `AuditoriaYSinFiltracionesTest` / `BusquedaHallazgosApiTest` (auditoría del 403); todas en verde | Cubierto (regresión) |
+| `ConsultaPublicaExceptionHandler` ya no convierte AccessDenied en 500 | `unAccessDeniedExceptionDeUnEndpointDeFichasNoSeConvierteEn500` (mock lanza `AccessDeniedException`, esperado 403 `ROL_INSUFICIENTE` sin filtrar el mensaje) | Cubierto |
+| El 403 no filtra trazas ni detalles internos | `elCuerpoDel403NoFiltraTrazasNiDetallesInternos` en ambos | Cubierto |
+
+Huecos menores (no bloqueantes): no hay prueba que combine "denyAll de la cadena de filtros" con auditoría (no se audita fuera de `ubicacion`, lo que es el diseño); el 403 de `/actuator/env` se probó en vivo (abajo) y en la suite, pero la suite no comprueba `Cache-Control` en esa ruta concreta salvo mediante `esRolInsuficiente`, que sí lo hace.
+
+## Prueba de mutación manual
+
+| Mutación (temporal) | Resultado |
+|---|---|
+| Quitar `@PreAuthorize` de `PingController` (científico, línea 21) | `ArquitecturaSeguridadTest` falla (69 pruebas, 1 fallo): "methods ... annotated with @RequestMapping should tener @PreAuthorize con un rol..." |
+| Cambiar `permitAll()` por `isAuthenticated()` en `FichasPublicasController` línea 44 (consulta-pública) | `ArquitecturaSeguridadTest` falla (66 pruebas, 1 fallo) |
+
+Ambos archivos restaurados con `git checkout -- <archivo>`; `git status` limpio tras cada mutación y al final.
+
+## E2E por el gateway (perfil `local`, nunca `aiven`)
+
+Infraestructura local arriba (keycloak, mysql, rabbitmq, redis). Levanté consulta-pública (8083), científico (8081) y api-gateway (8080) con perfil `local`, cwd fuera del repo y llave de ubicación aleatoria. Usuario `sinrol1` (sin ninguno de los 5 roles).
+
+| Petición | Resultado obtenido | Estado |
+|---|---|---|
+| GET `/api/publica/eventos/recibidos` por gateway, `sinrol1` | 403, `application/problem+json`, `no-store`, `{"codigo":"ROL_INSUFICIENTE", "instance":"/api/publica/eventos/recibidos", ...}` | OK |
+| Ídem sin token (gateway) | 401, `WWW-Authenticate: Bearer`, `no-store`, sin cuerpo | OK |
+| Ídem directo al servicio 8083, `sinrol1` | 403 problem+json `ROL_INSUFICIENTE`, `no-store` (antes de SEC-J-20: cuerpo vacío) | OK, es la causa raíz de OBS-J17-1 corregida |
+| Ídem directo 8083, sin token | 401 `WWW-Authenticate: Bearer`, `no-store`, sin cuerpo | OK |
+| Ídem directo 8083, token basura | 401 `WWW-Authenticate: Bearer error="invalid_token"`, sin descripción interna | OK |
+| Directo 8081 `/api/cientifico/ping`, `sinrol1` | 403 problem+json `ROL_INSUFICIENTE`, `no-store` | OK |
+| Directo 8081 `/api/cientifico/ubicacion/mapa`, `sinrol1` | 403 problem+json (handler de `ubicacion`) | OK |
+| Directo 8081 `/api/cientifico/ping` sin token | 401 `Bearer`, `no-store`, sin cuerpo | OK |
+| Directo 8081 `/actuator/env`, `sinrol1` | 403 problem+json `ROL_INSUFICIENTE` | OK |
+
+OBS-J17-1: **CERRADO**. Servicios y gateway detenidos al terminar; sin cambios en el árbol.
+
+## Bugs
+
+### BUG-J18-1 (Bajo) Prueba intermitente: `PublicadorNoPermitidoIntegracionTest.elBrokerRechazaUnUserIdFalsificado`
+- Responsable sugerido: backend (dueño de la prueba, no es código de producción).
+- Archivo: `servicio-consulta-publica/src/test/java/co/edu/unbosque/biohub/consultapublica/eventos/PublicadorNoPermitidoIntegracionTest.java:86`.
+- Reproducir: `TZ=America/Bogota mvn -B -pl servicio-cientifico,servicio-consulta-publica -am verify` repetidas veces; falló 1 vez en 7 (no falló en UTC ni en 5 ejecuciones aisladas).
+- Esperado: `assertThatThrownBy` recibe una excepción porque RabbitMQ rechaza el `user_id` falsificado.
+- Obtenido: `Expecting code to raise a throwable` (línea 86). El log de esa misma ejecución muestra que el broker sí rechazó: `PRECONDITION_FAILED - user_id property set to 'guest' but authenticated user was 'intruso_mq2'`, pero el cierre de canal llega de forma asíncrona y el `queueDeclarePassive` posterior se ejecutó antes de que se propagara (condición de carrera). No es una regresión de SEC-J-19/20 (ningún archivo tocado por esos commits interviene); no depende de la zona horaria, solo coincidió.
+- Sugerencia: esperar con `Awaitility` hasta ver el error de canal (o comprobar la ausencia de la ficha y que el mensaje no se entregó) en vez de una sola operación posterior.
+
+## No ejecutado
+
+- Frontends (`web-interna`, `web-publica`), servicio-equipos y servicio-reportes: fuera de alcance.
+- Cobertura JaCoCo: no configurada.
+
+## Veredicto Iteración 18: APROBADO
+
+SEC-J-19 y SEC-J-20 cumplen lo declarado: las mutaciones sobre `@PreAuthorize` son detectadas, el 403 problem+json `ROL_INSUFICIENTE` con `no-store` aplica a todo el servicio (comprobado en pruebas y en vivo), el 401 conserva el contrato sin filtrar la descripción del decodificador, el handler de `ubicacion` sigue auditando y `ConsultaPublicaExceptionHandler` ya no produce 500. Las suites pasan en UTC y Bogota (434 y 339, 0 fallos tras repetir). Queda un único hallazgo Bajo (BUG-J18-1, prueba intermitente), que no bloquea el push pero conviene estabilizar porque puede hacer fallar el CI al azar.
