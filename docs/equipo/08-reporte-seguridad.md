@@ -1772,3 +1772,108 @@ Sobre D53 (`registro` importa `ubicacion.service.EstadoConservacion`, `Ubicacion
 - **SEC-J-19: Parcial.** Lo que quedó abierto se sigue como **SEC-J-22** (Bajo, S). Debe corregirse antes de que `registro` se fusione en `develop`; si no, `hasAnyRole` en la URL pasa a ser obligatorio (alternativa de D55).
 - **SEC-J-23** (Medio, rama de Hernando): no bloquea este PR, pero sí la integración de `registro`. Hay que alinear los `@PreAuthorize` con la matriz §2 (el administrador no edita datos científicos) y añadir los endpoints a `SeguridadEndpointsTest`.
 - **D55** sigue aceptada con las condiciones de la sección 3.
+
+---
+
+## Iteración 18 – re-verificación de SEC-J-22 (2026-11-09)
+
+**Revisor:** ciberseguridad · **Rama:** `feature/ubicacion-consulta-publica` (HEAD `89e280e`) · **Alcance:** `git show 99fdf15` (SEC-J-22, solo `src/test`) y `git show 89e280e` (BUG-J18-1, solo la comprobación del `user_id` falsificado). Estado de SEC-J-I22 y de las condiciones de D55 para integrar `registro`.
+
+### Resumen
+
+| ID | Estado |
+|---|---|
+| **SEC-J-22** | **Cerrado.** Las 3 vías (`@HttpExchange`/`@GetExchange`, método `final`, método `static`) fallan el build por dos caminos independientes: la regla de forma (R7 y `ES_ENDPOINT` ampliado) y la prueba de comportamiento |
+| **SEC-J-19** | **Cerrado** (lo que quedaba abierto era SEC-J-22) |
+| **SEC-J-I22** | **Cerrado en lo esencial; queda un residuo** (`prePostEnabled=false` y controladores sin proxy: cerrado; controladores de fuera del paquete base con argumentos obligatorios: ver SEC-J-I23) |
+| BUG-J18-1 | Correcto. La prueba es **más estricta** que antes, no más débil |
+
+Hallazgos nuevos: **0 Críticos, 0 Altos, 0 Medios, 0 Bajos, 1 Informativo (SEC-J-I23).**
+
+### Cómo se revisó
+- **Lectura:** los dos `ArquitecturaSeguridadTest` (diff), `VerificadorDeEndpoints`, `MocksDeDependencias` y `SondasElusion` (idénticos en los dos servicios, comprobado con `diff`), los dos `TodosLosEndpointsExigenRolTest`, `SondasDeComportamientoTest`, `PoliticaAccesoUbicacion` y `PublicadorNoPermitidoIntegracionTest` (diff).
+- **Pruebas en una copia de `HEAD`** (`git archive`, en el scratchpad; nada en el repositorio), `mvn -o -pl servicio-cientifico test -Dtest='ArquitecturaSeguridadTest,TodosLosEndpointsExigenRolTest,SondasDeComportamientoTest'`: 79 + 5 + 9 pruebas, **0 fallos**.
+- **Mutaciones (solo en la copia):**
+  - controlador del paquete de la aplicación, **sin** `@PreAuthorize`, con un `@RequestParam` obligatorio (la petición de relleno da **400**, que es "no concluyente"): la prueba **falla** por la invocación directa ("el bean no tiene proxy de seguridad") y por `laSeguridadPorMetodoSigueActiva`. El 400 queda compensado;
+  - controlador en `com.terceros` (fuera de `co.edu.unbosque.biohub`), traído con `@Import` y mapeado en `/api/cientifico/externo`, sin control: con el parámetro **opcional**, la prueba HTTP lo marca (`respondió 200 a un JWT sin roles`); con el parámetro **obligatorio**, **pasa sin ser detectado** (SEC-J-I23).
+- **Artefacto:** `mvn -o package -DskipTests` en la copia. Los jar de servicio-cientifico y servicio-consulta-publica tienen **0** entradas de `sondaseguridad`, `VerificadorDeEndpoints`, `MocksDeDependencias` ni `*Test.class`. Ningún `pom.xml` usa `test-jar`, `build-helper`, `testSourceDirectory` ni configura `maven-jar-plugin`.
+
+### 1. Las tres vías de SEC-J-22
+
+| Vía | Regla de forma | Prueba de comportamiento |
+|---|---|---|
+| `@GetExchange` / `@HttpExchange` sin rol, también desde una interfaz | R2/R3/R4, por `ES_ENDPOINT` ampliado (`ArquitecturaSeguridadTest.java:119-123`). Sondas `ConGetExchange`, `ConHttpExchange`, `ApiExchange`, `ImplementaInterfazHttpExchange` | HTTP 200 → violación; invocación sin `AccessDeniedException` → violación (`SondasDeComportamientoTest:70-85`) |
+| Método `final` con `@PreAuthorize` válido | R7 (`:211-221`), sonda `MetodoFinal` | La invocación corre el cuerpo sobre el proxy y no lanza `AccessDeniedException` → violación "es final" (`:87-91`) |
+| Método `static` con `@PreAuthorize` válido | R7, sonda `MetodoStatic` | Invocación con destino `null` → violación "es static" (`:93-97`) |
+| Extra: método no público y clase `final` | R7, sondas `MetodoNoPublico` y `ClaseFinal` | — |
+
+Hay control positivo en los dos niveles: `ControladorCorrecto` y `ConGetExchangeYRol` pasan las 7 reglas y la prueba de comportamiento no los marca. Así se evita que las reglas rechacen todo o que la prueba no detecte nada. `elRecorridoNoEstaVacio` y `lasSondasEstanRegistradas` evitan un recorrido vacío. La R7 aplica exactamente lo que propuse en la iteración 18.
+
+### 2. ¿Aceptar 400/406/415 como "no concluyente" abre un hueco?
+
+**Para los endpoints de la aplicación, no.** `invocacionDirecta` (`VerificadorDeEndpoints.java:154-185`) no pasa por la resolución de argumentos de Spring MVC. Toma el mismo bean (el proxy) y el mismo `Method` que usa el `HandlerMethod`, pone un JWT sin roles en el `SecurityContext` y exige **exactamente** `AccessDeniedException`. Cualquier otro resultado es una violación: que el método se ejecute, cualquier otra excepción o que el bean no tenga proxy. Por eso, todo endpoint que por HTTP diera 400/406/415 queda cubierto por la segunda comprobación. Lo comprobé con la primera mutación. El caso "el cuerpo del método lanza su propia `AccessDeniedException`" no es un hueco: un usuario sin rol también sería rechazado en la petición real. Los roles válidos que no corresponden siguen siendo cosa de R4 y de `SeguridadEndpointsTest` (SEC-J-23).
+
+**Para los endpoints de fuera del paquete base, sí queda un residuo pequeño.** La invocación se filtra con `esDeLaAplicacion()` (`:76-78`; `TodosLosEndpointsExigenRolTest.java:126`), así que un mapping de otro paquete solo pasa por HTTP, donde el 400 se tolera. Ver SEC-J-I23.
+
+En consulta-pública, `soloLasRutasPublicasExplicitasEstanAbiertas` compara el **conjunto de ids** de los mappings públicos con `PUBLICOS_PERMIT_ALL`. Así, un segundo handler en la misma ruta pública (por ejemplo, con una condición `params`/`headers`, que `rutas()` no distingue) cambia el conjunto y hace fallar la prueba. No hay hueco por `esPublico`. SEC-J-I21 (comparación por nombre simple) sigue igual.
+
+### 3. ¿Puede `MocksDeDependencias` ocultar un control de seguridad?
+
+**No, en el diseño actual.**
+- Solo registra un mock para un tipo de la aplicación que aparece **en un constructor** y **no tiene bean** (`MocksDeDependencias.java:35-41`). En servicio-cientifico, `PoliticaAccesoUbicacion` se importa **real** (`TodosLosEndpointsExigenRolTest.java:88`) y ya está registrada cuando corre el post-procesador (`ConfigurationClassPostProcessor` es `PriorityOrdered`), así que no se simula.
+- Aunque un día se quitara ese `@Import` y un controlador inyectara la política por constructor, el mock se registra con el nombre `mock#<clase>`, **nunca** como `politicaUbicacion`. El `@politicaUbicacion` del SpEL no lo resolvería y lanzaría una excepción que no es `AccessDeniedException`, lo que da violación. Es decir, **falla cerrado**.
+- La lista blanca de R4 solo admite `hasRole`/`hasAnyRole` y `@politicaUbicacion` con métodos listados, así que no hay otro bean en el SpEL que un mock pudiera suplantar.
+- Un mock de Mockito no lanza `AccessDeniedException` por defecto. Si un control vive en el **cuerpo** del método (un servicio simulado que debería denegar), el mock lo hace más permisivo: la prueba falla, no lo oculta.
+- Recomendación (no es hallazgo): si se añade otro bean a la lista blanca de SpEL, importarlo real y comprobar `Mockito.mockingDetails(ctx.getBean("<nombre>")).isMock() == false`.
+
+### 4. BUG-J18-1 (`elBrokerRechazaUnUserIdFalsificado`)
+
+No debilita la comprobación; la **refuerza**. Antes bastaba con que **cualquier** operación lanzara algo (`assertThatThrownBy(...).isNotNull()`), incluido un fallo de autenticación o de permisos que nada tiene que ver con el `user_id`. Ahora exige:
+- que el broker cierre **el canal**, no la conexión (`isHardError() == false`);
+- motivo `Channel.Close` con código **406 PRECONDITION_FAILED** y un texto que contiene `user_id`, así que un 403 por permisos haría fallar la prueba;
+- que no se haya creado ninguna ficha (`fichas() == 0`).
+
+La espera tiene un tope de 15 s y no reintenta. Si el broker aceptara el mensaje, la prueba falla por tiempo. El `user_id` falsificado es el del publicador legítimo (`Contenedores.usuarioAmqp()`). No ejecuté esta prueba (necesita contenedores); me baso en la lectura y en el verify en verde que reporta el backend.
+
+### 5. SEC-J-I22
+
+- **`@EnableMethodSecurity` desactivado o `prePostEnabled=false`:** cerrado. `laSeguridadPorMetodoSigueActiva` y `invocacionDirecta` exigen el proxy. Aunque otro aspecto (`@Transactional`, `@Validated`) creara el proxy, la invocación ejecutaría el método y no lanzaría `AccessDeniedException`, así que también falla.
+- **Controladores de dependencias o de paquetes añadidos con `@Import`/`@ComponentScan`:** la regla ArchUnit sigue sin verlos (importa solo el paquete base). La prueba de comportamiento sí los recorre (todos los `RequestMappingHandlerMapping`, más `otrasVias`), pero solo por HTTP. Los detecta si responden algo distinto de 403/400/406/415, **no** si exigen un argumento que el relleno no aporta. Este es el límite anotado por el backend, y se sigue como SEC-J-I23.
+
+### Hallazgo nuevo
+
+#### SEC-J-I23 · Informativo · A01 (un endpoint de fuera del paquete base con argumentos obligatorios pasa la prueba de comportamiento)
+- **Archivos:** `servicio-*/src/test/java/co/edu/unbosque/biohub/sondaseguridad/VerificadorDeEndpoints.java:64,205` (`NO_CONCLUYENTES` se aplica a todos los mappings) y `TodosLosEndpointsExigenRolTest.java:126` (la invocación directa filtra con `esDeLaAplicacion`).
+- **Problema (comprobado en la copia):** un `@RestController` en `com.terceros`, traído con `@Import` y mapeado en `GET /api/cientifico/externo` con `@RequestParam` obligatorio y sin control, responde 400 al relleno y no se invoca directamente. **Las 5 pruebas pasan.** Con un usuario sin rol y el parámetro puesto, respondería 200. ArchUnit tampoco lo ve.
+- **Riesgo:** bajo. Exige introducir a propósito un controlador de otro paquete bajo `/api/cientifico/**` (o `/api/publica/**` fuera de las 3 rutas). Fuera del prefijo sigue el `denyAll`. Lo dejo como informativo porque es la red de D55 y es barato cerrarlo.
+- **Corrección:** fuera de la aplicación, no tolerar respuestas no concluyentes. Opcionalmente, fijar una lista cerrada de handlers del framework:
+  ```java
+  // VerificadorDeEndpoints.peticionHttp
+  boolean tolerable = endpoint.esDeLaAplicacion() && NO_CONCLUYENTES.contains(estado);
+  if (estado != 403 && !tolerable) { violaciones.add(...); }
+
+  // TodosLosEndpointsExigenRolTest: ningún handler ajeno salvo los del framework conocidos
+  assertThat(VerificadorDeEndpoints.registrados(ctx).stream().filter(e -> !e.esDeLaAplicacion())
+          .map(e -> e.metodo().getBeanType().getName()).distinct())
+      .allMatch(n -> n.equals("org.springframework.boot.autoconfigure.web.servlet.error.BasicErrorController"));
+  ```
+- **Responsable sugerido:** ubicación (Juanita). **No bloquea.** **Esfuerzo:** XS.
+
+### Condiciones de D55 para integrar `registro`
+
+| Condición | Estado |
+|---|---|
+| SEC-J-19 / SEC-J-22: red de seguridad de `@PreAuthorize` | **Cumplida** |
+| SEC-J-20: 403 uniforme | Cumplida (iteración 18) |
+| SEC-J-I19: red interna sin puertos publicados (Santiago) | Sin cambios; pendiente para el compose del backend (no depende de esta rama) |
+| Endpoints de registro en `ENDPOINTS` de `SeguridadEndpointsTest` con su matriz, y SEC-J-23 | **Pendiente (Hernando)**. `TodosLosEndpointsExigenRolTest` ya cubrirá sola a los usuarios sin rol en los endpoints de `registro`, sin editar la prueba. La comparación con la matriz §2 (roles válidos que no corresponden) sigue dependiendo de `ENDPOINTS` |
+
+**La condición de D55 que dependía de esta rama queda cumplida.** No hace falta `hasAnyRole` en la URL. Para fusionar `registro` solo queda lo que es de Hernando (SEC-J-23 y sus entradas en `ENDPOINTS`).
+
+### Veredicto (re-verificación de SEC-J-22)
+**APROBADO.** No hay Críticos ni Altos.
+- **SEC-J-22: Cerrado.**
+- **SEC-J-19: Cerrado.**
+- **SEC-J-I22:** cerrado salvo el residuo de **SEC-J-I23** (Informativo, XS, no bloquea).
+- **BUG-J18-1:** correcto; la comprobación del `user_id` falsificado queda más estricta.
+- **D55:** la condición de esta rama está cumplida; quedan SEC-J-23 y `ENDPOINTS` de registro (Hernando).
