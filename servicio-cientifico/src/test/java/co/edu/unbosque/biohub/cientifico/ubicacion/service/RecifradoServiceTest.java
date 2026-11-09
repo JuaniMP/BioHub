@@ -55,6 +55,21 @@ class RecifradoServiceTest extends BaseUbicacionMySqlTest {
         return sembrar(nombre, LocalDate.of(2026, 3, 14), "inv", "15", EstadoConservacion.EN_PELIGRO, lat, lon);
     }
 
+    /**
+     * Simula un dato alterado en la BD invirtiendo un bit del primer byte del texto cifrado (XOR 0x01). Siempre cambia
+     * el valor: sobrescribirlo con una constante (p. ej. 0xFF) no lo altera cuando el byte ya valía eso (1 de cada 256
+     * cifrados, porque el nonce es aleatorio) y la fila se re-cifraba bien, lo que hacía inestable la prueba.
+     */
+    private void alterarPrimerByteDelCifrado(String nombreCientifico) {
+        String select = "SELECT coord_cifrada FROM ubicacion_hallazgo WHERE nombre_cientifico = ?";
+        byte[] antes = jdbc.queryForObject(select, byte[].class, nombreCientifico);
+        jdbc.update("UPDATE ubicacion_hallazgo SET coord_cifrada = CONCAT(CHAR(ASCII(coord_cifrada) ^ 0x01 USING binary),"
+                + " SUBSTRING(coord_cifrada, 2)) WHERE nombre_cientifico = ?", nombreCientifico);
+        byte[] despues = jdbc.queryForObject(select, byte[].class, nombreCientifico);
+        assertThat(despues).hasSameSizeAs(antes).isNotEqualTo(antes);
+        assertThat(despues[0]).isEqualTo((byte) (antes[0] ^ 0x01));
+    }
+
     @Test
     void rotacionRecifraTodoConNonceNuevoSinPerderLasCoordenadas() {
         UUID a = alta("Atelopus a", 5.1, -73.1);
@@ -116,7 +131,7 @@ class RecifradoServiceTest extends BaseUbicacionMySqlTest {
         alta("Atelopus retirada", 6.1, -73.1);
         alta("Atelopus alterada", 7.1, -73.1);
         jdbc.update("UPDATE ubicacion_hallazgo SET clave_version = 'v9' WHERE nombre_cientifico = 'Atelopus retirada'");
-        jdbc.update("UPDATE ubicacion_hallazgo SET coord_cifrada = CONCAT(UNHEX('FF'), SUBSTRING(coord_cifrada, 2)) WHERE nombre_cientifico = 'Atelopus alterada'");
+        alterarPrimerByteDelCifrado("Atelopus alterada");
 
         RecifradoResponse r = servicio(new CifradorAesGcm(rotada), rotada).recifrar("admin");
 

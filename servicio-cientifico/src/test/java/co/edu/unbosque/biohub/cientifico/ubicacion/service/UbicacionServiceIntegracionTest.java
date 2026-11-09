@@ -95,8 +95,12 @@ class UbicacionServiceIntegracionTest extends BaseUbicacionMySqlTest {
     @Test
     void alterarLaBdSeDetecta() {
         UUID id = sembrar("Atelopus a", FECHA, "i", "15", EstadoConservacion.EN_PELIGRO, 5.0, -73.0);
-        jdbc.update("UPDATE ubicacion_hallazgo SET coord_cifrada = CONCAT(UNHEX('FF'), SUBSTRING(coord_cifrada, 2))");
+        byte[] antes = jdbc.queryForObject("SELECT coord_cifrada FROM ubicacion_hallazgo", byte[].class);
+        // XOR de un bit: siempre altera el dato (sobrescribir con 0xFF no cambia nada si el byte ya valía 0xFF, 1 de 256)
+        jdbc.update("UPDATE ubicacion_hallazgo SET coord_cifrada = CONCAT(CHAR(ASCII(coord_cifrada) ^ 0x01 USING binary),"
+                + " SUBSTRING(coord_cifrada, 2))");
         CoordenadasCifradas alterada = repositorio.findById(id).orElseThrow().coordenadasCifradas();
+        assertThat(alterada.textoCifrado()).hasSameSizeAs(antes).isNotEqualTo(antes);
         assertThatThrownBy(() -> cifrador.descifrar(id, alterada)).isInstanceOf(CoordenadasNoDescifrablesException.class);
     }
 
