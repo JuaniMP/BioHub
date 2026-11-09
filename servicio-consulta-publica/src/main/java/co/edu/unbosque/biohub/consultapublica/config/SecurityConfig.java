@@ -22,6 +22,8 @@ public class SecurityConfig {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        // 401 y 403 en problem+json con no-store en todo el servicio (SEC-J-20, contrato 04 §5.1)
+        ProblemaSeguridadHandler problema = new ProblemaSeguridadHandler();
         http
                 .csrf(csrf -> csrf.disable()) // API stateless con Bearer token, sin cookies de sesión
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -35,9 +37,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/publica/ping", "/api/publica/fichas",
                                 "/api/publica/fichas/*").permitAll()
                         // Todo lo demás se deniega (11-seguridad-y-acceso.md §3). Un endpoint nuevo exige su matcher
-                        // aquí y su @PreAuthorize en el controlador (lo verifica ArquitecturaConsultaPublicaTest).
+                        // aquí y su @PreAuthorize en el controlador (lo verifica ArquitecturaSeguridadTest).
                         .anyRequest().denyAll())
+                .exceptionHandling(ex -> ex.authenticationEntryPoint(problema).accessDeniedHandler(problema))
                 .oauth2ResourceServer(oauth -> oauth
+                        .authenticationEntryPoint(problema) // JWT inválido o vencido
+                        .accessDeniedHandler(problema)
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(new KeycloakJwtAuthenticationConverter())));
         return http.build();
     }

@@ -1,9 +1,13 @@
 package co.edu.unbosque.biohub.cientifico;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -20,7 +24,11 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jwt.BadJwtException;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -193,5 +201,88 @@ class SeguridadEndpointsTest {
     void healthEstaAbiertoSinToken() throws Exception {
         // No hay actuator en esta capa web: lo relevante es que no responda 401/403
         mvc.perform(get("/actuator/health")).andExpect(status().isNotFound());
+    }
+
+    // ---- SEC-J-20: 403 problem+json ROL_INSUFICIENTE y 401 del contrato en todo el servicio (04 §2 y §5.1) ----
+
+    /** 403 ROL_INSUFICIENTE: problem+json, no-store, cuerpo fijo y sin datos internos. */
+    private static ResultActions esRolInsuficiente(ResultActions accion, String ruta) throws Exception {
+        return accion.andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.type").value("about:blank"))
+                .andExpect(jsonPath("$.title").value("Acceso denegado"))
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.codigo").value("ROL_INSUFICIENTE"))
+                .andExpect(jsonPath("$.instance").value(ruta))
+                .andExpect(jsonPath("$.detail").value("No tienes permiso para ver esta información."));
+    }
+
+    /** 401 como en el contrato (§2): sin cuerpo, WWW-Authenticate: Bearer y no-store. */
+    private static ResultActions esNoAutenticado(ResultActions accion, String ruta) throws Exception {
+        return accion.andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, org.hamcrest.Matchers.startsWith("Bearer")))
+                .andExpect(content().string(""));
+    }
+
+    @ParameterizedTest(name = "{0} con JWT sin roles -> 403 problem+json ROL_INSUFICIENTE")
+    @MethodSource("endpoints")
+    void todoEndpointDa403ProblemJsonConJwtSinRoles(Endpoint e) throws Exception {
+        esRolInsuficiente(mvc.perform(peticion(e.metodo(), e.ruta()).with(conRoles())), e.ruta());
+    }
+
+    @ParameterizedTest(name = "{0} con un rol que la matriz no permite -> 403 problem+json ROL_INSUFICIENTE")
+    @MethodSource("endpointPorRol")
+    void todoEndpointDa403ProblemJsonConRolNoPermitido(Endpoint e, String rol, boolean permitido) throws Exception {
+        if (!permitido) {
+            esRolInsuficiente(mvc.perform(peticion(e.metodo(), e.ruta()).with(conRoles(rol))), e.ruta());
+        }
+    }
+
+    @ParameterizedTest(name = "{0} sin token -> 401 sin cuerpo")
+    @MethodSource("endpoints")
+    void todoEndpointDa401SinCuerpoSinToken(Endpoint e) throws Exception {
+        esNoAutenticado(mvc.perform(peticion(e.metodo(), e.ruta())), e.ruta());
+    }
+
+    @Test
+    void pingYEventosPruebaFueraDeUbicacionDan403ProblemJsonSinRol() throws Exception {
+        // OBS-J17-1 / SEC-J-20: antes salían con cuerpo vacío; el rol lo comprueba @PreAuthorize, no la URL
+        esRolInsuficiente(mvc.perform(get("/api/cientifico/ping").with(conRoles())), "/api/cientifico/ping");
+        esRolInsuficiente(mvc.perform(post("/api/cientifico/eventos/prueba").with(conRoles(INVESTIGADOR))),
+                "/api/cientifico/eventos/prueba");
+    }
+
+    @ParameterizedTest(name = "{0} fuera de /api/cientifico/** con todos los roles -> 403 problem+json")
+    @ValueSource(strings = {"/api/cualquiercosa", "/", "/api/publica/fichas", "/api/equipos/activos", "/otra/ruta",
+            "/actuator/env", "/actuator"})
+    void denyAllDa403ProblemJsonYSinTokenDa401SinCuerpo(String ruta) throws Exception {
+        esRolInsuficiente(mvc.perform(get(ruta).with(conRoles(LOS_5.toArray(String[]::new)))), ruta);
+        esRolInsuficiente(mvc.perform(post(ruta).with(conRoles(ADMIN))), ruta);
+        esNoAutenticado(mvc.perform(get(ruta)), ruta);
+    }
+
+    @Test
+    void unJwtInvalidoDa401SinCuerpoSinFiltrarElMotivoInterno() throws Exception {
+        when(jwtDecoder.decode("token-malo")).thenThrow(new BadJwtException("firma rota en el nodo interno-7"));
+        var resultado = esNoAutenticado(mvc.perform(get("/api/cientifico/ping")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer token-malo")), "/api/cientifico/ping")
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\""))
+                .andReturn().getResponse();
+        assertThat(resultado.getContentAsString()).doesNotContain("interno-7").doesNotContain("firma rota");
+        assertThat(resultado.getHeader(HttpHeaders.WWW_AUTHENTICATE)).doesNotContain("interno-7");
+    }
+
+    @Test
+    void elCuerpoDel403NoFiltraTrazasNiDetallesInternos() throws Exception {
+        String cuerpo = mvc.perform(get("/api/cientifico/ubicacion/mapa").with(conRoles(ADMIN)))
+                .andReturn().getResponse().getContentAsString();
+        String cuerpoPing = mvc.perform(get("/api/cientifico/ping").with(conRoles()))
+                .andReturn().getResponse().getContentAsString();
+        for (String c : List.of(cuerpo, cuerpoPing)) {
+            assertThat(c).doesNotContain("Exception").doesNotContain("org.springframework").doesNotContain("at co.edu")
+                    .doesNotContain("hasRole").doesNotContain("PreAuthorize").doesNotContain("administrador");
+        }
     }
 }

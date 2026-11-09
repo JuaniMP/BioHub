@@ -1,11 +1,17 @@
 package co.edu.unbosque.biohub.consultapublica;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
@@ -18,6 +24,11 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.oauth2.jwt.BadJwtException;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -168,5 +179,92 @@ class SeguridadEndpointsTest {
     void healthEstaAbiertoSinToken() throws Exception {
         // No hay actuator en esta capa web: lo relevante es que no responda 401/403
         mvc.perform(get("/actuator/health")).andExpect(status().isNotFound());
+    }
+
+    // ---- SEC-J-20 / OBS-J17-1: 403 problem+json ROL_INSUFICIENTE y 401 del contrato (04 §2 y §5.1) ----
+
+    /** 403 ROL_INSUFICIENTE: problem+json, no-store, cuerpo fijo y sin datos internos. */
+    private static ResultActions esRolInsuficiente(ResultActions accion, String ruta) throws Exception {
+        return accion.andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.type").value("about:blank"))
+                .andExpect(jsonPath("$.title").value("Acceso denegado"))
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.codigo").value("ROL_INSUFICIENTE"))
+                .andExpect(jsonPath("$.instance").value(ruta))
+                .andExpect(jsonPath("$.detail").value("No tienes permiso para ver esta información."));
+    }
+
+    /** 401 como en el contrato (§2): sin cuerpo, WWW-Authenticate: Bearer y no-store. */
+    private static ResultActions esNoAutenticado(ResultActions accion, String ruta) throws Exception {
+        return accion.andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, org.hamcrest.Matchers.startsWith("Bearer")))
+                .andExpect(content().string(""));
+    }
+
+    @Test
+    void eventosRecibidosConRolNoAdministradorDa403ProblemJson() throws Exception {
+        for (String rol : ROLES) {
+            if (!rol.equals("administrador")) {
+                esRolInsuficiente(mvc.perform(get(EVENTOS).with(conRoles(rol))), EVENTOS);
+            }
+        }
+        esRolInsuficiente(mvc.perform(get(EVENTOS).with(conRoles())), EVENTOS);
+        esRolInsuficiente(mvc.perform(get(EVENTOS).with(conRoles("offline_access"))), EVENTOS);
+    }
+
+    @Test
+    void eventosRecibidosSinTokenDa401SinCuerpo() throws Exception {
+        esNoAutenticado(mvc.perform(get(EVENTOS)), EVENTOS);
+    }
+
+    @ParameterizedTest(name = "{0} {1} -> 401 sin cuerpo sin token")
+    @MethodSource("noListados")
+    void noListadoSinTokenDa401SinCuerpo(String metodo, String ruta) throws Exception {
+        esNoAutenticado(mvc.perform(llamada(metodo, ruta)), ruta);
+    }
+
+    @ParameterizedTest(name = "{0} {1} -> 403 problem+json con administrador (denyAll)")
+    @MethodSource("noListados")
+    void noListadoDa403ProblemJsonAunqueHayaRol(String metodo, String ruta) throws Exception {
+        esRolInsuficiente(mvc.perform(llamada(metodo, ruta).with(conRoles("administrador"))), ruta);
+    }
+
+    @Test
+    void unJwtInvalidoDa401SinCuerpoSinFiltrarElMotivoInterno() throws Exception {
+        when(jwtDecoder.decode("token-malo")).thenThrow(new BadJwtException("firma rota en el nodo interno-7"));
+        var respuesta = esNoAutenticado(mvc.perform(get(EVENTOS)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer token-malo")), EVENTOS)
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\""))
+                .andReturn().getResponse();
+        assertThat(respuesta.getContentAsString()).doesNotContain("interno-7").doesNotContain("firma rota");
+        assertThat(respuesta.getHeader(HttpHeaders.WWW_AUTHENTICATE)).doesNotContain("interno-7");
+    }
+
+    @Test
+    void unTokenInvalidoEnUnaRutaPublicaTambienDa401SinCuerpo() throws Exception {
+        // contrato 04 §2: en /api/publica/** el 401 solo ocurre si se envía un Authorization inválido
+        when(jwtDecoder.decode("token-malo")).thenThrow(new BadJwtException("x"));
+        esNoAutenticado(mvc.perform(get("/api/publica/ping").header(HttpHeaders.AUTHORIZATION, "Bearer token-malo")),
+                "/api/publica/ping");
+    }
+
+    @Test
+    void unAccessDeniedExceptionDeUnEndpointDeFichasNoSeConvierteEn500() throws Exception {
+        // ConsultaPublicaExceptionHandler captura Exception: un 403 de @PreAuthorize debe llegar a Spring Security
+        when(servicio.buscar(any())).thenThrow(new AccessDeniedException("detalle interno"));
+        var respuesta = esRolInsuficiente(mvc.perform(get("/api/publica/fichas").with(conRoles())),
+                "/api/publica/fichas").andReturn().getResponse();
+        assertThat(respuesta.getContentAsString()).doesNotContain("detalle interno");
+    }
+
+    @Test
+    void elCuerpoDel403NoFiltraTrazasNiDetallesInternos() throws Exception {
+        String cuerpo = mvc.perform(get(EVENTOS).with(conRoles("investigador_campo")))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(cuerpo).doesNotContain("Exception").doesNotContain("org.springframework").doesNotContain("at co.edu")
+                .doesNotContain("hasRole").doesNotContain("PreAuthorize").doesNotContain("administrador");
     }
 }

@@ -11,6 +11,8 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -49,6 +51,15 @@ public class ConsultaPublicaExceptionHandler {
         return respuesta(HttpStatus.SERVICE_UNAVAILABLE, "Servicio no disponible",
                 "El servicio no está disponible en este momento. Intenta de nuevo.",
                 "SERVICIO_NO_DISPONIBLE", req, null);
+    }
+
+    /**
+     * Un 401/403 de {@code @PreAuthorize} no es un error interno: se devuelve a Spring Security para que lo resuelva
+     * {@code ProblemaSeguridadHandler} (problem+json). Sin esto lo capturaría el manejador genérico como 500.
+     */
+    @ExceptionHandler({AccessDeniedException.class, AuthenticationException.class})
+    void seguridad(RuntimeException e) {
+        throw e;
     }
 
     @ExceptionHandler(Exception.class)
