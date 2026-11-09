@@ -60,7 +60,7 @@ public class PublicadorEventos {
     /**
      * Publica un evento con routing key = tipo.
      *
-     * <p>Los {@code hallazgo.*} nunca llevan coordenadas (D14, RNF9, SEC-J-13, D46): se revisan claves y textos, en
+     * <p>Los {@code hallazgo.*} nunca llevan coordenadas (D14, RNF9, SEC-J-13, D54): se revisan claves y textos, en
      * cualquier profundidad, ANTES de armar el sobre. Esta es la última barrera que impide que el mensaje exista.
      *
      * @throws IllegalArgumentException   si {@code tipo} es {@code hallazgo.*} y {@code datos} contiene coordenadas

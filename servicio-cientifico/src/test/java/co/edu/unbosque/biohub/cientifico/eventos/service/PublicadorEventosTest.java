@@ -139,7 +139,7 @@ class PublicadorEventosTest {
                 .isInstanceOf(EventoNoPublicadoException.class);
     }
 
-    // ---- SEC-J-13 / D46: hallazgo.* nunca lleva coordenadas ----
+    // ---- SEC-J-13 / D54: hallazgo.* nunca lleva coordenadas ----
 
     @Test
     void hallazgoConClaveDeCoordenadasSeRechazaSinPublicar() {

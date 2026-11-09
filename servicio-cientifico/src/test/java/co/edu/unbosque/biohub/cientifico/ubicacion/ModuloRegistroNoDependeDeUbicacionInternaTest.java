@@ -16,7 +16,7 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 
 /**
- * D45 / ARQ-29 (03 §J2.1, SAD §2.5 y §7.1): el módulo {@code registro} NO depende de nada de
+ * D53 / ARQ-29 (03 §J2.1, SAD §2.5 y §7.1): el módulo {@code registro} NO depende de nada de
  * {@code co.edu.unbosque.biohub.cientifico.ubicacion} (ni siquiera de {@code UbicacionService}). Registro y ubicacion
  * se integran solo por los eventos de dominio de {@code cientifico.eventos.domain}
  * ({@code HallazgoRegistrado}/{@code HallazgoReclasificado}, publicados con {@code ApplicationEventPublisher}).
@@ -28,7 +28,7 @@ class ModuloRegistroNoDependeDeUbicacionInternaTest {
     private static final String UBICACION = "co.edu.unbosque.biohub.cientifico.ubicacion";
 
     @Test
-    @DisplayName("D45: ningun archivo de registro menciona el paquete cientifico.ubicacion")
+    @DisplayName("D53: ningun archivo de registro menciona el paquete cientifico.ubicacion")
     void registroNoImportaNadaDeUbicacion() throws IOException {
         Path registro = Path.of("src/main/java/co/edu/unbosque/biohub/cientifico/registro");
         try (Stream<Path> archivos = Files.walk(registro)) {
@@ -39,7 +39,7 @@ class ModuloRegistroNoDependeDeUbicacionInternaTest {
     }
 
     @Test
-    @DisplayName("D45 ARQ-29: ArchUnit, registro no depende de ninguna clase de cientifico.ubicacion")
+    @DisplayName("D53 ARQ-29: ArchUnit, registro no depende de ninguna clase de cientifico.ubicacion")
     void registroNoDependeDeUbicacionEnElBytecode() {
         JavaClasses clases = new ClassFileImporter()
                 .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)

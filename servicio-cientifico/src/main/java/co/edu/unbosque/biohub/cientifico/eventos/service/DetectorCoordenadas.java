@@ -8,7 +8,7 @@ import java.util.regex.Pattern;
 
 /**
  * Detecta coordenadas geográficas en la carga útil de un evento {@code hallazgo.*} ANTES de publicarlo, tanto por
- * el NOMBRE de una clave como por el TEXTO libre de un valor (SEC-J-13, D46; D14: el portal público nunca lleva
+ * el NOMBRE de una clave como por el TEXTO libre de un valor (SEC-J-13, D54; D14: el portal público nunca lleva
  * coordenadas).
  *
  * <p>Adaptación de {@code DetectorCoordenadas} de servicio-consulta-publica (otro despliegue, mismo criterio; no hay
