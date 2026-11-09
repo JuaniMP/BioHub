@@ -172,3 +172,25 @@ Despliegue de bases, Redis y RabbitMQ en VMs locales con una VPN de malla, y su 
 **Hallazgos durante la verificación:** el proxy dejaba vacíos los adjuntos multipart (D51) y SEC-D-03 estaba equivocado sobre `biohub.eventos.dlx` (D50).
 
 **CI tras el PR #6 (2026-11-08):** `develop` quedó en rojo por dos pruebas inestables de otra parte, sin relación con el gateway: `ValidadorDatosHallazgoTest.contenidoEstrictoFechaYCaracteresDeControl` (consulta-publica) calcula "mañana" con la zona del servidor y el validador con la de Bogotá, así que falla entre las 00:00 y las 05:00 UTC; y `RecifradoServiceTest.lasFilasIlegiblesQuedanPendientesYSeCuentanComoFallidas` (científico) falló una vez y pasó en las corridas siguientes. Dueña: Juanita.
+
+---
+# Iteración 17: integrar el PR #7 y aplicar `11-seguridad-y-acceso.md` (parte de Juanita)
+
+**Fecha:** 2026-11-08 · **Rama:** `feature/ubicacion-consulta-publica` · **Modo de presupuesto:** equilibrado, sin tope.
+
+**Alcance:** Aiven (lista de IP y conectividad), merge de `develop` con el PR #7, secret del gateway y reimportación de Keycloak, `denyAll` + `@PreAuthorize` + pruebas 401/403 en `ubicacion` (servicio-cientifico) y `servicio-consulta-publica`, CI rojo (`ValidadorDatosHallazgoTest` por zona horaria, `RecifradoServiceTest` inestable). Reglas: gateway solo con perfil `local`, nada de push sin confirmar, commits sin Co-Authored-By.
+
+| # | Tarea | Responsable | Modelo | Estado |
+|---|---|---|---|---|
+| 17a | IP en Aiven escritura (propia y de compañeros); conectividad escritura y lectura (TLS `VERIFY_IDENTITY`) | Usuaria · Tech Lead | opus/medium | Hecho |
+| 17b | Merge de `develop` (da4152a); D45/D46 de ubicación renumeradas a D53/D54 (7e4a52f) | Tech Lead | opus/medium | Hecho |
+| 17c | `KEYCLOAK_GATEWAY_CLIENT_SECRET` en `.env` raíz; reimportar Keycloak; verificar `sinrol1`, bloqueo a 3 intentos y client del gateway | Tech Lead | opus/medium | Hecho |
+| 17d | `denyAll`, `@PreAuthorize` en cada endpoint y pruebas 401/403/2xx (cientifico-ubicacion y consulta-publica) | backend-senior | sonnet/high | En curso |
+| 17e | CI: zona horaria de `ValidadorDatosHallazgoTest` y causa raíz de `RecifradoServiceTest` | backend-senior | opus/high | En curso |
+| 17f | E2E por el gateway (perfil local): 2xx / 403 con `sinrol1` / 401 sin token; API Keys y límites | qa-tester | sonnet/medium | Pendiente |
+| 17g | Auditoría: denyAll, `@PreAuthorize`, secretos en la rama, arreglo del recifrado | ciberseguridad | opus/high | Pendiente |
+
+**Modelos y consumo (iteración 17):**
+| Fase | USD | Agente que más consumió | Cambios de modelo (motivo) |
+|---|---:|---|---|
+| 17a–17c (Aiven, merge, Keycloak) | 2.27 en esta sesión | sesión principal (opus) | — |
