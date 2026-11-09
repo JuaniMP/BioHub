@@ -317,3 +317,117 @@ E2E contra servicios desplegados y k6 (D42, pospuesto por la usuaria): fuera del
 ### Veredicto Iteración 16: APROBADO
 
 Los siete commits cumplen lo declarado y las pruebas nuevas son significativas. El único bug (BUG-J4, aislamiento de pruebas) estaba en los tests y quedó corregido; sin bugs abiertos de producción.
+
+
+---
+
+# Iteración 17 (2026-11-08)
+
+Rama `feature/ubicacion-consulta-publica`. Alcance: `denyAll` y `@PreAuthorize` (D55), CI rojo (zona horaria y recifrado), integración del PR #7 (API Keys y límites) y E2E por el gateway con perfil `local`.
+
+## Comandos usados
+
+```bash
+# Suites como en CI (ci.yml tiene 3 servicios: cientifico, consulta-publica y api-gateway), con TZ=UTC y luego TZ=America/Bogota
+TZ=<zona> JAVA_TOOL_OPTIONS=-Duser.timezone=<zona> sg docker -c "mvn -B -ntp -pl <servicio> -am verify"
+# Repetición x10
+sg docker -c "mvn -B -ntp -q -pl servicio-cientifico -am test -Dtest='RecifradoServiceTest,BusquedaHallazgosApiTest' -Dsurefire.failIfNoSpecifiedTests=false"
+mvn -B -ntp -q -pl servicio-consulta-publica -am test -Dtest=ValidadorDatosHallazgoTest -Dsurefire.failIfNoSpecifiedTests=false   # (esta clase vive en consulta-publica)
+# E2E: MySQL locales del compose (docker compose up -d mysql-transaccional mysql-lectura mysql-gateway) y los 3 servicios con
+SPRING_PROFILES_ACTIVE=local java -jar <modulo>/target/<modulo>-0.0.1-SNAPSHOT.jar   # cwd fuera del repo, variables del .env raíz exportadas
+```
+
+Detalles del E2E: los jars se ejecutaron con el directorio de trabajo fuera del repo para que no leyeran `servicio-cientifico/.env` (tiene configuración y llave de Aiven). `servicio-cientifico` usó una `UBICACION_CLAVES` aleatoria generada para la prueba. En los logs el perfil activo fue `local` en los tres y las URL JDBC fueron `localhost:3307` (científico), `localhost:3308` (consulta pública) y `localhost:3310` (gateway). Ningún log contiene "aivencloud". Los tokens vienen del client `biohub-pruebas` (password grant); el script lee la contraseña de `.env` sin imprimirla.
+
+## Resultados de suites
+
+| Servicio | TZ | Ejecutadas | Fallos | Errores | Omitidas | SeguridadEndpointsTest | ArquitecturaSeguridadTest | Resultado |
+|---|---|---:|---:|---:|---:|---|---|---|
+| servicio-cientifico | UTC | 322 | 0 | 0 | 2 | 56/56 | 2/2 | BUILD SUCCESS |
+| servicio-cientifico | America/Bogota | 322 | 0 | 0 | 2 | 56/56 | 2/2 | BUILD SUCCESS |
+| servicio-consulta-publica | UTC | 239 | 0 | 0 | 0 | 40/40 | 2/2 | BUILD SUCCESS |
+| servicio-consulta-publica | America/Bogota | 239 | 0 | 0 | 0 | 40/40 | 2/2 | BUILD SUCCESS |
+| api-gateway | UTC | 168 | 0 | 0 | 0 | n/a | n/a | BUILD SUCCESS |
+| api-gateway | America/Bogota | 168 | 0 | 0 | 0 | n/a | n/a | BUILD SUCCESS |
+
+Las 2 omitidas de científico son `PublicadorHallazgoE2ETest` y `PublicadorBrokerDesplegadoTest` (opt-in con `QA_RMQ_*`, igual que en la iteración 16).
+
+Repeticiones (10 ejecuciones consecutivas cada una, todas con exit 0):
+
+| Prueba | Casos por ejecución | Zona | Fallos en 10 ejecuciones |
+|---|---:|---|---:|
+| `RecifradoServiceTest` | 6 | UTC | 0 |
+| `BusquedaHallazgosApiTest` | 21 | UTC | 0 |
+| `ValidadorDatosHallazgoTest` | 20 | UTC | 0 |
+| `ValidadorDatosHallazgoTest` | 20 | America/Bogota | 0 |
+
+## E2E por el gateway (puerto 8080, perfil `local`)
+
+Quién respondió se dedujo del cuerpo y las cabeceras: el 403 del gateway es `application/problem+json;charset=UTF-8` (solo ocurre con `sinrol1`, que no tiene ninguno de los 5 roles); el 403 del servicio es `application/problem+json` sin `charset`. El 401 sin token lo da el gateway (sin cuerpo).
+
+| Método | Ruta | Usuario | Esperado | Obtenido | |
+|---|---|---|---|---|---|
+| GET | /api/cientifico/ubicacion/hallazgos | cientifico1, investigador1, auditor1, analista1, admin1 | 200 | 200 (x5) | ✅ |
+| GET | /api/cientifico/ubicacion/hallazgos | sinrol1 | 403 | 403 problem+json `ROL_INSUFICIENTE` (gateway) | ✅ |
+| GET | /api/cientifico/ubicacion/hallazgos | sin token | 401 | 401 | ✅ |
+| GET | /api/cientifico/ubicacion/mapa | cientifico1 | 200 | 200 | ✅ |
+| GET | /api/cientifico/ubicacion/mapa | admin1, investigador1, auditor1, analista1 | 403 | 403 problem+json `ROL_INSUFICIENTE` (servicio) x4 | ✅ |
+| GET | /api/cientifico/ubicacion/mapa | sinrol1 | 403 | 403 problem+json `ROL_INSUFICIENTE` (gateway) | ✅ |
+| GET | /api/cientifico/ubicacion/mapa | sin token | 401 | 401 | ✅ |
+| POST | /api/cientifico/ubicacion/recifrado | admin1 | 2xx | 200 `{claveActiva:v1, revisados:0, recifrados:0, fallidos:0}` | ✅ |
+| POST | /api/cientifico/ubicacion/recifrado | cientifico1, investigador1 | 403 | 403 problem+json (servicio) | ✅ |
+| POST | /api/cientifico/ubicacion/recifrado | sinrol1 | 403 | 403 problem+json (gateway) | ✅ |
+| POST | /api/cientifico/ubicacion/recifrado | sin token | 401 | 401 | ✅ |
+| GET | /api/cientifico/ping | los 5 roles | 200 | 200 (x5) | ✅ |
+| GET | /api/cientifico/ping | sinrol1 | 403 | 403 `ROL_INSUFICIENTE` (gateway) | ✅ |
+| GET | /api/cientifico/ping | sin token | 401 | 401 | ✅ |
+| GET | /api/publica/fichas | sin token | 200 | 200 | ✅ |
+| GET | /api/publica/fichas/00000000-0000-0000-0000-000000000000 | sin token | 404 | 404 problem+json "La ficha solicitada no existe." | ✅ |
+| GET | /api/publica/ping | sin token | 200 | 200 | ✅ |
+| GET | /api/publica/eventos/recibidos | admin1 | 200 | 200 | ✅ |
+| GET | /api/publica/eventos/recibidos | cientifico1, investigador1, sinrol1 | 403 | 403 (servicio, cuerpo vacío; ver OBS-J17-1) | ✅ |
+| GET | /api/publica/eventos/recibidos | sin token | 401 | 401 (servicio, cuerpo vacío) | ✅ |
+| POST | /api/publica/fichas | sin token / admin1 | rechazada | 401 / 403 `ROL_INSUFICIENTE` (gateway) | ✅ |
+| GET | /api/cualquiercosa | admin1 / sin token | rechazada | 403 `ROL_INSUFICIENTE` / 401 | ✅ |
+| GET | /api/gateway/consumidores | cientifico1 / sin token | 403 / 401 | 403 / 401 | ✅ |
+| POST | /api/gateway/consumidores | admin1 | 201 | 201 | ✅ |
+| POST | /api/gateway/consumidores/{id}/keys | admin1 | 201 | 201 (apiKey mostrada solo aquí) | ✅ |
+| GET | /api/v1/externa/fichas | X-API-Key válida | 200 | 200 con `X-RateLimit-Limit: 60` y `X-RateLimit-Remaining: 58` | ✅ |
+| GET | /api/v1/externa/fichas | sin key | 401 | 401 `API Key inválida` | ✅ |
+| GET | /api/v1/externa/fichas | key inválida | 401 | 401 | ✅ |
+| GET | /api/v1/externa/fichas | JWT de admin1 sin key | 401 | 401 | ✅ |
+| POST | /api/v1/externa/fichas | con key válida | rechazada | 401 (la ruta externa es solo GET) | ✅ |
+| DELETE | /api/gateway/keys/{id} | admin1 | 204 | 204 | ✅ |
+| GET | /api/v1/externa/fichas | key revocada | 401 | 401 (revocación inmediata) | ✅ |
+| GET | /api/publica/ping (x112) | sin token, misma IP | 429 + Retry-After | 429 en la petición 112 (había ~8 previas: 120 por minuto), `Retry-After: 58`, problem+json `LIMITE_EXCEDIDO` (gateway) | ✅ |
+
+Total: 50 comprobaciones del script principal, 50 aprobadas, 0 fallidas. Las llamadas internas con JWT no pidieron API Key (PR #7 no rompe lo anterior). La key de prueba se revocó y el consumidor `qa-j17-*` quedó creado en la BD local (no hay endpoint para borrarlo).
+
+Comprobaciones adicionales: mientras el cupo por IP estaba agotado, `/api/publica/eventos/recibidos` con y sin JWT también devolvió 429 (el límite se aplica antes de la autenticación; es coherente con el diseño). Llamadas directas a los puertos de los servicios confirman que el 403 de `eventos/recibidos` lo emite `servicio-consulta-publica` con cuerpo vacío.
+
+## Bugs
+
+No se encontraron bugs bloqueantes. Observaciones:
+
+### OBS-J17-1 (Bajo, no bloquea) — responsable sugerido: backend (consulta-publica)
+- **Qué:** el 403 y el 401 de `GET /api/publica/eventos/recibidos` salen del propio servicio con cuerpo vacío y `Content-Type: application/octet-stream` (solo la cabecera `WWW-Authenticate`). El 403 de `ubicacion` en científico sí es problem+json `ROL_INSUFICIENTE` (D55).
+- **Reproducir:** `GET /api/publica/eventos/recibidos` con token de `cientifico1` por el gateway, o directo a `localhost:8083`.
+- **Esperado vs obtenido:** el contrato (§ eventos/recibidos) solo exige 401/403, así que no incumple; pero es inconsistente con el formato de error del resto (§5.1 y D55). Obtenido: 403 con cuerpo vacío.
+- **Archivo probable:** `servicio-consulta-publica/.../config/SecurityConfig` (falta un `AccessDeniedHandler`/`AuthenticationEntryPoint` que emita problem+json).
+
+### OBS-J17-2 (Informativo)
+`/api/publica/**` no devuelve cabeceras `X-RateLimit-*` en respuestas 2xx (solo `Retry-After` en el 429). Es el comportamiento del código (`ApiKeyRateLimitFilter.atenderPortal`) y del contrato (`X-RateLimit-*` solo en la API externa), así que no es defecto; se anota porque el encargo esperaba cabeceras de límite en la ruta pública.
+
+### OBS-J17-3 (Informativo)
+Las pruebas de integración de `servicio-cientifico` leen `servicio-cientifico/.env` (cwd del módulo), que hoy contiene credenciales y llave reales de Aiven. No hubo conexión a Aiven (0 coincidencias de "aivencloud" en los logs de las suites), pero conviene que 17g lo revise.
+
+## No ejecutado
+
+- `web-publica` (npm test, build y Playwright del job `frontend` de CI): fuera del alcance de la tarea 17f.
+- Pruebas opt-in contra el broker desplegado (`QA_RMQ_*`): omitidas por diseño (2).
+- 429 de la API externa por consumidor (60/min) y por 20 keys inválidas/min: no probados en E2E; los cubre la suite del gateway.
+- `servicio-equipos` y `servicio-reportes` no se arrancaron (fuera de alcance).
+
+## Veredicto Iteración 17: APROBADO
+
+Las tres suites de CI pasan en UTC y en America/Bogota (322, 239 y 168 pruebas, 0 fallos), las pruebas antes inestables (`RecifradoServiceTest`, `BusquedaHallazgosApiTest`, `ValidadorDatosHallazgoTest`) pasaron 10 de 10 veces, y los 50 casos E2E por el gateway coinciden con la matriz de `11-seguridad-y-acceso.md`, el 403 de `sinrol1` es problem+json `ROL_INSUFICIENTE` (D55) y las API Keys y el límite por IP funcionan sin romper las rutas internas con JWT. Solo hay una observación de formato de error (Bajo).
