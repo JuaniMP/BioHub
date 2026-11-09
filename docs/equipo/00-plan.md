@@ -204,3 +204,30 @@ Despliegue de bases, Redis y RabbitMQ en VMs locales con una VPN de malla, y su 
 - Aiven: escritura y lectura ya tienen las IP del equipo con /32 (según la usuaria, 2026-11-08); falta acordar con el grupo quitar `0.0.0.0/0` y `::/0`.
 - Propuesta: una entrada del CI con `TZ: America/Bogota`.
 
+
+---
+# Iteración 18: cierre de SEC-J-19/20/22, verificación y preparación del PR a develop
+
+**Fecha:** 2026-11-09 · **Rama:** `feature/ubicacion-consulta-publica` · **Modo de presupuesto:** equilibrado, sin tope.
+
+**Alcance:** terminar lo pendiente de la iteración 17 (quitar `Co-Authored-By` de los 2 commits locales, guardar `docs/revision/`, verificar SEC-J-19 y SEC-J-20), corregir lo que salió de esa verificación (SEC-J-22, BUG-J18-1) y dejar la rama lista para push y PR a `develop`. Revisión del avance de `origin/feature/registro-cientifico` (Hernando), sin tocar su código.
+
+| # | Tarea | Responsable | Modelo | Estado |
+|---|---|---|---|---|
+| 18a | Reconocimiento: pendientes de ayer, pruebas de la rama, integración de prueba con `registro` | Tech Lead | opus/medium | Hecho: científico 437/0 (2 omitidas), consulta-pública 339/0. `registro` no compila con esta rama: importa `ubicacion.service.EstadoConservacion` (D53); su CI rojo es la falla de TZ ya arreglada aquí |
+| 18b | Quitar `Co-Authored-By` (fc769a9, efed795) y commit de `docs/revision/` (4b9b5dc) | Usuaria · Tech Lead | — | Hecho (la reescritura la ejecutó la usuaria; el clasificador bloqueó al Tech Lead) |
+| 18c | QA de SEC-J-19/20 | qa-tester | sonnet/medium | Hecho: APROBADO (5483a1b). OBS-J17-1 cerrado. BUG-J18-1 (Bajo, prueba intermitente) |
+| 18d | Seguridad de SEC-J-19/20 | ciberseguridad | opus/medium | Hecho: APROBADO CON OBSERVACIONES (6827c17). SEC-J-20 cerrado; SEC-J-22 (Bajo) nuevo; SEC-J-23 (Medio, Hernando) |
+| 18e | SEC-J-22 y BUG-J18-1 (solo `src/test`) | backend-senior | sonnet/high | Hecho (99fdf15, 89e280e). verify UTC y Bogotá: científico 458/0 (2 omitidas), consulta-pública 364/0; BUG-J18-1 15/15 |
+| 18f | Re-verificación de SEC-J-22 | ciberseguridad | opus/medium | Hecho: APROBADO (d837520). SEC-J-19 y SEC-J-22 cerrados; SEC-J-I23 informativo (XS); condición de D55 cumplida en esta rama |
+| 18g | Push de la rama, CI y PR a `develop` | Tech Lead | opus/medium | Pendiente del OK de la usuaria |
+
+**Pendientes tras la iteración 18:**
+- Hernando (mensaje enviado por la usuaria): dejar de importar `ubicacion` en `registro` (D53), SEC-J-23 (roles de `administrador` fuera de la matriz §2), agregar sus endpoints a `SeguridadEndpointsTest.ENDPOINTS`, conflicto en `04-contrato-api.md`.
+- De Juanita: SEC-J-I23 (XS), SEC-04 (`.env` con `cientifico_mq`/`consulta_mq`), corridas k6 de D42 cuando estén todos los servicios.
+- Santiago: 16j (pantallas de `web-interna`), SEC-J-I19.
+
+**Modelos y consumo (iteración 18):**
+| Fase | USD | Agente que más consumió | Cambios de modelo (motivo) |
+|---|---:|---|---|
+| 18a–18f (sesión 2026-11-09) | 5.60 en esta sesión (opus 4.31, sonnet 1.29) | sesión principal (opus, 2.54); ciberseguridad 1.77 en 2 tareas | ciberseguridad opus/**medium** (matriz: high) en 18d y 18f: re-verificación de un diff acotado de su propia auditoría, como en 15h y 16d |
