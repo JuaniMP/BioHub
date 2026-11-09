@@ -1324,3 +1324,17 @@ Las tres reglas nuevas de ARQ-28 (`layeredArchitecture`, `domain` sin dependenci
 - **D44:** se mantiene tras ARQ-28 y ARQ-29.
 - **Condición previa a publicar `hallazgo.*` reales (registro):** SEC-J-17, como mínimo la normalización con `ObjectMapper` y la lista permitida de §7.3.
 - **SEC-J-18:** en la siguiente iteración de ubicación, y antes del primer despliegue con datos reales (el volumen es de Santiago).
+
+---
+
+# Seguimiento de la parte de Santiago (2026-11-05)
+
+| ID | Estado | Verificación |
+|---|---|---|
+| SEC-02 | **Corregido en el gateway.** `denyAll` por defecto y roles por prefijo. Falta `denyAll` en los 4 servicios (lista en `11-seguridad-y-acceso.md`) | `MatrizAccesoGatewayTest` |
+| SEC-04, SEC-D-03 | **Infraestructura lista.** Permisos mínimos por usuario. Corrige SEC-D-03: los consumidores necesitan `write` sobre `biohub.eventos.dlx` para declarar su cola. Falta que cada servicio migre su `.env` | Corrida completa con `cientifico_mq` y `consulta_mq`; un consumidor recibe `ACCESS_REFUSED` al publicar en `biohub.eventos` |
+| SEC-05 | **Corregido.** Fallar cerrado con `ROLE_API_CLIENT` y mismos `RequestMatcher` en el filtro y en SecurityConfig. La rama de portal queda por IP (D16) | `ApiKeyRateLimitFilterTest` |
+| SEC-J-05 | **Corregido.** Rate limit por IP y `maxmemory` en Redis | `GatewayIntegracionTest` |
+| SEC-J-09 | **Corregido en parte.** Revocación de rol inmediata (D49). MFA sigue fuera del alcance del SRS | `GatewayIntegracionTest` |
+| ARQ-03, ARQ-21 | **Corregidos.** API Keys, límites y bloqueo a los 3 intentos | `KeycloakAdminAdapterIntegracionTest` |
+| ARQ-20 | **Corregido.** Circuit breaker por servicio destino (D52) | `CircuitoServiciosTest`, `ProxyServiceTest`, `GatewayIntegracionTest` |

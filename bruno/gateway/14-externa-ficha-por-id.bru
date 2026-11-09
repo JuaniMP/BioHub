@@ -1,0 +1,30 @@
+meta {
+  name: externa-ficha-por-id
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{baseGateway}}/api/v1/externa/fichas/{{hallazgoA}}
+  body: none
+  auth: none
+}
+
+headers {
+  X-API-Key: {{apiKey}}
+}
+
+tests {
+  test("trae la ficha", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("nunca incluye coordenadas", function () {
+    const texto = JSON.stringify(res.getBody()).toLowerCase();
+    expect(texto).to.not.contain("latitud");
+    expect(texto).to.not.contain("longitud");
+  });
+}
+
+docs {
+  Requisito: HU-08, RF11.
+}

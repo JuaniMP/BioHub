@@ -1,0 +1,32 @@
+meta {
+  name: bajar-limite-a-1
+  type: http
+  seq: 16
+}
+
+put {
+  url: {{baseGateway}}/api/gateway/consumidores/{{consumidorId}}/limite
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_admin}}
+}
+
+body:json {
+  { "limitePorMinuto": 1 }
+}
+
+tests {
+  test("el administrador configura el limite", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("limite efectivo actualizado", function () {
+    expect(res.getBody().limiteEfectivo).to.equal(1);
+  });
+}
+
+docs {
+  Requisito: RNF11, ASR8.
+}

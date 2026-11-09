@@ -189,3 +189,18 @@ No vienen del SRS. Son trabajo de ingeniería para esta iteración (quitar la VP
 | RNF9, ASR6 | Parcial | SEC-J-03 (descartar con ack los eventos con coordenadas, no a la DLQ), SEC-J-02 (detector de coordenadas en texto libre), SEC-J-06 (`UBICACION_CLAVES` y `UBICACION_CLAVE_ACTIVA` en `.env.example` y `deploy/`), y decidir A2 (KeyStore vs variables). |
 | RNF13 | Parcial | Playwright o prueba manual documentada en Chrome, Firefox, Edge y Safari (WP-10, WP-11). |
 | HU-06, HU-07, HU-13 | Parcial | Lo anterior más: medición de HU-13 c.3 (< 3 s con 10.000 hallazgos, CG-08) y que Santiago monte las rutas de `web-interna/src/ubicacion/` en la navegación. |
+
+## Actualización: parte de Santiago (2026-11-05)
+
+Esta matriz es una línea base de otra rama: la tabla de arriba no se reescribió. Estado del backend de acceso, con código y prueba:
+
+| Requisito | Estado | Código | Pruebas |
+|---|---|---|---|
+| HU-08, RF14 (control), RNF11, ASR8 | Cumple | `api-gateway/.../filtro/ApiKeyRateLimitFilter.java`, `infrastructure/limite/`, `ApiExternaController` | `ApiKeyRateLimitFilterTest`, `GatewayIntegracionTest`, Bruno `gateway/` |
+| HU-12 | Cumple | `ServicioApiKeys`, `ConsumidoresController`, `infrastructure/credenciales/` | `ServicioApiKeysTest`, `ConsumidoresControllerTest`, `GatewayIntegracionTest` |
+| RNF12, ASR9 | Cumple | `ProxyService.reenviarApiExterna`, `RutasGateway.PREFIJO_API_EXTERNA` | `ProxyServiceTest`, Bruno `gateway/` |
+| HU-10, RF17, RF19 | Cumple en backend; falta pantalla | `ServicioUsuarios`, `KeycloakAdminAdapter`, `RevocacionTokenFilter` | `KeycloakAdminAdapterIntegracionTest`, `ServicioUsuariosTest`, `GatewayIntegracionTest` |
+| HU-11 c.1, c.2, RF18 | Cumple | `realm-biohub.json` (`failureFactor: 3`), `SecurityConfig` | `KeycloakAdminAdapterIntegracionTest` |
+| HU-11 c.3 | Depende de Hernando | Guardar el `sub` en cada acción | Pendiente |
+| SEC-02 | Parcial | Gateway hecho; falta `denyAll` en los 4 servicios | `MatrizAccesoGatewayTest` |
+| RNF13 en `web-interna`, login y navegación | Pendiente | Las pantallas van al final | Pendiente |

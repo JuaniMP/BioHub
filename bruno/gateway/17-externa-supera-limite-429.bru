@@ -1,0 +1,31 @@
+meta {
+  name: externa-supera-limite-429
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{baseGateway}}/api/v1/externa/fichas
+  body: none
+  auth: none
+}
+
+headers {
+  X-API-Key: {{apiKey}}
+}
+
+tests {
+  test("el limite se aplica de inmediato", function () {
+    expect(res.getStatus()).to.equal(429);
+  });
+  test("codigo LIMITE_EXCEDIDO", function () {
+    expect(res.getBody().codigo).to.equal("LIMITE_EXCEDIDO");
+  });
+  test("trae Retry-After", function () {
+    expect(Number(res.getHeader("retry-after"))).to.be.above(0);
+  });
+}
+
+docs {
+  Requisito: HU-08 c.2, ASR8.
+}

@@ -2,6 +2,6 @@
 # Activar:  SPRING_PROFILES_ACTIVE=local   (las credenciales vienen del .env de la raíz)
 spring:
   datasource:
-    url: jdbc:mysql://${MYSQL_GATEWAY_HOST:localhost}:${MYSQL_GATEWAY_PORT:3310}/gateway
+    url: jdbc:mysql://${MYSQL_GATEWAY_HOST:localhost}:${MYSQL_GATEWAY_PORT:3310}/gateway?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
     username: ${MYSQL_GATEWAY_USER}
     password: ${MYSQL_GATEWAY_PASSWORD}

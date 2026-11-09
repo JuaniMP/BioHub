@@ -1,0 +1,40 @@
+meta {
+  name: crear-consumidor
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseGateway}}/api/gateway/consumidores
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_admin}}
+}
+
+body:json {
+  { "nombre": "{{nombreConsumidor}}", "contactoEmail": "datos@universidad.test" }
+}
+
+script:pre-request {
+  bru.setVar("nombreConsumidor", "Universidad de prueba " + Date.now());
+}
+
+script:post-response {
+  bru.setVar("consumidorId", res.getBody().id);
+}
+
+tests {
+  test("consumidor creado", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+  test("usa el limite por defecto de 60", function () {
+    expect(res.getBody().limiteEfectivo).to.equal(60);
+  });
+}
+
+docs {
+  Requisito: HU-12 c.1, RNF11.
+}
