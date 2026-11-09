@@ -201,6 +201,6 @@ Despliegue de bases, Redis y RabbitMQ en VMs locales con una VPN de malla, y su 
 - Confirmar con el grupo las 4 rutas fuera de la matriz §2: `GET /api/cientifico/ping`, `POST /api/cientifico/eventos/prueba`, `GET /api/publica/ping`, `GET /api/publica/eventos/recibidos`; y D55.
 - §3 de `11`: confirmar que `/api/publica/fichas` y `/fichas/{id}` no cambian; si 120/min por IP alcanza; aviso de 429 con `Retry-After` en `web-publica`.
 - SEC-04: migrar `servicio-cientifico/.env` y `servicio-consulta-publica/.env` a `cientifico_mq`/`consulta_mq`.
-- Aiven: acordar con el grupo quitar `0.0.0.0/0` y `::/0` de escritura; pedir al dueño de lectura que agregue las IP.
+- Aiven: escritura y lectura ya tienen las IP del equipo con /32 (según la usuaria, 2026-11-08); falta acordar con el grupo quitar `0.0.0.0/0` y `::/0`.
 - Propuesta: una entrada del CI con `TZ: America/Bogota`.
 
