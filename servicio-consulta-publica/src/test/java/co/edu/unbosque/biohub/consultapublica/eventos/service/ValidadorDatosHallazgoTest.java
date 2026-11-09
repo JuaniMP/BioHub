@@ -3,7 +3,11 @@ package co.edu.unbosque.biohub.consultapublica.eventos.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,11 +28,24 @@ import co.edu.unbosque.biohub.consultapublica.soporte.Eventos;
 
 class ValidadorDatosHallazgoTest {
 
+    private static final ZoneId BOGOTA = ZoneId.of("America/Bogota");
+
+    /** Constructor de producción (reloj del sistema): el día se decide en Bogotá aunque la JVM corra en UTC. */
     private final ValidadorDatosHallazgo validador = new ValidadorDatosHallazgo(
             new ObjectMapper().registerModule(new JavaTimeModule()),
-            Validation.buildDefaultValidatorFactory().getValidator(),
-            new CatalogoDepartamentos(() -> List.of(new Departamento("15", "Boyacá", "Andina"),
-                    new Departamento("08", "Atlántico", "Caribe"))));
+            Validation.buildDefaultValidatorFactory().getValidator(), catalogo());
+
+    private static CatalogoDepartamentos catalogo() {
+        return new CatalogoDepartamentos(() -> List.of(new Departamento("15", "Boyacá", "Andina"),
+                new Departamento("08", "Atlántico", "Caribe")));
+    }
+
+    /** Validador con un reloj fijo en el instante dado; la zona del reloj es UTC a propósito (no debe influir). */
+    private static ValidadorDatosHallazgo conReloj(String instanteUtc) {
+        return new ValidadorDatosHallazgo(new ObjectMapper().registerModule(new JavaTimeModule()),
+                Validation.buildDefaultValidatorFactory().getValidator(), catalogo(),
+                Clock.fixed(Instant.parse(instanteUtc), ZoneOffset.UTC));
+    }
 
     private final UUID id = UUID.randomUUID();
 
@@ -152,13 +169,13 @@ class ValidadorDatosHallazgoTest {
     @org.junit.jupiter.api.DisplayName("SEC-J-01: validación estricta: fecha futura o imposible y caracteres de control se rechazan")
     void contenidoEstrictoFechaYCaracteresDeControl() {
         Map<String, Object> futura = datos();
-        futura.put("fechaRecoleccion", LocalDate.now().plusDays(30).toString());
+        futura.put("fechaRecoleccion", LocalDate.now(BOGOTA).plusDays(30).toString());
         rechaza(futura);
         Map<String, Object> antigua = datos();
         antigua.put("fechaRecoleccion", "1700-01-01");
         rechaza(antigua);
         Map<String, Object> manana = datos(); // desfase horario Bogotá/UTC: un día de tolerancia
-        manana.put("fechaRecoleccion", LocalDate.now().plusDays(1).toString());
+        manana.put("fechaRecoleccion", LocalDate.now(BOGOTA).plusDays(1).toString());
         assertThat(validador.validar(UUID.randomUUID(), manana)).isNotNull();
 
         for (String malo : new String[] {"a\u0000b", "a\u001bb", "texto\u202Eoculto", "x\u2067y"}) {
@@ -173,6 +190,45 @@ class ValidadorDatosHallazgoTest {
         Map<String, Object> saltoEnNombre = datos();
         saltoEnNombre.put("nombreCientifico", "Atelopus\nebenoides");
         rechaza(saltoEnNombre);
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("Fecha límite en la medianoche Bogotá/UTC: 02:00 UTC del 9 todavía es el 8 en Bogotá")
+    void fechaLimiteSeCalculaEnBogotaAunqueEnUtcYaSeaOtroDia() {
+        // 2026-11-09T02:00Z = 2026-11-08 21:00 en Bogotá: hoy = 8, se tolera hasta el 9 y el 10 ya es futuro
+        ValidadorDatosHallazgo v = conReloj("2026-11-09T02:00:00Z");
+        assertThat(v.validar(UUID.randomUUID(), conFecha("2026-11-08")).fechaRecoleccion()).isEqualTo(LocalDate.of(2026, 11, 8));
+        assertThat(v.validar(UUID.randomUUID(), conFecha("2026-11-09")).fechaRecoleccion()).isEqualTo(LocalDate.of(2026, 11, 9));
+        rechazaCon(v, conFecha("2026-11-10")); // con la fecha UTC (9) + 1 se habría aceptado
+    }
+
+    @Test
+    void fechaLimiteCambiaExactamenteALaMedianocheDeBogota() {
+        // último instante del 8 en Bogotá (04:59:59.999Z del 9): el 10 sigue siendo futuro
+        rechazaCon(conReloj("2026-11-09T04:59:59.999Z"), conFecha("2026-11-10"));
+        // medianoche del 9 en Bogotá (05:00Z): el 10 entra por la tolerancia de un día, el 11 no
+        ValidadorDatosHallazgo v = conReloj("2026-11-09T05:00:00Z");
+        assertThat(v.validar(UUID.randomUUID(), conFecha("2026-11-10"))).isNotNull();
+        rechazaCon(v, conFecha("2026-11-11"));
+    }
+
+    @Test
+    void enUtcAntesDeMedianocheYEnBogotaElMismoDia() {
+        // 2026-11-08T23:30Z = 18:30 en Bogotá: ambos el 8; se tolera el 9, no el 10
+        ValidadorDatosHallazgo v = conReloj("2026-11-08T23:30:00Z");
+        assertThat(v.validar(UUID.randomUUID(), conFecha("2026-11-09"))).isNotNull();
+        rechazaCon(v, conFecha("2026-11-10"));
+    }
+
+    private Map<String, Object> conFecha(String fecha) {
+        Map<String, Object> d = datos();
+        d.put("fechaRecoleccion", fecha);
+        return d;
+    }
+
+    private static void rechazaCon(ValidadorDatosHallazgo v, Map<String, Object> d) {
+        assertThatThrownBy(() -> v.validar(UUID.randomUUID(), d)).isInstanceOf(EventoInvalidoException.class)
+                .hasMessageContaining("fechaRecoleccion");
     }
 
     @Test
