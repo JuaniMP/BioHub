@@ -1,5 +1,6 @@
 package co.edu.unbosque.biohub.cientifico.ubicacion;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 
@@ -79,6 +80,29 @@ public abstract class BaseUbicacionMySqlTest {
     @BeforeEach
     void limpiarTabla() {
         jdbc.update("DELETE FROM ubicacion_hallazgo");
+    }
+
+    /**
+     * Simula un dato alterado en la BD invirtiendo un bit del primer byte del texto cifrado (XOR 0x01) de la fila con ese
+     * nombre científico, o de todas si es {@code null}. Siempre cambia el valor: sobrescribirlo con una constante (p. ej.
+     * 0xFF) no lo altera cuando el byte ya valía eso (1 de cada 256 cifrados, porque el nonce es aleatorio), y la prueba
+     * de integridad se volvía inestable o dejaba de probar lo que dice. Verifica que cada fila cambió.
+     */
+    protected void alterarPrimerByteDelCifrado(String nombreCientifico) {
+        String filtro = nombreCientifico == null ? "" : " WHERE nombre_cientifico = ?";
+        Object[] args = nombreCientifico == null ? new Object[0] : new Object[] {nombreCientifico};
+        String select = "SELECT HEX(hallazgo_id) AS id, coord_cifrada FROM ubicacion_hallazgo" + filtro;
+        Map<String, byte[]> antes = new java.util.HashMap<>();
+        jdbc.query(select, rs -> { antes.put(rs.getString("id"), rs.getBytes("coord_cifrada")); }, args);
+        assertThat(antes).as("filas a alterar").isNotEmpty();
+        jdbc.update("UPDATE ubicacion_hallazgo SET coord_cifrada = CONCAT(CHAR(ASCII(coord_cifrada) ^ 0x01 USING binary),"
+                + " SUBSTRING(coord_cifrada, 2))" + filtro, args);
+        jdbc.query(select, rs -> {
+            byte[] previo = antes.get(rs.getString("id"));
+            byte[] ahora = rs.getBytes("coord_cifrada");
+            assertThat(ahora).hasSameSizeAs(previo).isNotEqualTo(previo);
+            assertThat(ahora[0]).isEqualTo((byte) (previo[0] ^ 0x01));
+        }, args);
     }
 
     /** Registra un token falso asociado a los roles y devuelve la cabecera Authorization. */

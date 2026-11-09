@@ -235,8 +235,7 @@ class BusquedaHallazgosApiTest extends BaseUbicacionMySqlTest {
     @Test
     void llaveRetiradaOAlteradoSeMarcaNoDisponibleSoloParaAltoRango() throws Exception {
         jdbc.update("UPDATE ubicacion_hallazgo SET clave_version = 'v9' WHERE nombre_cientifico = 'Atelopus muisca'");
-        jdbc.update("UPDATE ubicacion_hallazgo SET coord_cifrada = CONCAT(UNHEX('FF'), SUBSTRING(coord_cifrada, 2))"
-                + " WHERE nombre_cientifico = 'Dendrobates truncatus'");
+        alterarPrimerByteDelCifrado("Dendrobates truncatus");
         buscar(bearer("juana", "cientifico_alto_rango"), "")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.omitidos").value(2))
