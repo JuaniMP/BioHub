@@ -109,13 +109,37 @@ Despliegue de bases, Redis y RabbitMQ en VMs locales con una VPN de malla, y su 
 | 15h verificación + 2 ciclos (sesión 2026-11-04) | 10.89 en esta sesión (≥ 20.25 acumulado; 15f–15g no se midió) | ciberseguridad (opus, 4.08 en 2 tareas) | backend ciclo 2 sonnet/**medium** (matriz: high): solo reglas ArchUnit ya diseñadas por seguridad |
 | 15h ciclo 1 re-verificación | (incluido en la fila anterior) | — | ciberseguridad opus/**medium** (matriz: high): solo re-verifica un diff acotado de su propia auditoría |
 | 15h CI en GitHub + arreglo WebKit/Bruno (sesión 2026-11-04) | 13.80 en esta sesión (≥ 23.16 acumulado) | ciberseguridad (opus, 4.08) | — |
+| Cierre 2026-11-04: PR #3–#5 a develop, Aiven escritura y lectura reales, credenciales al equipo | 20.02 en esta sesión (≥ 29.38 acumulado) | sesión principal (opus, 10.77) | devops sonnet/medium se cortó por límite de uso; el Tech Lead terminó la limpieza y el aprovisionamiento |
 
 ## Pendientes tras la 15h
 - Corridas k6 que exige D42: degradación activa, 1 vs 2 réplicas en saturación (ARQ-30, ARQ-31) y par ASR4 `CIENTIFICA=0/1` (ARQ-32).
 - SEC-J-12, SEC-J-13 (guarda de coordenadas en el publicador, sube de prioridad), SEC-J-04/05/07/08(3)/09, SEC-04/SEC-D-03 (un usuario AMQP por servicio, Santiago).
 - ARQ-05 (segundo servicio Aiven sin evidencia), ARQ-07 (Hernando), ARQ-28/29/33, Aiven real sin probar. CI en GitHub: verde en run 41891195794 (740bb37), los 4 jobs.
 - Condición D44: nada de registro (Hernando) entra sin pasar las reglas ArchUnit actuales.
-- Usuario: purgar `consulta-publica.eventos.dlq` (76 mensajes de prueba de QA) y copiar las 2 líneas `BIOHUB_EVENTOS_*` de `.env.example` al `.env`.
+- Hecho por la usuaria: DLQ purgada, `.env` actualizado, contraseñas de `avnadmin` rotadas, credenciales y llave de cifrado en gestor de contraseñas, zips enviados por privado.
+- Usuaria: agregar en Aiven (Allowed IP addresses) las IP que envíen Hernando, Nicolás y Santiago.
+- Corridas k6 (D42) pospuestas por decisión de la usuaria hasta que los servicios de todos estén completos; repetir todo sobre `develop` antes de la entrega.
+- Cuando `develop` esté estable: PR `develop` → `main`.
+
+# Iteración 16: pendientes propios de Juanita (seguridad y arquitectura)
+
+**Fecha:** 2026-11-04 · **Rama:** `feature/ubicacion-consulta-publica` · **Modo de presupuesto:** equilibrado, sin tope.
+
+**Alcance:** solo hallazgos cuyo responsable es Juanita. Fuera de alcance: SEC-J-05, SEC-J-07 (web-interna), SEC-J-09, SEC-04/SEC-D-03 (Santiago); ARQ-07 (Hernando); k6 de D42 (pospuesto por la usuaria); el proxy de teselas de SEC-J-04 (Santiago). Decisiones nuevas: D53 (ARQ-29) y D54 (SEC-J-13) en `03-arquitectura.md`.
+
+| # | Tarea | Responsable | Modelo | Estado |
+|---|---|---|---|---|
+| 16a | ARQ-33: comentarios de `application-aiven.yml` (cientifico y consulta-publica) | Tech Lead | opus/medium | Hecho |
+| 16b | SEC-J-13, SEC-J-12, SEC-J-08.3, ARQ-28, ARQ-29 en `servicio-cientifico` | backend-senior | sonnet/high | Hecho (786f4e1, 57ab7ad, 1e449ac, 25d2175, aeb67d8; queda ARQ-28b aceptado) |
+| 16c | SEC-J-04 (zoom con un punto y `referrerPolicy`) en `web-interna/src/ubicacion` | frontend-senior | sonnet/medium | Hecho (47b5cc9) |
+| 16d | Verificación: tests y re-auditoría del diff | qa-tester · ciberseguridad | sonnet/medium · opus/medium | Hecho: QA APROBADO (27a6dd9, BUG-J4 tests herméticos frente al `.env`; cientifico 264/0/2 omitidos, consulta-publica 194/0, web-interna 46/46, web-publica 32/32). Seguridad APROBADO CON OBSERVACIONES (d249733): SEC-J-12 Cerrado; SEC-J-04, 08 y 13 Parciales; nuevos SEC-J-17 y SEC-J-18 (Bajos) |
+
+**Pendientes tras la iteración 16 (de Juanita):** SEC-J-17 (guarda de coordenadas eludible; condición previa para publicar `hallazgo.*` reales), SEC-J-18 (auditoría falla abierta), SEC-J-I14 (verificar teselas OSM con `no-referrer` en el navegador), ARQ-28b. Usuaria: borrar las VMs retiradas `biohub-backend` y `biohub-datos` (el borrado desde la sesión fue bloqueado por permisos).
+
+**Modelos y consumo (iteración 16):**
+| Fase | USD | Agente que más consumió | Cambios de modelo (motivo) |
+|---|---:|---|---|
+| 16a–16d (sesión 2026-11-04 tarde) | 4.91 en esta sesión (≥ 34.29 acumulado) | backend-senior (sonnet, 1.79) | ciberseguridad opus/**medium** (matriz: high): re-verificación de un diff acotado, como en 15h |
 
 ---
 # Iteración 16: seguridad y acceso (parte de Santiago)
@@ -148,3 +172,62 @@ Despliegue de bases, Redis y RabbitMQ en VMs locales con una VPN de malla, y su 
 **Hallazgos durante la verificación:** el proxy dejaba vacíos los adjuntos multipart (D51) y SEC-D-03 estaba equivocado sobre `biohub.eventos.dlx` (D50).
 
 **CI tras el PR #6 (2026-11-08):** `develop` quedó en rojo por dos pruebas inestables de otra parte, sin relación con el gateway: `ValidadorDatosHallazgoTest.contenidoEstrictoFechaYCaracteresDeControl` (consulta-publica) calcula "mañana" con la zona del servidor y el validador con la de Bogotá, así que falla entre las 00:00 y las 05:00 UTC; y `RecifradoServiceTest.lasFilasIlegiblesQuedanPendientesYSeCuentanComoFallidas` (científico) falló una vez y pasó en las corridas siguientes. Dueña: Juanita.
+
+---
+# Iteración 17: integrar el PR #7 y aplicar `11-seguridad-y-acceso.md` (parte de Juanita)
+
+**Fecha:** 2026-11-08 · **Rama:** `feature/ubicacion-consulta-publica` · **Modo de presupuesto:** equilibrado, sin tope.
+
+**Alcance:** Aiven (lista de IP y conectividad), merge de `develop` con el PR #7, secret del gateway y reimportación de Keycloak, `denyAll` + `@PreAuthorize` + pruebas 401/403 en `ubicacion` (servicio-cientifico) y `servicio-consulta-publica`, CI rojo (`ValidadorDatosHallazgoTest` por zona horaria, `RecifradoServiceTest` inestable). Reglas: gateway solo con perfil `local`, nada de push sin confirmar, commits sin Co-Authored-By.
+
+| # | Tarea | Responsable | Modelo | Estado |
+|---|---|---|---|---|
+| 17a | IP en Aiven escritura (propia y de compañeros); conectividad escritura y lectura (TLS `VERIFY_IDENTITY`) | Usuaria · Tech Lead | opus/medium | Hecho |
+| 17b | Merge de `develop` (da4152a); D45/D46 de ubicación renumeradas a D53/D54 (7e4a52f) | Tech Lead | opus/medium | Hecho |
+| 17c | `KEYCLOAK_GATEWAY_CLIENT_SECRET` en `.env` raíz; reimportar Keycloak; verificar `sinrol1`, bloqueo a 3 intentos y client del gateway | Tech Lead | opus/medium | Hecho |
+| 17d | `denyAll`, `@PreAuthorize` en cada endpoint y pruebas 401/403/2xx (cientifico-ubicacion y consulta-publica) | backend-senior | sonnet/high | Hecho (d0be1be, a0e0d32; D55) |
+| 17e | CI: zona horaria de `ValidadorDatosHallazgoTest` y causa raíz de `RecifradoServiceTest` | backend-senior | opus/high | Hecho (b4053c3, d9a9031, y el resto de pruebas con 0xFF) |
+| 17f | E2E por el gateway (perfil local): 2xx / 403 con `sinrol1` / 401 sin token; API Keys y límites | qa-tester | sonnet/medium | Hecho: APROBADO (f695c8a). cientifico 322/0, consulta-publica 239/0, gateway 168/0 en TZ UTC y Bogotá; E2E por gateway local 50/50 |
+| 17g | Auditoría: denyAll, `@PreAuthorize`, secretos en la rama, arreglo del recifrado | ciberseguridad | opus/high | Hecho: APROBADO CON OBSERVACIONES (45ce862). D55 aceptada con condiciones; SEC-J-19/20/21 Bajos; sin secretos en árbol ni historial |
+
+**Modelos y consumo (iteración 17):**
+| Fase | USD | Agente que más consumió | Cambios de modelo (motivo) |
+|---|---:|---|---|
+| 17a–17c (Aiven, merge, Keycloak) | 2.27 en esta sesión | sesión principal (opus) | — |
+| 17d–17g (denyAll, CI, QA, seguridad) | 8.95 en esta sesión | sesión principal (opus, 3.98); backend-senior 17e (opus, 2.12) | backend-senior 17e en **opus**/high (matriz: sonnet/high): causa raíz de una prueba inestable que toca cifrado |
+
+**Pendientes tras la iteración 17 (de Juanita):**
+- SEC-J-19 (endurecer `ArquitecturaSeguridadTest`) y SEC-J-20 (403 problem+json fuera de `ubicacion`): condición de D55 antes de que `registro` integre controladores. OBS-J17-1 (403/401 vacío en `/api/publica/eventos/recibidos`) se resuelve con el mismo handler.
+- Confirmar con el grupo las 4 rutas fuera de la matriz §2: `GET /api/cientifico/ping`, `POST /api/cientifico/eventos/prueba`, `GET /api/publica/ping`, `GET /api/publica/eventos/recibidos`; y D55.
+- §3 de `11`: confirmar que `/api/publica/fichas` y `/fichas/{id}` no cambian; si 120/min por IP alcanza; aviso de 429 con `Retry-After` en `web-publica`.
+- SEC-04: migrar `servicio-cientifico/.env` y `servicio-consulta-publica/.env` a `cientifico_mq`/`consulta_mq`.
+- Aiven: escritura y lectura ya tienen las IP del equipo con /32 (según la usuaria, 2026-11-08); falta acordar con el grupo quitar `0.0.0.0/0` y `::/0`.
+- Propuesta: una entrada del CI con `TZ: America/Bogota`.
+
+
+---
+# Iteración 18: cierre de SEC-J-19/20/22, verificación y preparación del PR a develop
+
+**Fecha:** 2026-11-09 · **Rama:** `feature/ubicacion-consulta-publica` · **Modo de presupuesto:** equilibrado, sin tope.
+
+**Alcance:** terminar lo pendiente de la iteración 17 (quitar `Co-Authored-By` de los 2 commits locales, guardar `docs/revision/`, verificar SEC-J-19 y SEC-J-20), corregir lo que salió de esa verificación (SEC-J-22, BUG-J18-1) y dejar la rama lista para push y PR a `develop`. Revisión del avance de `origin/feature/registro-cientifico` (Hernando), sin tocar su código.
+
+| # | Tarea | Responsable | Modelo | Estado |
+|---|---|---|---|---|
+| 18a | Reconocimiento: pendientes de ayer, pruebas de la rama, integración de prueba con `registro` | Tech Lead | opus/medium | Hecho: científico 437/0 (2 omitidas), consulta-pública 339/0. `registro` no compila con esta rama: importa `ubicacion.service.EstadoConservacion` (D53); su CI rojo es la falla de TZ ya arreglada aquí |
+| 18b | Quitar `Co-Authored-By` (fc769a9, efed795) y commit de `docs/revision/` (4b9b5dc) | Usuaria · Tech Lead | — | Hecho (la reescritura la ejecutó la usuaria; el clasificador bloqueó al Tech Lead) |
+| 18c | QA de SEC-J-19/20 | qa-tester | sonnet/medium | Hecho: APROBADO (5483a1b). OBS-J17-1 cerrado. BUG-J18-1 (Bajo, prueba intermitente) |
+| 18d | Seguridad de SEC-J-19/20 | ciberseguridad | opus/medium | Hecho: APROBADO CON OBSERVACIONES (6827c17). SEC-J-20 cerrado; SEC-J-22 (Bajo) nuevo; SEC-J-23 (Medio, Hernando) |
+| 18e | SEC-J-22 y BUG-J18-1 (solo `src/test`) | backend-senior | sonnet/high | Hecho (99fdf15, 89e280e). verify UTC y Bogotá: científico 458/0 (2 omitidas), consulta-pública 364/0; BUG-J18-1 15/15 |
+| 18f | Re-verificación de SEC-J-22 | ciberseguridad | opus/medium | Hecho: APROBADO (d837520). SEC-J-19 y SEC-J-22 cerrados; SEC-J-I23 informativo (XS); condición de D55 cumplida en esta rama |
+| 18g | Push de la rama, CI y PR a `develop` | Tech Lead | opus/medium | Pendiente del OK de la usuaria |
+
+**Pendientes tras la iteración 18:**
+- Hernando (mensaje enviado por la usuaria): dejar de importar `ubicacion` en `registro` (D53), SEC-J-23 (roles de `administrador` fuera de la matriz §2), agregar sus endpoints a `SeguridadEndpointsTest.ENDPOINTS`, conflicto en `04-contrato-api.md`.
+- De Juanita: SEC-J-I23 (XS), SEC-04 (`.env` con `cientifico_mq`/`consulta_mq`), corridas k6 de D42 cuando estén todos los servicios.
+- Santiago: 16j (pantallas de `web-interna`), SEC-J-I19.
+
+**Modelos y consumo (iteración 18):**
+| Fase | USD | Agente que más consumió | Cambios de modelo (motivo) |
+|---|---:|---|---|
+| 18a–18f (sesión 2026-11-09) | 5.60 en esta sesión (opus 4.31, sonnet 1.29) | sesión principal (opus, 2.54); ciberseguridad 1.77 en 2 tareas | ciberseguridad opus/**medium** (matriz: high) en 18d y 18f: re-verificación de un diff acotado de su propia auditoría, como en 15h y 16d |

@@ -8,11 +8,11 @@ import java.util.UUID;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Coordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CoordenadasCifradas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CriterioBusquedaInterna;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.FilaHallazgo;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.RepositorioUbicaciones;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgo;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgoRepository;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 

@@ -1,10 +1,10 @@
-# Perfil "aiven": MySQL administrado en Aiven, con SSL obligatorio y verificación del CA.
+# Perfil "aiven": MySQL administrado en Aiven, con SSL obligatorio y verificación del CA y del host.
 # Activar:  SPRING_PROFILES_ACTIVE=aiven   (variables en servicio-cientifico/.env.example)
 #
 # MySQL Connector/J 9.x no lee PEM: el CA de Aiven (ca.pem) debe convertirse una vez a un truststore PKCS12
 # (comando en docs/equipo/09-despliegue.md). AIVEN_TRUSTSTORE_PATH es la ruta ABSOLUTA de ese .p12.
-#   sslMode=VERIFY_CA        verifica que el certificado del servidor lo firma el CA de Aiven (por defecto).
-#   AIVEN_SSL_MODE=VERIFY_IDENTITY  además verifica que el host coincida con el certificado.
+#   sslMode=VERIFY_IDENTITY  (por defecto) verifica que el CA de Aiven firma el certificado y que el host coincide.
+#   AIVEN_SSL_MODE=VERIFY_CA solo verifica el CA, no el host (usar solo si se conecta por IP).
 # Nunca bajar a PREFERRED/REQUIRED: cifrarían sin verificar al servidor.
 spring:
   datasource:

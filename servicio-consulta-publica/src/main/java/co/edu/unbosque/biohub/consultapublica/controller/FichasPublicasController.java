@@ -6,6 +6,7 @@ import java.util.regex.Pattern;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -40,6 +41,7 @@ public class FichasPublicasController {
     }
 
     @GetMapping
+    @PreAuthorize("permitAll()")
     public ResponseEntity<PaginaFichasResponse> buscar(@RequestParam(required = false) String q,
                                                        @RequestParam(required = false) String familia,
                                                        @RequestParam(required = false) String departamento,
@@ -52,6 +54,7 @@ public class FichasPublicasController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("permitAll()")
     public ResponseEntity<FichaPublicaResponse> ficha(@PathVariable String id) {
         if (id == null || !UUID_CANONICO.matcher(id).matches()) {
             throw new ParametroInvalidoException(List.of(new ErrorCampo("id", "identificador inválido")));

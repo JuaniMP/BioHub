@@ -18,7 +18,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import co.edu.unbosque.biohub.cientifico.ubicacion.BaseUbicacionMySqlTest;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 
 /** ARQ-10 (RF13, D28): la cadena real de decoradores audita cada acceso a coordenadas exactas, y solo esos. */
 class DecoradorAuditoriaIntegracionTest extends BaseUbicacionMySqlTest {

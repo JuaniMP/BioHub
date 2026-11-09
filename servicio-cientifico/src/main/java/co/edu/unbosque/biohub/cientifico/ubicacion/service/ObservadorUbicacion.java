@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 import co.edu.unbosque.biohub.cientifico.eventos.domain.HallazgoReclasificado;
 import co.edu.unbosque.biohub.cientifico.eventos.domain.HallazgoRegistrado;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 
 /**
  * Observador de ubicacion (Observer del SAD §6.4.2, ARQ-08, P-A3): escucha los eventos de dominio de

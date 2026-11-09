@@ -10,6 +10,7 @@ import static com.tngtech.archunit.core.domain.properties.HasOwner.Predicates.Wi
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.constructors;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -50,6 +51,38 @@ class ArquitecturaUbicacionTest {
     void infrastructureYDomainNoImportanController() {
         noClasses().that().resideInAnyPackage("..ubicacion.infrastructure..", "..ubicacion.domain..")
                 .should().dependOnClassesThat().resideInAPackage("..ubicacion.controller..").check(CLASES);
+    }
+
+    // ---- ARQ-28 (SAD §7.1): las dependencias apuntan hacia domain ----
+
+    @Test
+    @DisplayName("ARQ-28: layeredArchitecture; domain no depende de nadie, infrastructure no depende de service ni de controller")
+    void arquitecturaEnCapas() {
+        layeredArchitecture().consideringOnlyDependenciesInLayers()
+                .layer("Controller").definedBy("..ubicacion.controller..")
+                .layer("Service").definedBy("..ubicacion.service..")
+                .layer("Infrastructure").definedBy("..ubicacion.infrastructure..")
+                .layer("Domain").definedBy("..ubicacion.domain..")
+                .whereLayer("Controller").mayNotBeAccessedByAnyLayer()
+                .whereLayer("Service").mayOnlyBeAccessedByLayers("Controller")
+                .whereLayer("Infrastructure").mayNotBeAccessedByAnyLayer()
+                .check(CLASES);
+    }
+
+    @Test
+    @DisplayName("ARQ-28: domain no depende de service, infrastructure ni controller")
+    void domainNoDependeDeLasCapasExternas() {
+        noClasses().that().resideInAPackage("..ubicacion.domain..")
+                .should().dependOnClassesThat().resideInAnyPackage("..ubicacion.service..", "..ubicacion.infrastructure..",
+                        "..ubicacion.controller..")
+                .check(CLASES);
+    }
+
+    @Test
+    @DisplayName("ARQ-28: infrastructure no depende de service (la auditoria es un puerto de domain)")
+    void infrastructureNoDependeDeService() {
+        noClasses().that().resideInAPackage("..ubicacion.infrastructure..")
+                .should().dependOnClassesThat().resideInAPackage("..ubicacion.service..").check(CLASES);
     }
 
     // ---- D43 / ARQ-27 / SEC-J-10: la cadena del Decorator no se puede esquivar desde ningún módulo del servicio ----

@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyStore;
 import java.security.SecureRandom;
 import java.util.Base64;
@@ -16,6 +18,8 @@ import javax.crypto.spec.SecretKeySpec;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.env.MockEnvironment;
 
@@ -51,7 +55,14 @@ class ProveedorDeLlavesKeyStoreTest {
         try (OutputStream out = Files.newOutputStream(ruta)) {
             ks.store(out, contrasena);
         }
+        restringir(ruta); // SEC-J-12: el adaptador exige chmod 600; Files.newOutputStream deja 644 con umask 022
         return ruta;
+    }
+
+    private static void restringir(Path ruta) throws Exception {
+        if (ruta.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+            Files.setPosixFilePermissions(ruta, PosixFilePermissions.fromString("rw-------"));
+        }
     }
 
     @Test
@@ -97,6 +108,7 @@ class ProveedorDeLlavesKeyStoreTest {
         assertThatThrownBy(() -> new ProveedorDeLlavesKeyStore(ruta, null, "v1")).isInstanceOf(IllegalStateException.class);
         Path noEsP12 = tmp.resolve("basura.p12");
         Files.writeString(noEsP12, "esto no es un keystore");
+        restringir(noEsP12);
         assertThatThrownBy(() -> new ProveedorDeLlavesKeyStore(noEsP12, CLAVE, "v1")).isInstanceOf(IllegalStateException.class);
     }
 
@@ -154,5 +166,44 @@ class ProveedorDeLlavesKeyStoreTest {
         assertThatThrownBy(() -> cfg.proveedorDeLlaves(
                 new PropiedadesCifrado("", "v1", false, "kms", null, null), entorno))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("'entorno' o 'keystore'");
+    }
+
+    // ---- SEC-J-12: permisos del archivo ----
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    @DisplayName("SEC-J-12: un .p12 con permisos 600 se acepta")
+    void aceptaPermisos600() throws Exception {
+        Path ruta = p12(Map.of("v1", bytes(32)), CLAVE);
+        assertThat(Files.getPosixFilePermissions(ruta)).containsExactlyInAnyOrder(
+                PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
+
+        assertThat(new ProveedorDeLlavesKeyStore(ruta, CLAVE, "v1").versionActiva()).isEqualTo("v1");
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    @DisplayName("SEC-J-12: un .p12 legible por grupo u otros (644, 640, 604) no arranca y el mensaje no revela la ruta")
+    void rechazaPermisosAbiertos() throws Exception {
+        for (String modo : new String[] {"rw-r--r--", "rw-r-----", "rw----r--", "rw-rw----"}) {
+            Path ruta = p12(Map.of("v1", bytes(32)), CLAVE);
+            Files.setPosixFilePermissions(ruta, PosixFilePermissions.fromString(modo));
+            assertThatThrownBy(() -> new ProveedorDeLlavesKeyStore(ruta, CLAVE, "v1")).as(modo)
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("chmod 600").hasMessageContaining("UBICACION_KEYSTORE_RUTA")
+                    .hasMessageNotContaining(ruta.toString()).hasMessageNotContaining(tmp.toString()).hasNoCause();
+        }
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    @DisplayName("SEC-J-12: ConfiguracionUbicacion propaga el rechazo (fail-closed) con un .p12 644")
+    void laConfiguracionRechazaUnP12Abierto() throws Exception {
+        Path ruta = p12(Map.of("v1", bytes(32)), CLAVE);
+        Files.setPosixFilePermissions(ruta, PosixFilePermissions.fromString("rw-r--r--"));
+
+        assertThatThrownBy(() -> new ConfiguracionUbicacion().proveedorDeLlaves(
+                new PropiedadesCifrado("", "v1", false, "keystore", ruta.toString(), new String(CLAVE)),
+                new MockEnvironment())).isInstanceOf(IllegalStateException.class).hasMessageContaining("chmod 600");
     }
 }

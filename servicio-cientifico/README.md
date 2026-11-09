@@ -96,16 +96,31 @@ keytool -genseckey -alias v2 -keyalg AES -keysize 256 \
         -storetype PKCS12 -keystore ~/biohub-llaves/ubicacion.p12
 ```
 
-Variables (en el `.env` del servicio, que tampoco se versiona; ver `.env.example`):
+Variables (en el `.env` del servicio, que tampoco se versiona; ver `.env.example`). La contraseña se define aparte (ver más abajo):
 
 ```properties
 UBICACION_LLAVES_PROVEEDOR=keystore
 UBICACION_KEYSTORE_RUTA=/home/tu-usuario/biohub-llaves/ubicacion.p12
-UBICACION_KEYSTORE_PASSWORD=la-contraseña-que-pusiste-en-keytool
 UBICACION_CLAVE_ACTIVA=v1
+# UBICACION_KEYSTORE_PASSWORD NO va aquí: exportarla en el entorno del proceso o inyectarla como secreto
 ```
 
+**Permisos y contraseña (SEC-J-12).** El servicio **no arranca** si el `.p12` es accesible por el grupo o por otros (en Linux/macOS exige `chmod 600`; en Windows esta comprobación no aplica). Además, el `.env` suele guardar la ruta y la contraseña juntas: si ambas están en el mismo archivo, el keystore casi no añade protección. Pasa `UBICACION_KEYSTORE_PASSWORD` como **variable del sistema o secreto del orquestador** (Docker/Kubernetes secret, `systemd` `EnvironmentFile` con `chmod 600` distinto del `.env`, gestor de secretos), no en el `.env` junto a `UBICACION_KEYSTORE_RUTA`. El servicio borra de memoria su copia `char[]` de la contraseña tras abrir el keystore; el `String` de la propiedad sigue en el `Environment` de Spring, así que no actives volcados de heap ni expongas `env`/`configprops`/`heapdump` en actuator.
+
 Pasar de `entorno` a `keystore` con datos ya cifrados: el keystore debe contener las mismas llaves (mismos ids y bytes) que `UBICACION_CLAVES`. Si no, crea el keystore con la llave nueva `v2`, mantén también la `v1` y ejecuta el re-cifrado. Si pierdes una llave, sus coordenadas son irrecuperables: guarda una copia **fuera del servidor** y nunca junto a los respaldos de la base.
+
+## Auditoría de accesos a ubicaciones (D28, SEC-J-08)
+
+Cada acceso a coordenadas exactas (y cada 403 sobre los endpoints de ubicación) deja una línea en el logger `biohub.auditoria.ubicacion`, sin coordenadas. `src/main/resources/logback-spring.xml` lo envía, además de a la consola, a un **archivo propio de solo anexado** para que no se pierda con la rotación del log general:
+
+| Qué | Valor |
+|---|---|
+| Archivo | `UBICACION_AUDITORIA_LOG` (por defecto `logs/auditoria-ubicacion.log`, relativo al directorio de trabajo; `logs/` está en `.gitignore`) |
+| Rotación | por día y por tamaño (50 MB), comprimida `.gz` |
+| Retención | `UBICACION_AUDITORIA_LOG_DIAS` (365 por defecto) y tope total `UBICACION_AUDITORIA_LOG_TOPE` (10GB por defecto). Una petición de mapa puede escribir hasta 1.000 líneas (SEC-J-I9): dimensiona el tope si el tráfico es alto |
+| Nivel | fijado en **INFO** en el XML |
+
+**No bajes el nivel de `biohub.auditoria.ubicacion`** (OFF, WARN o ERROR) ni lo definas con `logging.level.biohub.auditoria.ubicacion=...`: Spring Boot aplica `logging.level.*` después de leer el XML y apagaría la auditoría. En Docker el usuario `app` escribe en `/app/logs`; monta ahí un volumen persistente. Fuera de Docker, el proceso debe poder crear la carpeta del archivo; si no puede, Logback lo avisa al arrancar y la auditoría solo saldría por la consola. Evita que quien sirve la aplicación pueda borrar o truncar el archivo (permisos del volumen / `chattr +a` en el archivo activo si se necesita append-only a nivel de sistema operativo).
 
 ## Patrones del SAD en `ubicacion` (D40)
 

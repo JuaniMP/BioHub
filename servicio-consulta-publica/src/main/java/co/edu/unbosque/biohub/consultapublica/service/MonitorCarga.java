@@ -9,9 +9,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-
-import co.edu.unbosque.biohub.consultapublica.config.PropiedadesPublica;
 
 /**
  * Monitor de carga de la consulta pública (ARQ-06, ASR1, RNF1). Mide las peticiones en curso y el p95 de la
@@ -40,7 +39,7 @@ public class MonitorCarga {
                          long cambios) {
     }
 
-    private final PropiedadesPublica.Degradacion cfg;
+    private final UmbralesDegradacion cfg;
     private final boolean forzado;
     private final Clock reloj;
 
@@ -59,14 +58,19 @@ public class MonitorCarga {
     private volatile long p95Ms;
     private volatile int muestras;
 
+    /**
+     * @param umbrales umbrales de entrada y salida (ARQ-28: el servicio recibe solo este record, no {@code config})
+     * @param forzado  {@code biohub.publica.modo-degradado}: forzado manual de la búsqueda degradada
+     */
     @Autowired
-    public MonitorCarga(PropiedadesPublica propiedades) {
-        this(propiedades, Clock.systemUTC());
+    public MonitorCarga(UmbralesDegradacion umbrales,
+                        @Value("${biohub.publica.modo-degradado:false}") boolean forzado) {
+        this(umbrales, forzado, Clock.systemUTC());
     }
 
-    MonitorCarga(PropiedadesPublica propiedades, Clock reloj) {
-        this.cfg = propiedades.degradacion();
-        this.forzado = propiedades.modoDegradado();
+    MonitorCarga(UmbralesDegradacion umbrales, boolean forzado, Clock reloj) {
+        this.cfg = umbrales;
+        this.forzado = forzado;
         this.reloj = reloj;
         this.desdeMs = reloj.millis();
         if (forzado) {

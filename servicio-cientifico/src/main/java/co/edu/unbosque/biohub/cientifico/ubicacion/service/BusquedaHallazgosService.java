@@ -8,6 +8,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.AuditoriaAccesoUbicacion;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CriterioBusquedaInterna;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.FilaHallazgo;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.RepositorioUbicaciones;

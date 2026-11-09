@@ -1,10 +1,16 @@
 package co.edu.unbosque.biohub.consultapublica.eventos;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+
+import com.rabbitmq.client.AMQP;
+import com.rabbitmq.client.Channel;
+import com.rabbitmq.client.ShutdownSignalException;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -77,20 +83,39 @@ class PublicadorNoPermitidoIntegracionTest extends BaseIntegracion {
 
     @Test
     @DisplayName("RabbitMQ no deja falsificar el user_id desde otra conexión (el contrato lo da por garantizado)")
-    void elBrokerRechazaUnUserIdFalsificado() {
+    void elBrokerRechazaUnUserIdFalsificado() throws Exception {
+        // BUG-J18-1: el broker rechaza la publicación cerrando el canal (PRECONDITION_FAILED), pero el cierre llega
+        // de forma asíncrona. Antes se hacía una operación posterior y se esperaba que fallara, lo que dependía de la
+        // carrera entre ambos. Ahora se espera el evento que se quiere comprobar: el cierre del canal, con el motivo.
         Contenedores.crearUsuarioAmqp(INTRUSO + "2", CLAVE);
-        CachingConnectionFactory cf = conexionComo(INTRUSO + "2", CLAVE);
-        try {
+        RabbitMQContainer q = Contenedores.rabbit();
+        com.rabbitmq.client.ConnectionFactory fabrica = new com.rabbitmq.client.ConnectionFactory();
+        fabrica.setHost(q.getHost());
+        fabrica.setPort(q.getAmqpPort());
+        fabrica.setUsername(INTRUSO + "2");
+        fabrica.setPassword(CLAVE);
+
+        CompletableFuture<ShutdownSignalException> cierre = new CompletableFuture<>();
+        // el canal lo cierra el broker: se cierra solo la conexión (cierra sus canales; close() del canal ya cerrado falla)
+        try (com.rabbitmq.client.Connection conexion = fabrica.newConnection()) {
+            Channel canal = conexion.createChannel();
+            canal.addShutdownListener(cierre::complete);
             String json = Eventos.sobre("hallazgo.registrado",
                     Eventos.datos(id("falsificado"), 1, "Atelopus ebenoides", "NO_AMENAZADA"));
-            assertThatThrownBy(() -> {
-                plantillaDe(cf).send("biohub.eventos", "hallazgo.registrado",
-                        Eventos.mensaje(json, Contenedores.usuarioAmqp()));
-                // el error de canal llega de forma asíncrona: una operación posterior lo hace visible
-                plantillaDe(cf).execute(ch -> ch.queueDeclarePassive("consulta-publica.eventos"));
-            }).isNotNull();
-        } finally {
-            cf.destroy();
+            // user_id de otro usuario (el esperado) en una conexión que no es la suya
+            AMQP.BasicProperties propiedades = new AMQP.BasicProperties.Builder()
+                    .contentType("application/json").userId(Contenedores.usuarioAmqp()).build();
+            canal.basicPublish("biohub.eventos", "hallazgo.registrado", propiedades,
+                    json.getBytes(StandardCharsets.UTF_8));
+
+            // espera acotada del cierre (un solo evento, sin reintentos); si el broker aceptara el mensaje, vence
+            ShutdownSignalException senal = cierre.get(15, TimeUnit.SECONDS);
+            assertThat(senal.isHardError()).as("se cierra solo el canal, no la conexión").isFalse();
+            assertThat(senal.getReason()).isInstanceOf(AMQP.Channel.Close.class);
+            AMQP.Channel.Close motivo = (AMQP.Channel.Close) senal.getReason();
+            assertThat(motivo.getReplyCode()).as("PRECONDITION_FAILED").isEqualTo(406);
+            assertThat(motivo.getReplyText()).contains("user_id");
         }
+        assertThat(fichas()).as("el evento falsificado no llegó a crear ficha").isZero();
     }
 }

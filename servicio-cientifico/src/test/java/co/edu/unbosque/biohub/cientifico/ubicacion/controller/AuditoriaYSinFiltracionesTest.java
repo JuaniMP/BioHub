@@ -19,7 +19,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import co.edu.unbosque.biohub.cientifico.ubicacion.BaseUbicacionMySqlTest;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 import co.edu.unbosque.biohub.cientifico.ubicacion.service.RegistroUbicacionComando;
 
 /** Auditoría de accesos (D28) y garantía de que ningún log ni respuesta no autorizada contiene coordenadas. */
@@ -71,7 +71,7 @@ class AuditoriaYSinFiltracionesTest extends BaseUbicacionMySqlTest {
     void ningunaRespuestaNiLogContieneCoordenadasParaRolesSinPermiso() throws Exception {
         sembrar("Atelopus ebenoides", LocalDate.of(2026, 3, 14), "investigador1", "Boyacá", EstadoConservacion.EN_PELIGRO, 5.1234567, -73.7654321);
         sembrar("Rhinella marina", LocalDate.of(2026, 3, 15), "investigador1", "Boyacá", EstadoConservacion.NO_AMENAZADA, 5.1234567, -73.7654321);
-        jdbc.update("UPDATE ubicacion_hallazgo SET coord_cifrada = CONCAT(UNHEX('FF'), SUBSTRING(coord_cifrada, 2)) WHERE nombre_cientifico = 'Rhinella marina'");
+        alterarPrimerByteDelCifrado("Rhinella marina");
 
         List<String> respuestas = new ArrayList<>();
         for (String rol : List.of("investigador_campo", "auditor_cientifico", "analista_ambiental", "administrador", "sin_rol")) {
@@ -108,7 +108,7 @@ class AuditoriaYSinFiltracionesTest extends BaseUbicacionMySqlTest {
         String mapa = mvc.perform(get("/api/cientifico/ubicacion/mapa").header("Authorization", t))
                 .andReturn().getResponse().getContentAsString();
         assertThat(mapa).contains("-73.7654321"); // sí las recibe quien tiene permiso
-        jdbc.update("UPDATE ubicacion_hallazgo SET coord_cifrada = CONCAT(UNHEX('FF'), SUBSTRING(coord_cifrada, 2))");
+        alterarPrimerByteDelCifrado(null);
         mvc.perform(get("/api/cientifico/ubicacion/mapa").header("Authorization", t)).andReturn(); // error de integridad: se loguea sin datos
         assertSinNumeros(todoElLog());
     }

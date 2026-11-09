@@ -15,7 +15,7 @@ import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CifradorCoordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.ProveedorDeLlaves;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.RepositorioUbicaciones;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgoRepository;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.AuditoriaAccesoUbicacion;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.AuditoriaAccesoUbicacion;
 import jakarta.persistence.EntityManager;
 
 /** Configuración propia del módulo (no se toca {@code cientifico.config}, zona compartida). */
@@ -37,8 +37,16 @@ public class ConfiguracionUbicacion {
             if (ruta == null || ruta.isBlank()) {
                 throw new IllegalStateException("UBICACION_KEYSTORE_RUTA es obligatoria con el proveedor keystore");
             }
-            return new ProveedorDeLlavesKeyStore(java.nio.file.Path.of(ruta.trim()),
-                    clave == null ? null : clave.toCharArray(), propiedades.claveActiva());
+            // SEC-J-12: la copia en char[] no debe sobrevivir al arranque; el adaptador solo la usa al abrir el .p12
+            char[] contrasena = clave == null ? null : clave.toCharArray();
+            try {
+                return new ProveedorDeLlavesKeyStore(java.nio.file.Path.of(ruta.trim()), contrasena,
+                        propiedades.claveActiva());
+            } finally {
+                if (contrasena != null) {
+                    java.util.Arrays.fill(contrasena, '\0');
+                }
+            }
         }
         if (!PropiedadesCifrado.PROVEEDOR_ENTORNO.equals(propiedades.proveedor())) {
             throw new IllegalStateException("biohub.ubicacion.cifrado.proveedor debe ser 'entorno' o 'keystore'");

@@ -274,3 +274,237 @@ Los tres hallazgos (BUG-J2, BUG-J3, O-11) quedan cerrados con evidencia ejecutad
 ### CI en GitHub, primera ejecución (2026-11-04, run 41876849186)
 - backend cientifico y consulta-publica: OK. Bruno: 44/44 requests, 77/77 tests, pero el job salía con código 2 porque Bruno CLI no crea `resultados/` → `mkdir -p resultados` en `ci.yml`.
 - web-publica: 2 E2E fallaban solo en WebKit por `style-src-attr` "inline" en `<select>` nativos: artefacto de WebKit (se reproduce con un `<select>` estático en HTML puro con `style-src 'self'`), no de la app. El fixture `erroresCsp` ahora usa el evento `securitypolicyviolation` e ignora solo esa combinación exacta; 3 tests de guarda demuestran que `<style>`, `style=` y `<select style=...>` siguen detectándose. WebKit verificado en Docker (`mcr.microsoft.com/playwright:v1.64.1-noble`): 18 pasan, 1 omitido previo. CSP sin cambios (sin `'unsafe-inline'`).
+
+## Iteración 16 (2026-11-04): verificación de 81f4e28..HEAD
+
+Commits revisados: ARQ-33 (81f4e28), SEC-J-04 web-interna (47b5cc9), SEC-J-13 (786f4e1), SEC-J-12 (57ab7ad), SEC-J-08.3 (1e449ac), ARQ-29 (25d2175), ARQ-28 (aeb67d8).
+
+### Bug encontrado y corregido
+
+**BUG-J4 (Medio, responsable: QA, solo tests): `mvn verify` a secas falla con un `.env` local del perfil Aiven.**
+- Pasos: con un `.env` que define `CIENTIFICO_MIGR_USER/PASSWORD` (o `CONSULTA_MIGR_*`) en la raíz o en el servicio, ejecutar `mvn -B verify` en `servicio-cientifico` o `servicio-consulta-publica`.
+- Esperado: las pruebas son herméticas y no dependen del entorno del desarrollador. Obtenido: `spring.config.import` carga el `.env`, Flyway usa `cientifico_migr` contra el MySQL de Testcontainers y falla con `Access denied for user 'cientifico_migr'` (científico: decenas de errores de contexto, p. ej. MigracionesUbicacionTest 6/6 y QaSeguridadJwtTest 30/30; consulta-publica: igual). En CI no se ve porque no hay `.env`.
+- Primer intento descartado: sobrescribir `spring.config.import` en un `application.properties` de pruebas no sirve, porque Spring procesa los imports de cada archivo de configuración aunque otro tenga precedencia.
+- Corrección: `src/test/resources/application.properties` en ambos servicios con `spring.flyway.user=${spring.datasource.username}` y `spring.flyway.password=${spring.datasource.password}`. Solo afecta al classpath de pruebas; producción intacta; no se leyó ni copió ningún valor de los `.env`.
+- Evidencia tras la corrección, con el `.env` real presente y sin variables sobrescritas: científico 264 ejecutadas, 0 fallos, 0 errores, 2 omitidas, BUILD SUCCESS; consulta-publica 194, 0, 0, 0 omitidas, BUILD SUCCESS.
+
+### Resultados
+
+| Proyecto | Comando | Resultado |
+|---|---|---|
+| servicio-cientifico | `mvn -B verify` | 264 / 0 fallos / 0 errores / 2 omitidas |
+| servicio-consulta-publica | `mvn -B verify` | 194 / 0 / 0 / 0 omitidas |
+| web-interna | `npm test` y `npm run build` | 46 de 46 (4 archivos); build OK |
+| web-publica | `npm test` y `npm run build` | 32 de 32 (3 archivos); build OK |
+
+Las 2 omitidas de científico son las pruebas opt-in contra el broker desplegado (requieren `QA_RMQ_*`).
+
+### Revisión de que las pruebas nuevas prueban lo que dicen
+
+- SEC-J-13: `HallazgoRegistradoSerializacionTest` comprueba JSON y `convertValue` sin claves ni valores de coordenadas, y que siguen en memoria. `PublicadorEventosTest` cubre claves (6 variantes, sin distinguir mayúsculas), anidadas (mapa, lista, mapa), texto (decimal, grados, "lat:/lon:"), que el mensaje no filtra el valor, que no se llama al broker, un caso sin coordenadas con números con coma que se publica (sin falso positivo) y que `prueba.*` no se revisa. Sin hueco relevante.
+- SEC-J-12: `ProveedorDeLlavesKeyStoreTest` cubre 600 aceptado y 644/640/604 rechazados sin revelar la ruta.
+- SEC-J-08.3: `AuditoriaLogbackTest` carga el `logback-spring.xml` real con Joran: archivo propio, solo esas líneas, anexado entre reinicios, nivel INFO fijo aunque la raíz sea ERROR.
+- ARQ-29: regla ArchUnit sobre bytecode (con `allowEmptyShould`, hoy `registro` solo tiene `package-info`, así que la regla es preventiva) más comprobación sobre el código fuente que sí atrapa un import. Aceptable.
+- ARQ-28: `layeredArchitecture` en ambos servicios más reglas explícitas; en consulta-publica la deuda `service.vista`/`CriterioBusquedaPublica` queda congelada y documentada. Nota: en ubicacion la capa Infrastructure solo se restringe con `mayNotBeAccessedByAnyLayer`, y el acceso Service→Infrastructure queda cubierto por `infrastructureNoDependeDeService` y el resto de reglas D43.
+- SEC-J-04: `PaginaMapa.test.jsx` verifica `maxZoom` 8 con un punto, 10 con varios (`padding` incluido) y `referrerPolicy="no-referrer"` en la capa de teselas.
+
+No añadí casos nuevos: no vi huecos relevantes. Observación (Bajo, no bloquea): las comprobaciones de keystore 600/644 dependen de POSIX; en un sistema de archivos sin POSIX la prueba de 644 no es significativa.
+
+### No ejecutado
+
+E2E contra servicios desplegados y k6 (D42, pospuesto por la usuaria): fuera del alcance de esta iteración.
+
+### Veredicto Iteración 16: APROBADO
+
+Los siete commits cumplen lo declarado y las pruebas nuevas son significativas. El único bug (BUG-J4, aislamiento de pruebas) estaba en los tests y quedó corregido; sin bugs abiertos de producción.
+
+
+---
+
+# Iteración 17 (2026-11-08)
+
+Rama `feature/ubicacion-consulta-publica`. Alcance: `denyAll` y `@PreAuthorize` (D55), CI rojo (zona horaria y recifrado), integración del PR #7 (API Keys y límites) y E2E por el gateway con perfil `local`.
+
+## Comandos usados
+
+```bash
+# Suites como en CI (ci.yml tiene 3 servicios: cientifico, consulta-publica y api-gateway), con TZ=UTC y luego TZ=America/Bogota
+TZ=<zona> JAVA_TOOL_OPTIONS=-Duser.timezone=<zona> sg docker -c "mvn -B -ntp -pl <servicio> -am verify"
+# Repetición x10
+sg docker -c "mvn -B -ntp -q -pl servicio-cientifico -am test -Dtest='RecifradoServiceTest,BusquedaHallazgosApiTest' -Dsurefire.failIfNoSpecifiedTests=false"
+mvn -B -ntp -q -pl servicio-consulta-publica -am test -Dtest=ValidadorDatosHallazgoTest -Dsurefire.failIfNoSpecifiedTests=false   # (esta clase vive en consulta-publica)
+# E2E: MySQL locales del compose (docker compose up -d mysql-transaccional mysql-lectura mysql-gateway) y los 3 servicios con
+SPRING_PROFILES_ACTIVE=local java -jar <modulo>/target/<modulo>-0.0.1-SNAPSHOT.jar   # cwd fuera del repo, variables del .env raíz exportadas
+```
+
+Detalles del E2E: los jars se ejecutaron con el directorio de trabajo fuera del repo para que no leyeran `servicio-cientifico/.env` (tiene configuración y llave de Aiven). `servicio-cientifico` usó una `UBICACION_CLAVES` aleatoria generada para la prueba. En los logs el perfil activo fue `local` en los tres y las URL JDBC fueron `localhost:3307` (científico), `localhost:3308` (consulta pública) y `localhost:3310` (gateway). Ningún log contiene "aivencloud". Los tokens vienen del client `biohub-pruebas` (password grant); el script lee la contraseña de `.env` sin imprimirla.
+
+## Resultados de suites
+
+| Servicio | TZ | Ejecutadas | Fallos | Errores | Omitidas | SeguridadEndpointsTest | ArquitecturaSeguridadTest | Resultado |
+|---|---|---:|---:|---:|---:|---|---|---|
+| servicio-cientifico | UTC | 322 | 0 | 0 | 2 | 56/56 | 2/2 | BUILD SUCCESS |
+| servicio-cientifico | America/Bogota | 322 | 0 | 0 | 2 | 56/56 | 2/2 | BUILD SUCCESS |
+| servicio-consulta-publica | UTC | 239 | 0 | 0 | 0 | 40/40 | 2/2 | BUILD SUCCESS |
+| servicio-consulta-publica | America/Bogota | 239 | 0 | 0 | 0 | 40/40 | 2/2 | BUILD SUCCESS |
+| api-gateway | UTC | 168 | 0 | 0 | 0 | n/a | n/a | BUILD SUCCESS |
+| api-gateway | America/Bogota | 168 | 0 | 0 | 0 | n/a | n/a | BUILD SUCCESS |
+
+Las 2 omitidas de científico son `PublicadorHallazgoE2ETest` y `PublicadorBrokerDesplegadoTest` (opt-in con `QA_RMQ_*`, igual que en la iteración 16).
+
+Repeticiones (10 ejecuciones consecutivas cada una, todas con exit 0):
+
+| Prueba | Casos por ejecución | Zona | Fallos en 10 ejecuciones |
+|---|---:|---|---:|
+| `RecifradoServiceTest` | 6 | UTC | 0 |
+| `BusquedaHallazgosApiTest` | 21 | UTC | 0 |
+| `ValidadorDatosHallazgoTest` | 20 | UTC | 0 |
+| `ValidadorDatosHallazgoTest` | 20 | America/Bogota | 0 |
+
+## E2E por el gateway (puerto 8080, perfil `local`)
+
+Quién respondió se dedujo del cuerpo y las cabeceras: el 403 del gateway es `application/problem+json;charset=UTF-8` (solo ocurre con `sinrol1`, que no tiene ninguno de los 5 roles); el 403 del servicio es `application/problem+json` sin `charset`. El 401 sin token lo da el gateway (sin cuerpo).
+
+| Método | Ruta | Usuario | Esperado | Obtenido | |
+|---|---|---|---|---|---|
+| GET | /api/cientifico/ubicacion/hallazgos | cientifico1, investigador1, auditor1, analista1, admin1 | 200 | 200 (x5) | ✅ |
+| GET | /api/cientifico/ubicacion/hallazgos | sinrol1 | 403 | 403 problem+json `ROL_INSUFICIENTE` (gateway) | ✅ |
+| GET | /api/cientifico/ubicacion/hallazgos | sin token | 401 | 401 | ✅ |
+| GET | /api/cientifico/ubicacion/mapa | cientifico1 | 200 | 200 | ✅ |
+| GET | /api/cientifico/ubicacion/mapa | admin1, investigador1, auditor1, analista1 | 403 | 403 problem+json `ROL_INSUFICIENTE` (servicio) x4 | ✅ |
+| GET | /api/cientifico/ubicacion/mapa | sinrol1 | 403 | 403 problem+json `ROL_INSUFICIENTE` (gateway) | ✅ |
+| GET | /api/cientifico/ubicacion/mapa | sin token | 401 | 401 | ✅ |
+| POST | /api/cientifico/ubicacion/recifrado | admin1 | 2xx | 200 `{claveActiva:v1, revisados:0, recifrados:0, fallidos:0}` | ✅ |
+| POST | /api/cientifico/ubicacion/recifrado | cientifico1, investigador1 | 403 | 403 problem+json (servicio) | ✅ |
+| POST | /api/cientifico/ubicacion/recifrado | sinrol1 | 403 | 403 problem+json (gateway) | ✅ |
+| POST | /api/cientifico/ubicacion/recifrado | sin token | 401 | 401 | ✅ |
+| GET | /api/cientifico/ping | los 5 roles | 200 | 200 (x5) | ✅ |
+| GET | /api/cientifico/ping | sinrol1 | 403 | 403 `ROL_INSUFICIENTE` (gateway) | ✅ |
+| GET | /api/cientifico/ping | sin token | 401 | 401 | ✅ |
+| GET | /api/publica/fichas | sin token | 200 | 200 | ✅ |
+| GET | /api/publica/fichas/00000000-0000-0000-0000-000000000000 | sin token | 404 | 404 problem+json "La ficha solicitada no existe." | ✅ |
+| GET | /api/publica/ping | sin token | 200 | 200 | ✅ |
+| GET | /api/publica/eventos/recibidos | admin1 | 200 | 200 | ✅ |
+| GET | /api/publica/eventos/recibidos | cientifico1, investigador1, sinrol1 | 403 | 403 (servicio, cuerpo vacío; ver OBS-J17-1) | ✅ |
+| GET | /api/publica/eventos/recibidos | sin token | 401 | 401 (servicio, cuerpo vacío) | ✅ |
+| POST | /api/publica/fichas | sin token / admin1 | rechazada | 401 / 403 `ROL_INSUFICIENTE` (gateway) | ✅ |
+| GET | /api/cualquiercosa | admin1 / sin token | rechazada | 403 `ROL_INSUFICIENTE` / 401 | ✅ |
+| GET | /api/gateway/consumidores | cientifico1 / sin token | 403 / 401 | 403 / 401 | ✅ |
+| POST | /api/gateway/consumidores | admin1 | 201 | 201 | ✅ |
+| POST | /api/gateway/consumidores/{id}/keys | admin1 | 201 | 201 (apiKey mostrada solo aquí) | ✅ |
+| GET | /api/v1/externa/fichas | X-API-Key válida | 200 | 200 con `X-RateLimit-Limit: 60` y `X-RateLimit-Remaining: 58` | ✅ |
+| GET | /api/v1/externa/fichas | sin key | 401 | 401 `API Key inválida` | ✅ |
+| GET | /api/v1/externa/fichas | key inválida | 401 | 401 | ✅ |
+| GET | /api/v1/externa/fichas | JWT de admin1 sin key | 401 | 401 | ✅ |
+| POST | /api/v1/externa/fichas | con key válida | rechazada | 401 (la ruta externa es solo GET) | ✅ |
+| DELETE | /api/gateway/keys/{id} | admin1 | 204 | 204 | ✅ |
+| GET | /api/v1/externa/fichas | key revocada | 401 | 401 (revocación inmediata) | ✅ |
+| GET | /api/publica/ping (x112) | sin token, misma IP | 429 + Retry-After | 429 en la petición 112 (había ~8 previas: 120 por minuto), `Retry-After: 58`, problem+json `LIMITE_EXCEDIDO` (gateway) | ✅ |
+
+Total: 50 comprobaciones del script principal, 50 aprobadas, 0 fallidas. Las llamadas internas con JWT no pidieron API Key (PR #7 no rompe lo anterior). La key de prueba se revocó y el consumidor `qa-j17-*` quedó creado en la BD local (no hay endpoint para borrarlo).
+
+Comprobaciones adicionales: mientras el cupo por IP estaba agotado, `/api/publica/eventos/recibidos` con y sin JWT también devolvió 429 (el límite se aplica antes de la autenticación; es coherente con el diseño). Llamadas directas a los puertos de los servicios confirman que el 403 de `eventos/recibidos` lo emite `servicio-consulta-publica` con cuerpo vacío.
+
+## Bugs
+
+No se encontraron bugs bloqueantes. Observaciones:
+
+### OBS-J17-1 (Bajo, no bloquea) — responsable sugerido: backend (consulta-publica)
+- **Qué:** el 403 y el 401 de `GET /api/publica/eventos/recibidos` salen del propio servicio con cuerpo vacío y `Content-Type: application/octet-stream` (solo la cabecera `WWW-Authenticate`). El 403 de `ubicacion` en científico sí es problem+json `ROL_INSUFICIENTE` (D55).
+- **Reproducir:** `GET /api/publica/eventos/recibidos` con token de `cientifico1` por el gateway, o directo a `localhost:8083`.
+- **Esperado vs obtenido:** el contrato (§ eventos/recibidos) solo exige 401/403, así que no incumple; pero es inconsistente con el formato de error del resto (§5.1 y D55). Obtenido: 403 con cuerpo vacío.
+- **Archivo probable:** `servicio-consulta-publica/.../config/SecurityConfig` (falta un `AccessDeniedHandler`/`AuthenticationEntryPoint` que emita problem+json).
+
+### OBS-J17-2 (Informativo)
+`/api/publica/**` no devuelve cabeceras `X-RateLimit-*` en respuestas 2xx (solo `Retry-After` en el 429). Es el comportamiento del código (`ApiKeyRateLimitFilter.atenderPortal`) y del contrato (`X-RateLimit-*` solo en la API externa), así que no es defecto; se anota porque el encargo esperaba cabeceras de límite en la ruta pública.
+
+### OBS-J17-3 (Informativo)
+Las pruebas de integración de `servicio-cientifico` leen `servicio-cientifico/.env` (cwd del módulo), que hoy contiene credenciales y llave reales de Aiven. No hubo conexión a Aiven (0 coincidencias de "aivencloud" en los logs de las suites), pero conviene que 17g lo revise.
+
+## No ejecutado
+
+- `web-publica` (npm test, build y Playwright del job `frontend` de CI): fuera del alcance de la tarea 17f.
+- Pruebas opt-in contra el broker desplegado (`QA_RMQ_*`): omitidas por diseño (2).
+- 429 de la API externa por consumidor (60/min) y por 20 keys inválidas/min: no probados en E2E; los cubre la suite del gateway.
+- `servicio-equipos` y `servicio-reportes` no se arrancaron (fuera de alcance).
+
+## Veredicto Iteración 17: APROBADO
+
+Las tres suites de CI pasan en UTC y en America/Bogota (322, 239 y 168 pruebas, 0 fallos), las pruebas antes inestables (`RecifradoServiceTest`, `BusquedaHallazgosApiTest`, `ValidadorDatosHallazgoTest`) pasaron 10 de 10 veces, y los 50 casos E2E por el gateway coinciden con la matriz de `11-seguridad-y-acceso.md`, el 403 de `sinrol1` es problem+json `ROL_INSUFICIENTE` (D55) y las API Keys y el límite por IP funcionan sin romper las rutas internas con JWT. Solo hay una observación de formato de error (Bajo).
+
+---
+
+# Iteración 18: verificación de SEC-J-19 y SEC-J-20
+
+Fecha: 2026-11-09. Rama `feature/ubicacion-consulta-publica`. Commits verificados: SEC-J-19 (`ArquitecturaSeguridadTest` sin vías de elusión) y SEC-J-20 (`ProblemaSeguridadHandler`: 403 problem+json `ROL_INSUFICIENTE` y 401 del contrato en todo el servicio). Durante la sesión el historial se reescribió: los hashes actuales son `fc769a9` (SEC-J-19) y `efed795` (SEC-J-20); el contenido es el mismo que los `d718be5` y `e49373a` del encargo.
+
+## Resumen de ejecución (`mvn -B -pl servicio-cientifico,servicio-consulta-publica -am verify`)
+
+| Ejecución | servicio-cientifico | servicio-consulta-publica | Resultado |
+|---|---|---|---|
+| TZ=UTC | 434 pruebas, 0 fallos, 2 omitidas | 339, 0 fallos, 0 omitidas | BUILD SUCCESS |
+| TZ=America/Bogota (1.ª) | 434, 0, 2 omitidas | 339, **1 fallo**, 0 | BUILD FAILURE (ver BUG-J18-1) |
+| TZ=America/Bogota (repetición completa) | 434, 0, 2 omitidas | 339, 0, 0 | BUILD SUCCESS |
+
+- La suma de los XML de `surefire-reports` de científico da 437 (2 omitidas), como midió el Tech Lead; el resumen de Maven da 434. Es una diferencia de conteo del informe (probablemente pruebas dinámicas/anidadas), no un fallo; las 2 omitidas coinciden (broker desplegado opt-in).
+- Repetí 5 veces `PublicadorNoPermitidoIntegracionTest` aislada en Bogota: 5/5 en verde. El fallo es intermitente (1 de 7 ejecuciones en total).
+- Cobertura (JaCoCo): no disponible en este build, no medida.
+
+## Cobertura de las pruebas nuevas (revisadas leyendo el código y ejecutadas)
+
+| Requisito | Dónde se prueba | Estado |
+|---|---|---|
+| 403 problem+json `ROL_INSUFICIENTE`, `Cache-Control: no-store`, cuerpo fijo (`type`, `title`, `status`, `detail`, `instance`, `codigo`) fuera de `ubicacion` | científico: `SeguridadEndpointsTest` (todo endpoint con JWT sin roles y con rol no permitido, `/api/cientifico/ping`, `/api/cientifico/eventos/prueba`, denyAll en `/`, `/actuator/*`, `/api/publica/*`...). consulta-pública: `/api/publica/eventos/recibidos` con 6 roles y sin roles, y rutas denyAll | Cubierto |
+| 401 sin cuerpo, `WWW-Authenticate: Bearer`, `no-store` | ambos `SeguridadEndpointsTest` (sin token en todos los endpoints; ruta pública con token malo) | Cubierto |
+| 401 sin la descripción interna del decodificador JWT | `unJwtInvalidoDa401SinCuerpoSinFiltrarElMotivoInterno` en ambos: cabecera exacta `Bearer error="invalid_token"`, sin "firma rota" ni "interno-7" | Cubierto |
+| `UbicacionExceptionHandler` sigue respondiendo y auditando primero en `ubicacion` | Sin prueba nueva en SEC-J-20; lo cubren las existentes `MapaApiTest.losDemasRolesRecibenElMapaDenegado` (problem+json, no-store, `ROL_INSUFICIENTE`) y `AuditoriaYSinFiltracionesTest` / `BusquedaHallazgosApiTest` (auditoría del 403); todas en verde | Cubierto (regresión) |
+| `ConsultaPublicaExceptionHandler` ya no convierte AccessDenied en 500 | `unAccessDeniedExceptionDeUnEndpointDeFichasNoSeConvierteEn500` (mock lanza `AccessDeniedException`, esperado 403 `ROL_INSUFICIENTE` sin filtrar el mensaje) | Cubierto |
+| El 403 no filtra trazas ni detalles internos | `elCuerpoDel403NoFiltraTrazasNiDetallesInternos` en ambos | Cubierto |
+
+Huecos menores (no bloqueantes): no hay prueba que combine "denyAll de la cadena de filtros" con auditoría (no se audita fuera de `ubicacion`, lo que es el diseño); el 403 de `/actuator/env` se probó en vivo (abajo) y en la suite, pero la suite no comprueba `Cache-Control` en esa ruta concreta salvo mediante `esRolInsuficiente`, que sí lo hace.
+
+## Prueba de mutación manual
+
+| Mutación (temporal) | Resultado |
+|---|---|
+| Quitar `@PreAuthorize` de `PingController` (científico, línea 21) | `ArquitecturaSeguridadTest` falla (69 pruebas, 1 fallo): "methods ... annotated with @RequestMapping should tener @PreAuthorize con un rol..." |
+| Cambiar `permitAll()` por `isAuthenticated()` en `FichasPublicasController` línea 44 (consulta-pública) | `ArquitecturaSeguridadTest` falla (66 pruebas, 1 fallo) |
+
+Ambos archivos restaurados con `git checkout -- <archivo>`; `git status` limpio tras cada mutación y al final.
+
+## E2E por el gateway (perfil `local`, nunca `aiven`)
+
+Infraestructura local arriba (keycloak, mysql, rabbitmq, redis). Levanté consulta-pública (8083), científico (8081) y api-gateway (8080) con perfil `local`, cwd fuera del repo y llave de ubicación aleatoria. Usuario `sinrol1` (sin ninguno de los 5 roles).
+
+| Petición | Resultado obtenido | Estado |
+|---|---|---|
+| GET `/api/publica/eventos/recibidos` por gateway, `sinrol1` | 403, `application/problem+json`, `no-store`, `{"codigo":"ROL_INSUFICIENTE", "instance":"/api/publica/eventos/recibidos", ...}` | OK |
+| Ídem sin token (gateway) | 401, `WWW-Authenticate: Bearer`, `no-store`, sin cuerpo | OK |
+| Ídem directo al servicio 8083, `sinrol1` | 403 problem+json `ROL_INSUFICIENTE`, `no-store` (antes de SEC-J-20: cuerpo vacío) | OK, es la causa raíz de OBS-J17-1 corregida |
+| Ídem directo 8083, sin token | 401 `WWW-Authenticate: Bearer`, `no-store`, sin cuerpo | OK |
+| Ídem directo 8083, token basura | 401 `WWW-Authenticate: Bearer error="invalid_token"`, sin descripción interna | OK |
+| Directo 8081 `/api/cientifico/ping`, `sinrol1` | 403 problem+json `ROL_INSUFICIENTE`, `no-store` | OK |
+| Directo 8081 `/api/cientifico/ubicacion/mapa`, `sinrol1` | 403 problem+json (handler de `ubicacion`) | OK |
+| Directo 8081 `/api/cientifico/ping` sin token | 401 `Bearer`, `no-store`, sin cuerpo | OK |
+| Directo 8081 `/actuator/env`, `sinrol1` | 403 problem+json `ROL_INSUFICIENTE` | OK |
+
+OBS-J17-1: **CERRADO**. Servicios y gateway detenidos al terminar; sin cambios en el árbol.
+
+## Bugs
+
+### BUG-J18-1 (Bajo) Prueba intermitente: `PublicadorNoPermitidoIntegracionTest.elBrokerRechazaUnUserIdFalsificado`
+- Responsable sugerido: backend (dueño de la prueba, no es código de producción).
+- Archivo: `servicio-consulta-publica/src/test/java/co/edu/unbosque/biohub/consultapublica/eventos/PublicadorNoPermitidoIntegracionTest.java:86`.
+- Reproducir: `TZ=America/Bogota mvn -B -pl servicio-cientifico,servicio-consulta-publica -am verify` repetidas veces; falló 1 vez en 7 (no falló en UTC ni en 5 ejecuciones aisladas).
+- Esperado: `assertThatThrownBy` recibe una excepción porque RabbitMQ rechaza el `user_id` falsificado.
+- Obtenido: `Expecting code to raise a throwable` (línea 86). El log de esa misma ejecución muestra que el broker sí rechazó: `PRECONDITION_FAILED - user_id property set to 'guest' but authenticated user was 'intruso_mq2'`, pero el cierre de canal llega de forma asíncrona y el `queueDeclarePassive` posterior se ejecutó antes de que se propagara (condición de carrera). No es una regresión de SEC-J-19/20 (ningún archivo tocado por esos commits interviene); no depende de la zona horaria, solo coincidió.
+- Sugerencia: esperar con `Awaitility` hasta ver el error de canal (o comprobar la ausencia de la ficha y que el mensaje no se entregó) en vez de una sola operación posterior.
+
+## No ejecutado
+
+- Frontends (`web-interna`, `web-publica`), servicio-equipos y servicio-reportes: fuera de alcance.
+- Cobertura JaCoCo: no configurada.
+
+## Veredicto Iteración 18: APROBADO
+
+SEC-J-19 y SEC-J-20 cumplen lo declarado: las mutaciones sobre `@PreAuthorize` son detectadas, el 403 problem+json `ROL_INSUFICIENTE` con `no-store` aplica a todo el servicio (comprobado en pruebas y en vivo), el 401 conserva el contrato sin filtrar la descripción del decodificador, el handler de `ubicacion` sigue auditando y `ConsultaPublicaExceptionHandler` ya no produce 500. Las suites pasan en UTC y Bogota (434 y 339, 0 fallos tras repetir). Queda un único hallazgo Bajo (BUG-J18-1, prueba intermitente), que no bloquea el push pero conviene estabilizar porque puede hacer fallar el CI al azar.

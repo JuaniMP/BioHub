@@ -19,13 +19,15 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import co.edu.unbosque.biohub.cientifico.ubicacion.BaseUbicacionMySqlTest;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.vista.RecifradoResponse;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.AuditoriaAccesoUbicacion;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CifradorCoordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Coordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CoordenadasCifradas;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgoRepository;
 import co.edu.unbosque.biohub.cientifico.ubicacion.infrastructure.CifradorAesGcm;
 import co.edu.unbosque.biohub.cientifico.ubicacion.infrastructure.ProveedorDeLlavesEntorno;
+import co.edu.unbosque.biohub.cientifico.ubicacion.service.vista.RecifradoResponse;
 import jakarta.persistence.EntityManager;
 
 /** Rotación de llave (v1 -> v2) y re-cifrado. La llave "activa" del contexto es v1; aquí se simula v2. */
@@ -52,6 +54,7 @@ class RecifradoServiceTest extends BaseUbicacionMySqlTest {
     private UUID alta(String nombre, double lat, double lon) {
         return sembrar(nombre, LocalDate.of(2026, 3, 14), "inv", "15", EstadoConservacion.EN_PELIGRO, lat, lon);
     }
+
 
     @Test
     void rotacionRecifraTodoConNonceNuevoSinPerderLasCoordenadas() {
@@ -114,7 +117,7 @@ class RecifradoServiceTest extends BaseUbicacionMySqlTest {
         alta("Atelopus retirada", 6.1, -73.1);
         alta("Atelopus alterada", 7.1, -73.1);
         jdbc.update("UPDATE ubicacion_hallazgo SET clave_version = 'v9' WHERE nombre_cientifico = 'Atelopus retirada'");
-        jdbc.update("UPDATE ubicacion_hallazgo SET coord_cifrada = CONCAT(UNHEX('FF'), SUBSTRING(coord_cifrada, 2)) WHERE nombre_cientifico = 'Atelopus alterada'");
+        alterarPrimerByteDelCifrado("Atelopus alterada");
 
         RecifradoResponse r = servicio(new CifradorAesGcm(rotada), rotada).recifrar("admin");
 

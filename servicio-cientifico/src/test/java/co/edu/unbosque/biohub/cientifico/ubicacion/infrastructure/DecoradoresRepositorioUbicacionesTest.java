@@ -38,11 +38,11 @@ import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CifradorCoordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.Coordenadas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CoordenadasCifradas;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.CoordenadasNoDescifrablesException;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.EstadoConservacion;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.RepositorioUbicaciones;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgo;
 import co.edu.unbosque.biohub.cientifico.ubicacion.domain.UbicacionHallazgoRepository;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.AuditoriaAccesoUbicacion;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
+import co.edu.unbosque.biohub.cientifico.ubicacion.domain.AuditoriaAccesoUbicacion;
 import jakarta.persistence.EntityManager;
 
 /** ARQ-10 (RNF9, ASR6): cada decorador de {@code RepositorioUbicaciones} se prueba por separado. */
@@ -138,7 +138,7 @@ class DecoradoresRepositorioUbicacionesTest {
     void auditaCadaAccesoExacto() {
         CoordenadasCifradas cifradas = new CoordenadasCifradas(new byte[32], new byte[12], "v1");
         when(envuelto.obtenerUbicacionExacta("juana", id, cifradas)).thenReturn(new Coordenadas(5.1234567, -73.7654321));
-        Coordenadas c = new DecoradorAuditoriaAcceso(envuelto, new AuditoriaAccesoUbicacion())
+        Coordenadas c = new DecoradorAuditoriaAcceso(envuelto, new AuditoriaAccesoUbicacionLog())
                 .obtenerUbicacionExacta("juana", id, cifradas);
         assertThat(c).isEqualTo(new Coordenadas(5.1234567, -73.7654321));
         assertThat(auditoria()).singleElement().satisfies(l -> {
@@ -154,7 +154,7 @@ class DecoradoresRepositorioUbicacionesTest {
         CoordenadasCifradas cifradas = new CoordenadasCifradas(new byte[32], new byte[12], "v1");
         when(envuelto.obtenerUbicacionExacta(any(), any(), any()))
                 .thenThrow(new CoordenadasNoDescifrablesException(CoordenadasNoDescifrablesException.Motivo.INTEGRIDAD));
-        assertThatThrownBy(() -> new DecoradorAuditoriaAcceso(envuelto, new AuditoriaAccesoUbicacion())
+        assertThatThrownBy(() -> new DecoradorAuditoriaAcceso(envuelto, new AuditoriaAccesoUbicacionLog())
                 .obtenerUbicacionExacta("juana", id, cifradas)).isInstanceOf(CoordenadasNoDescifrablesException.class);
         assertThat(auditoria()).singleElement().satisfies(l -> assertThat(l).contains("cantidad=0").contains("omitidos=1"));
     }
@@ -165,7 +165,7 @@ class DecoradoresRepositorioUbicacionesTest {
         CoordenadasCifradas cifradas = new CoordenadasCifradas(new byte[32], new byte[12], "v1");
         when(envuelto.obtenerUbicacionExacta(any(), any(), any()))
                 .thenThrow(new IllegalStateException("falla interna lat=5.5 lon=-73.5"));
-        assertThatThrownBy(() -> new DecoradorAuditoriaAcceso(envuelto, new AuditoriaAccesoUbicacion())
+        assertThatThrownBy(() -> new DecoradorAuditoriaAcceso(envuelto, new AuditoriaAccesoUbicacionLog())
                 .obtenerUbicacionExacta("juana", id, cifradas)).isInstanceOf(IllegalStateException.class);
         assertThat(auditoria()).singleElement().satisfies(l -> {
             assertThat(l).contains("usuario=juana").contains("hallazgoId=" + id).contains("cantidad=0").contains("omitidos=1");
@@ -176,7 +176,7 @@ class DecoradoresRepositorioUbicacionesTest {
     @Test
     @DisplayName("ARQ-10: los decoradores delegan lo demás (existe, porId, contar, buscar) sin tocarlo")
     void delegaElResto() {
-        DecoradorAuditoriaAcceso d = new DecoradorAuditoriaAcceso(envuelto, new AuditoriaAccesoUbicacion());
+        DecoradorAuditoriaAcceso d = new DecoradorAuditoriaAcceso(envuelto, new AuditoriaAccesoUbicacionLog());
         when(envuelto.existe(id)).thenReturn(true);
         assertThat(d.existe(id)).isTrue();
         d.porId(id);
@@ -192,7 +192,7 @@ class DecoradoresRepositorioUbicacionesTest {
         ObjectProvider<Clock> reloj = mock(ObjectProvider.class);
         when(reloj.getIfAvailable(any())).thenReturn(RELOJ);
         RepositorioUbicaciones cadena = new ConfiguracionUbicacion().repositorioUbicaciones(
-                mock(UbicacionHallazgoRepository.class), mock(EntityManager.class), cifrador, new AuditoriaAccesoUbicacion(), reloj);
+                mock(UbicacionHallazgoRepository.class), mock(EntityManager.class), cifrador, new AuditoriaAccesoUbicacionLog(), reloj);
         assertThat(cadena).isInstanceOf(DecoradorAuditoriaAcceso.class);
         RepositorioUbicaciones medio = interno(cadena);
         assertThat(medio).isInstanceOf(DecoradorCifradoCoordenadas.class);

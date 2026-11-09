@@ -1,5 +1,6 @@
 package co.edu.unbosque.biohub.consultapublica.eventos.service;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -13,6 +14,7 @@ import jakarta.validation.Validator;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.cfg.CoercionAction;
@@ -45,15 +47,26 @@ public class ValidadorDatosHallazgo {
 
     private static final Logger log = LoggerFactory.getLogger(ValidadorDatosHallazgo.class);
 
-    private static final ZoneId ZONA_BOGOTA = ZoneId.of("America/Bogota");
+    /** Zona de negocio para decidir qué día es "hoy" (la del servidor puede ser UTC). */
+    static final ZoneId ZONA_BOGOTA = ZoneId.of("America/Bogota");
     /** Año mínimo plausible de una recolección registrada en BioHub. */
     static final int ANIO_MINIMO = 1800;
 
     private final ObjectMapper mapeador;
     private final Validator validador;
     private final CatalogoDepartamentos catalogo;
+    private final Clock reloj;
 
+    @Autowired
     public ValidadorDatosHallazgo(ObjectMapper objectMapper, Validator validador, CatalogoDepartamentos catalogo) {
+        this(objectMapper, validador, catalogo, Clock.system(ZONA_BOGOTA));
+    }
+
+    /**
+     * @param reloj solo aporta el instante actual; el día se calcula siempre en {@link #ZONA_BOGOTA}, sea cual sea la
+     *              zona del reloj (las pruebas usan {@link Clock#fixed} para cubrir la medianoche de Bogotá/UTC)
+     */
+    ValidadorDatosHallazgo(ObjectMapper objectMapper, Validator validador, CatalogoDepartamentos catalogo, Clock reloj) {
         // Copia estricta: un número no se acepta como texto ni "1" como entero; los campos extra se ignoran
         this.mapeador = objectMapper.copy()
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
@@ -66,6 +79,7 @@ public class ValidadorDatosHallazgo {
         }
         this.validador = validador;
         this.catalogo = catalogo;
+        this.reloj = reloj;
     }
 
     /** @throws EventoInvalidoException si el evento debe ir a la DLQ */
@@ -105,8 +119,8 @@ public class ValidadorDatosHallazgo {
     }
 
     /** SEC-J-01: validación estricta del payload más allá de los tipos (fecha plausible, sin caracteres de control). */
-    private static void validarContenidoEstricto(DatosHallazgo d) {
-        LocalDate hoyBogota = LocalDate.now(ZONA_BOGOTA);
+    private void validarContenidoEstricto(DatosHallazgo d) {
+        LocalDate hoyBogota = LocalDate.ofInstant(reloj.instant(), ZONA_BOGOTA);
         if (d.fechaRecoleccion().isAfter(hoyBogota.plusDays(1)) || d.fechaRecoleccion().getYear() < ANIO_MINIMO) {
             throw new EventoInvalidoException("Evento con datos inválidos en: fechaRecoleccion");
         }

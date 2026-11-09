@@ -7,6 +7,8 @@ FROM eclipse-temurin:21-jre
 RUN groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 WORKDIR /app
+# Auditoria de ubicaciones (SEC-J-08): logs/auditoria-ubicacion.log; montar un volumen persistente en /app/logs
+RUN mkdir -p /app/logs && chown app:app /app/logs
 COPY --chown=app:app servicio-cientifico/target/servicio-cientifico-*.jar /app/app.jar
 USER app
 ENV SERVER_ADDRESS=0.0.0.0 \

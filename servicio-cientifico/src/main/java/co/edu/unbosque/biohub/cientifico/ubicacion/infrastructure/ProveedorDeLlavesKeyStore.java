@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.security.GeneralSecurityException;
 import java.security.Key;
 import java.security.KeyStore;
@@ -28,6 +29,9 @@ import co.edu.unbosque.biohub.cientifico.ubicacion.domain.ProveedorDeLlaves;
  * <p>Valida al construirse y falla con {@link IllegalStateException} (el servicio no arranca) sin mostrar nunca
  * la contraseña ni el material de las llaves. La contraseña llega por variable de entorno; el {@code .p12} no se
  * versiona (ver servicio-cientifico/README.md para crearlo con {@code keytool}).
+ *
+ * <p>SEC-J-12: en sistemas POSIX el archivo no puede ser legible por grupo ni por otros (se exige {@code chmod 600});
+ * si lo es, el servicio no arranca. En sistemas sin permisos POSIX (Windows) la comprobación no aplica.
  */
 public final class ProveedorDeLlavesKeyStore implements ProveedorDeLlaves {
 
@@ -41,6 +45,7 @@ public final class ProveedorDeLlavesKeyStore implements ProveedorDeLlaves {
         if (ruta == null || !Files.isRegularFile(ruta)) {
             throw new IllegalStateException("UBICACION_KEYSTORE_RUTA: el archivo del keystore no existe");
         }
+        exigirPermisosRestringidos(ruta);
         if (contrasena == null || contrasena.length == 0) {
             throw new IllegalStateException("UBICACION_KEYSTORE_PASSWORD no está configurada");
         }
@@ -53,6 +58,26 @@ public final class ProveedorDeLlavesKeyStore implements ProveedorDeLlaves {
                     "UBICACION_CLAVE_ACTIVA no está configurada o no existe como alias en el keystore");
         }
         this.activa = claveActiva.trim();
+    }
+
+    /** Fail-closed (SEC-J-12): un keystore legible por grupo u otros no se acepta. El mensaje no incluye la ruta. */
+    private static void exigirPermisosRestringidos(Path ruta) {
+        Set<PosixFilePermission> permisos;
+        try {
+            permisos = Files.getPosixFilePermissions(ruta);
+        } catch (UnsupportedOperationException noPosix) {
+            return; // Windows u otro sistema de archivos sin permisos POSIX: no aplica
+        } catch (IOException e) {
+            throw new IllegalStateException("UBICACION_KEYSTORE_RUTA: no se pudieron comprobar los permisos del keystore");
+        }
+        for (PosixFilePermission p : permisos) {
+            switch (p) {
+                case GROUP_READ, GROUP_WRITE, GROUP_EXECUTE, OTHERS_READ, OTHERS_WRITE, OTHERS_EXECUTE ->
+                    throw new IllegalStateException(
+                            "UBICACION_KEYSTORE_RUTA: el keystore no debe ser accesible por grupo ni otros (chmod 600)");
+                default -> { }
+            }
+        }
     }
 
     private static Map<String, SecretKey> cargar(Path ruta, char[] contrasena) {
