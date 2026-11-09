@@ -1338,3 +1338,261 @@ Las tres reglas nuevas de ARQ-28 (`layeredArchitecture`, `domain` sin dependenci
 | SEC-J-09 | **Corregido en parte.** Revocación de rol inmediata (D49). MFA sigue fuera del alcance del SRS | `GatewayIntegracionTest` |
 | ARQ-03, ARQ-21 | **Corregidos.** API Keys, límites y bloqueo a los 3 intentos | `KeycloakAdminAdapterIntegracionTest` |
 | ARQ-20 | **Corregido.** Circuit breaker por servicio destino (D52) | `CircuitoServiciosTest`, `ProxyServiceTest`, `GatewayIntegracionTest` |
+
+---
+
+# Iteración 17 – auditoría (2026-11-08)
+
+**Revisor:** ciberseguridad · **Rama:** `feature/ubicacion-consulta-publica` (HEAD `124d516`) · **Alcance:** `git diff 9643411..HEAD` (commits `d0be1be`, `a0e0d32`, `6e9d2dc`, `b4053c3`, `d9a9031`, `124d516`): `denyAll` y `@PreAuthorize` en servicio-consulta-publica y servicio-cientifico, decisión D55, pruebas de seguridad, `Clock` en `ValidadorDatosHallazgo`, alteración determinista del cifrado en pruebas. Búsqueda de secretos en el árbol y en todo el historial. Efecto del realm y del compose del PR #7 sobre los servicios de Juanita. Tarea 17g de `00-plan.md`.
+
+## Resumen
+
+| Severidad | Cantidad (nuevos) |
+|---|---|
+| Crítico | 0 |
+| Alto | 0 |
+| Medio | 0 |
+| Bajo | 3 (SEC-J-19 a SEC-J-21) |
+| Informativo | 4 (SEC-J-I16 a SEC-J-I19) |
+
+**Veredicto: APROBADO CON OBSERVACIONES.** No hay Críticos ni Altos.
+- El `denyAll` de los dos servicios está bien hecho: no hay matchers amplios y `/actuator/**` solo deja pasar `health`.
+- Los cinco endpoints de servicio-cientifico y los cuatro de consulta-pública cumplen la matriz §2.
+- El cifrado de producción no cambió, y la nueva alteración XOR sí prueba la detección de manipulación.
+- El `Clock` no abre ninguna vía de inyección en producción.
+- No hay secretos ni en el árbol ni en el historial.
+- **D55 se acepta con condiciones** (ver abajo). Los tres Bajos son las condiciones: la prueba de arquitectura se puede eludir (SEC-J-19), el 403 de los endpoints fuera de `ubicacion` no es `ROL_INSUFICIENTE` (SEC-J-20) y el cuerpo se valida antes de comprobar el rol (SEC-J-21).
+
+## Cómo se revisó
+- **Documentación:** `11-seguridad-y-acceso.md` (§2 matriz, §3 plantilla, §4 RabbitMQ), D21, D48, D53, D54 y D55 (`03-arquitectura.md:72,98,104-106`), contrato §5.1 y §5.2 (`04-contrato-api.md:252-373`, `ROL_INSUFICIENTE` en `:131`), y las secciones "Iteración 16" y "Seguimiento de la parte de Santiago" de este reporte.
+- **Código (estático):** el diff completo y una lectura completa de:
+  - los dos `SecurityConfig`, `KeycloakJwtAuthenticationConverter` y todos los `@RestController` y `@RestControllerAdvice` de los dos servicios (`grep` de `@Controller`, `@RequestMapping`, `RouterFunction`, `@Endpoint`, `ServletRegistrationBean`: no hay otros puntos de entrada HTTP);
+  - `PoliticaAccesoUbicacion`, `UbicacionExceptionHandler`, `EventosExceptionHandler` y `CifradorAesGcm`;
+  - `application.yml` (actuator, `server.address`), los `Dockerfile`, `SecurityConfig` del gateway (`:58-69`), `infra/keycloak/realm-biohub.json`, `infra/rabbitmq/crear-usuarios.sh` y el servicio `rabbitmq-usuarios` de `docker-compose.yml`.
+- **Pruebas:** en una copia de `HEAD` (`git archive`) en el scratchpad, para no chocar con el build de QA, se ejecutó `mvn -o -pl servicio-consulta-publica,servicio-cientifico -am test` con `SeguridadEndpointsTest`, `ArquitecturaSeguridadTest`, `ValidadorDatosHallazgoTest`, `CifradorAesGcmTest`, `RecifradoServiceTest`, `UbicacionServiceIntegracionTest`, `BusquedaHallazgosApiTest` y `AuditoriaYSinFiltracionesTest`. Resultado: **172 tests, 0 fallos, 0 omitidos** (las de MySQL con Testcontainers). Sin perfil `aiven` y sin conexión a Aiven.
+- **Sondas (solo en la copia, nunca en el repositorio):**
+  - `EvasionReglaSeguridadTest`: aplica la regla de `ArquitecturaSeguridadTest` a seis controladores de prueba (resultado en SEC-J-19);
+  - `OrdenValidacionTest`: con el `SecurityConfig` real, llama a `POST /api/cientifico/eventos/prueba` y `GET /api/cientifico/ping` con un JWT sin roles y con `investigador_campo` (resultado en SEC-J-20 y SEC-J-21).
+- **Secretos:** script propio sobre `git log -p HEAD` (89 commits) y `git log -p --all` (93) que solo imprime commit, archivo, tipo y el valor **enmascarado**. Patrones: asignaciones `*_PASSWORD=`, `*_SECRET=`, `*_TOKEN=`, `*LLAVE*=`, `KEYCLOAK_GATEWAY_CLIENT_SECRET=`, llaves `vN:` + base64 de 32 bytes, cualquier base64 de 32 bytes, URL con usuario:contraseña, hosts `aivencloud.com` con credenciales y prefijo `avns_`, JWT (`eyJ…`), PEM con clave privada, claves AWS y tokens de GitHub. Además: `git ls-files`, `git log --all --diff-filter=A --name-only` y `git check-ignore`. No se abrió ningún `.env`, `certs/`, `*.pem` ni `*.p12`: solo se comprobó que existen y que Git los ignora.
+
+## 1. `denyAll` en los dos servicios
+
+**servicio-consulta-publica** (`config/SecurityConfig.java:29-39`):
+
+| Regla | Evaluación |
+|---|---|
+| `ERROR` dispatcher `permitAll` (`:30`) | Correcto: no expone nada, solo deja llegar los 400/500 ya autorizados |
+| `GET /actuator/health`, `/actuator/health/**` (`:31`) | Correcto. `/actuator/info` y el resto de `/actuator/**` caen en `denyAll` (probado con `/actuator/env`). Ver SEC-J-I17 |
+| `GET /api/publica/eventos/recibidos` → `hasRole('administrador')` (`:33`) | Correcto y más estrecho que antes (`/api/publica/eventos/**` sin método). Doble barrera: URL y `@PreAuthorize` |
+| `GET /api/publica/ping`, `/api/publica/fichas`, `/api/publica/fichas/*` → `permitAll` (`:35-36`) | Correcto. `*` es **un solo segmento**: `/fichas/{id}/extra` se deniega (probado). El `id` se valida además como UUID canónico en el controlador |
+| `anyRequest().denyAll()` (`:39`) | Correcto. `POST`/`PUT`/`PATCH`/`DELETE`, `HEAD`, otras rutas de `/api/publica/**`, `/api/cientifico/**`, `/api/v1/externa/**` y `/` se rechazan: 401 sin token y 403 con token, aunque sea de administrador |
+
+**servicio-cientifico** (`config/SecurityConfig.java:29-38`): `ERROR` y `health` como arriba, `/api/cientifico/**` → `authenticated()` (`:36`) y `anyRequest().denyAll()` (`:38`). Todo lo que está fuera del prefijo se rechaza aunque el usuario tenga los 5 roles (probado con 10 rutas y 3 métodos, entre ellas `/api/cientificoX/ping`, `/actuator/env` y `/actuator`). No hay matchers demasiado amplios: el único comodín es el prefijo propio del servicio, y D55 lo justifica.
+
+### Decisión sobre D55: **aceptada, con condiciones**
+
+D55 no exige el rol en la URL (`.authenticated()`), sino en el `@PreAuthorize` de cada método. **No exijo cambiar a `hasAnyRole` + `AccessDeniedHandler`**, por estas razones:
+1. **Defensa en profundidad real.** El gateway exige uno de los 5 roles para `/api/cientifico/**` (`api-gateway/.../SecurityConfig.java:68`, D48). El servicio escucha en `127.0.0.1` (`application.yml:50`). El JWT debe llevar `aud=biohub-api`, y ese claim solo lo emiten `web-interna` y `biohub-pruebas`: el token de la cuenta de servicio `biohub-gateway` no lo lleva (realm comprobado) y el servicio lo rechaza con 401. Así, un JWT "autenticado sin rol" solo llega al método si alguien se salta el gateway desde el propio host.
+2. **`hasAnyRole` de los 5 roles en la URL aporta poco frente a eso.** Solo frena a cuentas sin ningún rol (como `sinrol1`, que es una cuenta de desarrollo). No ayuda en el caso que de verdad importa: un rol válido (por ejemplo `analista_ambiental`) que entra a un endpoint que no le corresponde. Ese caso lo controla solo el `@PreAuthorize`, con o sin D55.
+3. **Lo que D55 consigue es concreto.** En `ubicacion`, el 403 sin roles llega a `UbicacionExceptionHandler` y sale como problem+json `ROL_INSUFICIENTE`, con `no-store` y auditoría D28 (probado por `elRol403SinRolesConservaElProblemJsonDelContrato`). Con `hasAnyRole` habría que reproducir todo eso en un `AccessDeniedHandler`.
+
+**Condiciones** (D55 pasa a ser la única barrera de rol dentro del servicio, así que su red de seguridad debe ser fuerte):
+- **Antes de que registro (Hernando) integre controladores en servicio-cientifico:** corregir SEC-J-19 (endurecer `ArquitecturaSeguridadTest`) y SEC-J-20 (403 uniforme). Si registro entra sin SEC-J-19, la alternativa de D55 (`hasAnyRole` en la URL) pasa a ser **obligatoria**.
+- **Para el despliegue en contenedores (Santiago):** el `Dockerfile` pone `SERVER_ADDRESS=0.0.0.0` (`servicio-cientifico/Dockerfile:14`), así que el supuesto "solo `127.0.0.1`" se convierte en "solo una red interna". Los puertos 8081 y 8083 no se publican en el host y solo el gateway comparte red con ellos (SEC-J-I19).
+- Matiz para el texto de D55: la ventaja del problem+json solo existe hoy en `ubicacion`. En `/api/cientifico/ping` y `/api/cientifico/eventos/prueba`, el 403 sin rol **sigue saliendo vacío** (comprobado; SEC-J-20).
+
+## 2. `@PreAuthorize` y coherencia con la matriz §2
+
+| Endpoint | `@PreAuthorize` | Matriz §2 / contrato | ¿Coincide? |
+|---|---|---|---|
+| `GET /api/cientifico/ubicacion/hallazgos` (`BusquedaHallazgosController.java:27`) | `hasAnyRole` de los 5 | 5 roles; solo alto rango recibe lat/lon (lo decide `PoliticaAccesoUbicacion.estrategiaPara`) | Sí |
+| `GET /api/cientifico/ubicacion/mapa` (`MapaUbicacionController.java:27`) | `@politicaUbicacion.puedeVerCoordenadas(authentication)` | Solo `cientifico_alto_rango` | Sí |
+| `POST /api/cientifico/ubicacion/recifrado` (`RecifradoController.java:26`) | `hasRole('administrador')` | Solo `administrador` | Sí |
+| `GET /api/cientifico/ping` (`PingController.java:21`) | `hasAnyRole` de los 5 | Fuera de la matriz (diagnóstico) | Aceptable |
+| `POST /api/cientifico/eventos/prueba` (`EventosPruebaController.java:33`) | `hasRole('administrador')` | Fuera de la matriz (diagnóstico) | Aceptable |
+| `GET /api/publica/ping`, `/fichas`, `/fichas/{id}` | `permitAll()` explícito | Públicos | Sí |
+| `GET /api/publica/eventos/recibidos` (`EventosRecibidosController.java:29`) | `hasRole('administrador')` | Solo administrador | Sí |
+
+- **`puedeVerCoordenadas`** (`PoliticaAccesoUbicacion.java:53-58`) compara la authority **exacta** `ROLE_cientifico_alto_rango`, rechaza la autenticación anónima y no cambió en este diff. La prueba rechaza las variantes `ADMINISTRADOR`, `Cientifico_Alto_Rango`, `administrador ` y `ROLE_administrador`, y el converter descarta `offline_access`, `uma_authorization` y `default-roles-*`.
+- **RF12:** `administrador` recibe 403 en `/mapa` (`administradorNoRecibeElMapaYAltoRangoNoRecifra`) y, en `/hallazgos`, la vista generalizada sin lat/lon (`AuditoriaYSinFiltracionesTest.java:77`, que incluye `administrador`). Caso límite: un usuario con **los dos** roles (ver SEC-J-I16).
+- **`SeguridadEndpointsTest`** es sólido:
+  - servicio-cientifico (56 casos): endpoint × 5 roles, 401 sin token, 403 con JWT sin roles, 403 con roles técnicos, variantes de mayúsculas o espacios, denyAll fuera del prefijo y 404 (no 403) para rutas futuras del prefijo;
+  - servicio-consulta-publica (40 casos): públicos con y sin token, eventos solo para administrador y 15 combinaciones no listadas con 401 y 403.
+
+  Dos huecos menores: en servicio-cientifico solo se comprueba el cuerpo `ROL_INSUFICIENTE` en `/hallazgos` (con SEC-J-20 conviene parametrizarlo para todos los endpoints), y la prueba usa `jwt().authorities(...)`, que no pasa por `KeycloakJwtAuthenticationConverter` (el converter sí se ejerce en `BaseUbicacionMySqlTest` y en `EventosPruebaControllerTest`).
+- **`ArquitecturaSeguridadTest`:** la regla es correcta para el caso típico, y su prueba de control (`laReglaFallaSiFaltaElRol`) evita que quede vacía sin que nadie lo note. Pero se puede eludir: ver SEC-J-19.
+
+## 3. Recifrado y cifrado (d9a9031, 124d516)
+
+- **Solo tocan pruebas.** `git show --stat`: `RecifradoServiceTest`, `UbicacionServiceIntegracionTest`, `BaseUbicacionMySqlTest`, `AuditoriaYSinFiltracionesTest` y `BusquedaHallazgosApiTest`, todas en `src/test`. `git diff 9643411..HEAD -- '*/src/main/*'` no incluye ningún archivo de `ubicacion`. `CifradorAesGcm.java` se modificó por última vez en `900ed86`.
+- **Producción sin cambios** (`CifradorAesGcm.java`): `AES/GCM/NoPadding` con llave de 256 bits del proveedor, `BITS_TAG = 128` (`:27`), `BYTES_NONCE = 12` (`:28`), un `SecureRandom` por instancia con `nextBytes` en **cada** cifrado y recifrado (`:32,85-86`), AAD = UUID canónico en minúsculas (`:88,106,117-119`), y fallo cerrado ante un nonce de otra longitud, un texto nulo o un plano que no mide 16 bytes (`:99-111`).
+- **La alteración XOR sí prueba la detección:**
+  - `CHAR(ASCII(coord_cifrada) ^ 0x01 USING binary)` invierte un bit del primer byte del texto cifrado, que va en una columna distinta del nonce;
+  - `alterarPrimerByteDelCifrado` comprueba, fila por fila, que el valor **cambió**, que conserva el tamaño y que `ahora[0] == previo[0] ^ 0x01`, y exige que haya filas (`isNotEmpty`);
+  - así desaparece la variante anterior, que fallaba en silencio 1 de cada 256 veces (sobrescribir con `0xFF` un byte que ya valía `0xFF` no alteraba nada).
+
+  Las tres consecuencias se siguen comprobando: `CoordenadasNoDescifrablesException` por integridad, `NO_DISPONIBLES`/`omitidos` solo para alto rango, y que el log no lleve datos. `CifradorAesGcmTest` cubre aparte la alteración del texto (byte 3), del nonce, de la longitud del nonce, del AAD (otro hallazgo) y de la versión de llave. Las 52 pruebas de cifrado y ubicación ejecutadas pasan.
+
+## 4. `Clock` en `ValidadorDatosHallazgo` (b4053c3)
+
+- **Ningún reloj arbitrario en producción.** Spring usa el constructor público con `@Autowired` (`:60-63`), que fija `Clock.system(ZONA_BOGOTA)`. El constructor que recibe un `Clock` es *package-private*: ni un bean `Clock` del contexto ni una propiedad pueden llegar a él. El único otro `Clock` del servicio es el de `MonitorCarga`, que tampoco se inyecta como bean.
+- **La validación de fechas futuras no cambia:** `LocalDate.ofInstant(reloj.instant(), ZONA_BOGOTA)` (`:123`) equivale a `LocalDate.now(ZONA_BOGOTA)` con el reloj del sistema, y la regla sigue igual (`isAfter(hoy.plusDays(1))` o año < 1800, `:124`). El día se calcula siempre en Bogotá, aunque el reloj venga en otra zona.
+- Las pruebas nuevas cubren justo el borde que antes hacía fallar la de SEC-J-01: medianoche de Bogotá, 05:00Z. Los 20 casos pasan.
+
+## 5. Secretos
+
+- **Árbol actual:**
+  - `git ls-files` no contiene `.env`, `certs/`, `*.pem`, `*.p12`, `*.jks`, `*.pfx` ni `*.key`.
+  - Solo están rastreados `*.env.example`, en los que **todas** las variables `*PASSWORD*`, `*SECRET*` y `*TOKEN*` son marcadores `CAMBIAR…` o están vacías (comprobado sin imprimir valores), y `web-*/.env.development`, que solo tiene URL locales y el `client_id` público.
+  - `.env`, `certs/`, `*.p12` y los `.env` de servicio están ignorados (`.gitignore:15,35,46`). `.env` y `certs/` existen en local, sin rastrear, y no se abrieron.
+  - El realm usa marcadores `${…}` para las 6 contraseñas de usuarios de prueba y para el secret de `biohub-gateway`.
+- **Historial completo:**
+  - `git log --all --diff-filter=A` no muestra ningún `.env`, `certs/`, `*.pem` ni `*.p12` añadido nunca. Solo `*.env.example`, incluidos `deploy/backend/.env.example` y `deploy/datos/.env.example` de `origin/feature/despliegue`.
+  - Ninguna versión del realm (`bc82cd7`, `73636c9`) tuvo contraseñas o secrets literales.
+  - No aparecen llaves `vN:`+base64, URL con credenciales, hosts Aiven con credenciales, `avns_`, JWT, PEM, claves AWS ni tokens de GitHub.
+  - Las coincidencias de `*_PASSWORD=` son referencias `$VAR`, marcadores o ejemplos de documentación (por ejemplo, `servicio-cientifico/README.md` en `d92c920`: `UBICACION_KEYSTORE_PASSWORD=la…`, texto explicativo). Los hosts `*.a.aivencloud.com` que aparecen son de ejemplo (`mysql-xxxx-proyecto`, `CAMBIAR`, `mysql-x`).
+- **Único valor literal:** `.github/workflows/ci.yml`, commit `5b168b2`, tiene contraseñas de CI (`ci…`) y la llave `CI_UBICACION_CLAVE` (base64 de 32 bytes, `Ym…`). Son valores ficticios de contenedores efímeros del job, ya registrados como **SEC-J-I7**. Se comprobó que esa llave no se reutiliza en ningún otro archivo ni commit. Sigue abierto como informativo.
+
+## 6. Observaciones sobre el realm y el compose del PR #7
+
+- **SEC-04 en los servicios de Juanita:** `rabbitmq-usuarios` (`docker-compose.yml:128-148`) ya crea `cientifico_mq` (configure y write solo sobre `biohub.eventos`, sin read: `crear-usuarios.sh:34-37`) y `consulta_mq`. servicio-cientifico y consulta-pública **siguen usando el usuario administrador `biohub`** hasta que se migren sus `.env` (`11-seguridad-y-acceso.md` §4, incluido `BIOHUB_EVENTOS_PUBLICADOR_CIENTIFICO=cientifico_mq`). Mientras tanto, SEC-J-I10 (el `user_id` solo prueba que "tiene las credenciales del broker") sigue vigente. Responsable: Juanita (configuración, sin cambiar código).
+- **Para Santiago:** `consulta_mq` y `reportes_mq` necesitan write sobre `biohub.eventos.dlx` para declarar su cola. Como las dos DLQ se enlazan a ese exchange con el nombre de la cola como clave de enrutamiento, un consumidor comprometido podría publicar mensajes falsos en la DLQ del otro (`reportes.eventos.dlq` ← `consulta_mq`). El impacto es bajo: son colas de inspección. Si se quiere cerrar, que la declaración de colas y DLX la haga `rabbitmq-usuarios` con el administrador y que los consumidores queden sin configure ni write.
+- **Realm y D55:** `sinrol1` y `biohub-pruebas` (password grant con `aud=biohub-api`) son justo la población "autenticada sin rol" que D55 deja llegar al método si alguien se salta el gateway. Fuera de local deben eliminarse, como ya se pidió en este reporte (sección del esqueleto, punto 2 de "fuera de local").
+- La API de usuarios del gateway asigna **exactamente un rol** (`ServicioUsuarios.java:18`, `UsuarioDtos.java:20`). Por eso el caso de SEC-J-I16 solo puede darse desde la consola de Keycloak.
+
+## Estado de los hallazgos previos afectados por este diff
+
+| ID | Estado | Evidencia |
+|---|---|---|
+| **SEC-02** (lado servicio) | **Cerrado** en servicio-consulta-publica y servicio-cientifico. Sigue pendiente en equipos y reportes (Nicolás) | Secciones 1 y 2. `SeguridadEndpointsTest` (96 casos) y `ArquitecturaSeguridadTest` en los dos servicios |
+| **SEC-J-01** (validación estricta del payload) | **Sigue cerrado** | Mismo criterio de fecha. El `Clock` solo hace determinista la prueba (sección 4) |
+| **D44 / SEC-J-10, 15, 16** | **Sin cambios** | El diff no toca `ArquitecturaUbicacionTest` ni la cadena auditoría → cifrado → JPA. `UbicacionExceptionHandler` sigue auditando cada 403 de `ubicacion`, ahora también el de un JWT sin roles |
+| **SEC-J-17, SEC-J-18** | **Siguen abiertos** (no son de este diff) | Sin cambios en `PublicadorEventos`/`DetectorCoordenadas` ni en `logback-spring.xml` |
+| **SEC-J-I7** | **Abierto** (informativo) | Sección 5 |
+| **SEC-04** (servicios de Juanita) | **Abierto**: infraestructura lista, falta migrar los `.env` | Sección 6 |
+
+## Hallazgos nuevos
+
+### SEC-J-19 · Bajo · A01 (`ArquitecturaSeguridadTest` se puede eludir y no mira el contenido del `@PreAuthorize`)
+- **Archivos:** `servicio-cientifico/src/test/java/co/edu/unbosque/biohub/cientifico/ArquitecturaSeguridadTest.java:34-39`, y la regla idéntica en `servicio-consulta-publica/.../ArquitecturaSeguridadTest.java:34-39`.
+- **Problema:** la regla solo mira métodos **declarados** en clases anotadas **directamente** con `@RestController`, y solo exige que **exista** un `@PreAuthorize`. Resultado de la sonda en la copia:
+
+  | Controlador de prueba | ¿Pasa la regla sin control de rol? |
+  |---|---|
+  | `@Controller` + `@ResponseBody` en la clase | **Sí** |
+  | `@Controller` con método que devuelve `ResponseEntity` | **Sí** |
+  | `@RestController` que hereda un `@GetMapping` de una clase base sin anotar | **Sí** |
+  | `@RestController` que implementa una interfaz con `@GetMapping` (estilo OpenAPI generator) | **Sí** |
+  | `@GetMapping` con `@PreAuthorize("isAuthenticated()")` | **Sí** |
+  | `@PreAuthorize` a nivel de clase y métodos sin anotar | No (falso positivo: más estricto, aceptable) |
+
+  Tampoco cubre `RouterFunction`/`HandlerFunction` ni un estereotipo propio meta-anotado con `@RestController`, porque `areAnnotatedWith` no sigue meta-anotaciones. En servicio-cientifico, con D55, `isAuthenticated()`, `permitAll()` o `true` en un endpoint de registro dejarían entrar a **cualquiera de los 5 roles** (por ejemplo, `analista_ambiental` en el historial), y no fallaría ninguna prueba.
+- **Por qué importa:** D55 quita la barrera de rol de la URL y se apoya en esta prueba, que pasa a ser la red de seguridad de HU-10 c.2 dentro del servicio. Hoy no hay ningún endpoint afectado. El riesgo aparece cuando registro empiece a añadir controladores.
+- **Corrección:** ampliar la selección y validar el contenido. En servicio-cientifico, prohibir expresiones que no nombren un rol:
+  ```java
+  private static final DescribedPredicate<CanBeAnnotated> ES_ENDPOINT =
+          CanBeAnnotated.Predicates.metaAnnotatedWith(RequestMapping.class)
+                  .or(CanBeAnnotated.Predicates.annotatedWith(RequestMapping.class));
+
+  // 1) Solo @RestController: cierra @Controller + @ResponseBody y los estereotipos propios
+  static ArchRule controladoresSonRest() {
+      return classes().that().areMetaAnnotatedWith(Controller.class)
+              .should().beAnnotatedWith(RestController.class);
+  }
+  // 2) Los mappings se declaran en la clase concreta del controlador: cierra la herencia y las interfaces
+  static ArchRule mappingsSoloEnRestControllerConcreto() {
+      return methods().that(ES_ENDPOINT)
+              .should().beDeclaredInClassesThat().areAnnotatedWith(RestController.class)
+              .andShould().beDeclaredInClassesThat().areNotInterfaces()
+              .andShould().beDeclaredInClassesThat().doNotHaveModifier(JavaModifier.ABSTRACT);
+  }
+  // 3) Solo servicio-cientifico: el @PreAuthorize debe nombrar un rol o la política de ubicación
+  static ArchRule endpointsConRolExplicito() {
+      return methods().that(ES_ENDPOINT).should(new ArchCondition<JavaMethod>("tener @PreAuthorize con un rol explícito") {
+          @Override
+          public void check(JavaMethod m, ConditionEvents eventos) {
+              String expr = m.tryGetAnnotationOfType(PreAuthorize.class).map(PreAuthorize::value).orElse("");
+              boolean conRol = expr.matches(".*\\b(hasRole|hasAnyRole)\\(.*|.*@politicaUbicacion\\..*")
+                      && !expr.matches(".*\\b(permitAll|isAuthenticated|isFullyAuthenticated|isAnonymous|true)\\b.*");
+              if (!conRol) {
+                  eventos.add(SimpleConditionEvent.violated(m, m.getFullName() + ": @PreAuthorize sin rol explícito"));
+              }
+          }
+      });
+  }
+  // 4) Sin endpoints funcionales
+  static ArchRule sinRouterFunction() {
+      return noClasses().should().dependOnClassesThat()
+              .areAssignableTo(org.springframework.web.servlet.function.RouterFunction.class);
+  }
+  ```
+  En consulta-pública, `permitAll()` sí es válido en los públicos, porque allí el `denyAll` de la URL exige un matcher explícito. Basta con aplicar las reglas 1, 2 y 4 junto con la actual. Añadir a las dos pruebas de control un fixture por cada evasión de la tabla.
+- **Responsable sugerido:** ubicación (Juanita), porque la prueba es suya; avisar a Hernando. **Condición previa** a integrar controladores de registro (ver D55). **Esfuerzo:** S.
+
+### SEC-J-20 · Bajo · A05 / A09 (fuera de `ubicacion`, el 403 por rol no es `ROL_INSUFICIENTE`: la justificación de D55 es parcial)
+- **Archivos:** `servicio-cientifico/.../ubicacion/controller/UbicacionExceptionHandler.java:32,56-68`: el manejador de `AccessDeniedException` está limitado a `basePackages = "...ubicacion.controller"`. `EventosExceptionHandler.java:15` no maneja `AccessDeniedException`. `SecurityConfig.java:24-41` no define un `accessDeniedHandler`.
+- **Problema (comprobado en la copia):** con un JWT sin roles, `GET /api/cientifico/ping` responde **403 sin cuerpo ni `Content-Type`**. Lo mismo ocurre con `POST /api/cientifico/eventos/prueba` y con cualquier 403 de un rol válido en esos endpoints. En el servidor real, la excepción termina en el `/error` de Spring Boot (`{timestamp,status,error,path}`), no en problem+json `ROL_INSUFICIENTE` con `no-store`. Esa es precisamente la situación que D55 dice evitar, y D48 promete `ROL_INSUFICIENTE` para todo 403. Cuando registro añada controladores, sus 403 heredarán este comportamiento.
+- **Por qué importa:** son respuestas inconsistentes con el contrato, y `web-interna` tendría que tratar dos formatos de 403. No filtran datos (el cuerpo del `/error` no incluye trazas). No se pierde auditoría D28, porque la de `ubicacion` sigue funcionando.
+- **Corrección:** un 403 uniforme para todo servicio-cientifico, sin tocar la auditoría de `ubicacion` (que ya tiene `@Order(HIGHEST_PRECEDENCE)` y se evalúa primero):
+  ```java
+  // config/AccesoDenegadoGlobal.java
+  @RestControllerAdvice
+  @Order(Ordered.LOWEST_PRECEDENCE)
+  class AccesoDenegadoGlobal {
+      @ExceptionHandler(AccessDeniedException.class)
+      ResponseEntity<ProblemDetail> denegado(AccessDeniedException e, HttpServletRequest req) throws AccessDeniedException {
+          Authentication a = SecurityContextHolder.getContext().getAuthentication();
+          if (a == null || a instanceof AnonymousAuthenticationToken) throw e;          // 401 lo resuelve Security
+          ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "No tienes permiso para ver esta información.");
+          pd.setTitle("Acceso denegado");
+          pd.setProperty("codigo", "ROL_INSUFICIENTE");
+          return ResponseEntity.status(HttpStatus.FORBIDDEN).contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                  .cacheControl(CacheControl.noStore()).body(pd);
+      }
+  }
+  // SecurityConfig: el mismo cuerpo para los 403 de la cadena de filtros (denyAll fuera del prefijo).
+  // ProblemaAccesoDenegadoHandler implementa AccessDeniedHandler y escribe el mismo problem+json con no-store.
+  .exceptionHandling(ex -> ex.accessDeniedHandler(new ProblemaAccesoDenegadoHandler()))
+  ```
+  Y parametrizar `elRol403SinRolesConservaElProblemJsonDelContrato` sobre `ENDPOINTS`.
+- **Responsable sugerido:** ubicación (Juanita), porque `config/` es compartido con Hernando. **Esfuerzo:** S.
+
+### SEC-J-21 · Bajo · A04 (el cuerpo se deserializa y se valida antes de comprobar el rol)
+- **Archivos:** `servicio-cientifico/.../config/SecurityConfig.java:36` (sin rol en la URL) y `eventos/controller/EventosPruebaController.java:34` (`@Valid @RequestBody`).
+- **Problema (comprobado en la copia):** `@PreAuthorize` se evalúa al invocar el método, **después** de resolver los argumentos. Un JWT **sin roles** y uno de `investigador_campo` que mandan a `POST /api/cientifico/eventos/prueba` (endpoint solo para administrador) un `mensaje` de 300 caracteres reciben `400` con el detalle `"mensaje: máximo 200 caracteres"`, y con JSON inválido también `400`, en vez de `403`. Esto es propio de la seguridad por método. D55 lo extiende a los usuarios sin rol, que con `hasAnyRole` en la URL recibirían 403 antes de leer el cuerpo.
+- **Por qué importa:** hoy el impacto es mínimo (un endpoint de diagnóstico). Con registro cambia: los adjuntos de hasta 10 MB (`11` §3, Hernando) se leerían y validarían en memoria para usuarios que no pueden registrar (`auditor_cientifico`, `analista_ambiental`, `administrador`). Además, los mensajes de validación revelan la forma del contrato a quien no debería usarlo.
+- **Corrección:** en los endpoints con cuerpo grande o multipart, repetir el rol en la URL, **antes** del matcher general (no contradice D55: el 403 lo resuelve el `accessDeniedHandler` de SEC-J-20):
+  ```java
+  .requestMatchers(HttpMethod.POST, "/api/cientifico/hallazgos", "/api/cientifico/hallazgos/*/adjuntos")
+          .hasAnyRole("investigador_campo", "cientifico_alto_rango")
+  .requestMatchers("/api/cientifico/**").authenticated()
+  .anyRequest().denyAll())
+  ```
+  Y configurar `spring.servlet.multipart.max-file-size`/`max-request-size` acordes al límite del gateway.
+- **Responsable sugerido:** Hernando (endpoints de registro), con revisión de Juanita en `SecurityConfig`. **Esfuerzo:** S.
+
+### Informativos
+- **SEC-J-I16 (usuario con `administrador` y `cientifico_alto_rango` a la vez):** `puedeVerCoordenadas` solo busca `ROLE_cientifico_alto_rango`. Un usuario que además sea `administrador` recibiría coordenadas, lo que choca con la lectura literal de RF12 ("administrador nunca recibe coordenadas"). La API del gateway impide esa combinación (exactamente un rol), pero la consola de Keycloak no. Opcional: `&& authorities.noneMatch("ROLE_administrador")` en `puedeVerCoordenadas`, con una prueba, o una regla de Keycloak/gateway que lo vigile. Decisión de Juanita y el Tech Lead.
+- **SEC-J-I17 (actuator `info` expuesto pero denegado):** `management.endpoints.web.exposure.include: health,info` (`servicio-cientifico/.../application.yml:59`, `servicio-consulta-publica/.../application.yml:79`), pero la URL solo permite `health`. No hay riesgo; para alinear la configuración con la intención, usar `include: health`.
+- **SEC-J-I18 (comentario desactualizado):** `servicio-consulta-publica/.../config/SecurityConfig.java:38` cita `ArquitecturaConsultaPublicaTest`, que no existe. La prueba es `ArquitecturaSeguridadTest`.
+- **SEC-J-I19 (D7 y D55 en contenedores):** `servicio-cientifico/Dockerfile:14` y los demás Dockerfile ponen `SERVER_ADDRESS=0.0.0.0`. Al crear el compose del backend (Santiago): no publicar 8081 ni 8083 en el host, usar una red `internal` compartida solo con el gateway, y documentarlo en `09-despliegue.md` como condición de D55.
+
+## Bien hecho (esta iteración)
+- `denyAll` real en los dos servicios, con matchers **exactos** por método y ruta en consulta-pública. El de eventos se estrechó de `/eventos/**` a `GET /eventos/recibidos`.
+- `@PreAuthorize("permitAll()")` explícito en los públicos: la intención queda escrita y la prueba de arquitectura lo exige.
+- Pruebas de matriz exhaustivas (endpoint × rol, sin token, sin roles, roles técnicos, variantes de nombre, denyAll con varios métodos), más la prueba de control de la propia regla ArchUnit.
+- D55 está documentada con su alternativa y deja la decisión a ciberseguridad. El código mantiene la auditoría D28 de **todos** los 403 de `ubicacion`, también el de un JWT sin roles.
+- Las correcciones de pruebas inestables arreglan la causa (1 de cada 256) en vez de reintentar. La alteración verifica que el dato cambió, y la ayuda quedó en la base común de las tres clases.
+- El `Clock` se inyecta por un constructor de paquete sin abrir superficie en producción, y las pruebas cubren los bordes exactos de la medianoche Bogotá/UTC.
+- Ningún secreto nuevo. Los mensajes de commit describen el cambio sin incluir valores.
+
+## Veredicto (iteración 17)
+**APROBADO CON OBSERVACIONES.** No hay Críticos ni Altos.
+- **D55:** **aceptada**. No se exige `hasAnyRole` + `AccessDeniedHandler`, con dos condiciones:
+  - SEC-J-19 y SEC-J-20 corregidos **antes** de que registro integre controladores en servicio-cientifico. Si no, la alternativa `hasAnyRole` pasa a ser obligatoria.
+  - En contenedores, la red interna sin puertos publicados (SEC-J-I19).
+- **SEC-J-21:** la aplica Hernando en los endpoints con cuerpo o adjuntos.
+- **SEC-02:** cerrado para los dos servicios de Juanita.
+- **Cifrado:** sin cambios en producción. La detección de manipulación sigue probada.
+- **Secretos:** ninguno en el árbol ni en el historial (SEC-J-I7 sigue como informativo).
+- **SEC-04:** migrar los `.env` de servicio-cientifico y consulta-pública a `cientifico_mq` y `consulta_mq`.
