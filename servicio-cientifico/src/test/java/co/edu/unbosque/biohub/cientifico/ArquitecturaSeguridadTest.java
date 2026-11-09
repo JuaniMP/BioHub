@@ -23,6 +23,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.HttpRequestHandler;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.service.annotation.HttpExchange;
 
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
@@ -76,7 +77,17 @@ import co.edu.unbosque.biohub.sondaseguridad.SondasElusion;
  *   <li><b>R6</b> Ninguna clase es un handler alternativo sin {@code @PreAuthorize}: implementar
  *       {@code org.springframework.web.servlet.mvc.Controller} o {@code HttpRequestHandler}, ser un
  *       {@code jakarta.servlet.Servlet} o registrar uno con {@code ServletRegistrationBean}.</li>
+ *   <li><b>R7</b> (SEC-J-22) Todo método de endpoint es {@code public}, ni {@code final} ni {@code static}, y se
+ *       declara en una clase no {@code final}: el proxy de {@code @PreAuthorize} no intercepta lo contrario, y el
+ *       método se ejecutaría sin control de rol aunque la anotación esté escrita.</li>
  * </ol>
+ * Un endpoint es todo método con {@code @RequestMapping} (o una de sus derivadas) <b>o con {@code @HttpExchange}</b>
+ * (o una de sus derivadas, {@code @GetExchange}, etc.): desde Spring 6.1 también se registran como endpoint de
+ * servidor y no llevan {@code @RequestMapping}. Las reglas R2, R3 y R4 se aplican a ambos.
+ * <p>
+ * Además, {@code TodosLosEndpointsExigenRolTest} comprueba el comportamiento: recorre todos los mappings registrados
+ * y exige 403/AccessDenied con un JWT sin roles, de modo que una vía que estas reglas no conozcan también rompe el
+ * build.
  * Las sondas de {@code co.edu.unbosque.biohub.sondaseguridad.SondasElusion} (solo en src/test, fuera del paquete
  * escaneado) demuestran que cada vía de elusión es detectada por la regla indicada.
  */
@@ -103,10 +114,13 @@ class ArquitecturaSeguridadTest {
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
             .importPackages("co.edu.unbosque.biohub.cientifico");
 
-    // GetMapping, PostMapping, etc. llevan @RequestMapping como meta-anotación
+    // GetMapping, PostMapping, etc. llevan @RequestMapping como meta-anotación. Desde Spring 6.1 también se registran
+    // como endpoint los métodos con @HttpExchange / @GetExchange / ..., que NO llevan @RequestMapping (SEC-J-22).
     private static final DescribedPredicate<CanBeAnnotated> ES_ENDPOINT =
             CanBeAnnotated.Predicates.metaAnnotatedWith(RequestMapping.class)
-                    .or(CanBeAnnotated.Predicates.annotatedWith(RequestMapping.class));
+                    .or(CanBeAnnotated.Predicates.annotatedWith(RequestMapping.class))
+                    .or(CanBeAnnotated.Predicates.metaAnnotatedWith(HttpExchange.class))
+                    .or(CanBeAnnotated.Predicates.annotatedWith(HttpExchange.class));
 
     // ---- lógica de la lista blanca (probada aparte) ----
 
@@ -194,6 +208,18 @@ class ArquitecturaSeguridadTest {
                 .allowEmptyShould(true);
     }
 
+    static ArchRule r7EndpointsInterceptables() {
+        return methods().that(ES_ENDPOINT)
+                .should().bePublic()
+                .andShould().notHaveModifier(JavaModifier.FINAL)
+                .andShould().notHaveModifier(JavaModifier.STATIC)
+                .andShould().beDeclaredInClassesThat().doNotHaveModifier(JavaModifier.FINAL)
+                .because("@PreAuthorize se aplica con un proxy CGLIB que solo intercepta métodos públicos de instancia "
+                        + "no final de una clase no final: un método final o static se ejecuta sin control de rol "
+                        + "(SEC-J-22)")
+                .allowEmptyShould(true);
+    }
+
     static Map<String, ArchRule> reglas() {
         Map<String, ArchRule> r = new LinkedHashMap<>();
         r.put("R1", r1ControladoresSonRestController());
@@ -202,6 +228,7 @@ class ArquitecturaSeguridadTest {
         r.put("R4", r4EndpointsConRolExplicito());
         r.put("R5", r5SinRutasFuncionales());
         r.put("R6", r6SinHandlersAlternativos());
+        r.put("R7", r7EndpointsInterceptables());
         return r;
     }
 
@@ -300,7 +327,17 @@ class ArquitecturaSeguridadTest {
                 sonda(SondasElusion.RutasFuncionales.class, "R5", "RutasFuncionales"),
                 sonda(SondasElusion.RutasFuncionalesOcultas.class, "R5", "RutasFuncionalesOcultas"),
                 sonda(SondasElusion.ManejadorHttpRequestHandler.class, "R6", "ManejadorHttpRequestHandler"),
-                sonda(SondasElusion.ServletPropio.class, "R6", "ServletPropio"));
+                sonda(SondasElusion.ServletPropio.class, "R6", "ServletPropio"),
+                // SEC-J-22: @GetExchange/@HttpExchange, métodos final/static/no públicos y clase final
+                sonda(SondasElusion.ConGetExchange.class, "R4", "exchange"),
+                sonda(SondasElusion.ConHttpExchange.class, "R4", "exchange"),
+                sonda(SondasElusion.SinControl.class, "R4", "sinControl"),
+                sonda(SondasElusion.ApiExchange.class, "R2", "interfazExchange"),
+                sonda(SondasElusion.ImplementaInterfazHttpExchange.class, "R3", "interfazExchange"),
+                sonda(SondasElusion.MetodoFinal.class, "R7", "metodoFinal"),
+                sonda(SondasElusion.MetodoStatic.class, "R7", "metodoStatic"),
+                sonda(SondasElusion.MetodoNoPublico.class, "R7", "noPublico"),
+                sonda(SondasElusion.ClaseFinal.class, "R7", "claseFinal"));
     }
 
     @ParameterizedTest(name = "{0} es detectada por {2}")
@@ -328,7 +365,8 @@ class ArquitecturaSeguridadTest {
     @Test
     @DisplayName("SEG: un controlador correcto no viola ninguna regla (las reglas no rechazan todo)")
     void unControladorCorrectoPasaTodasLasReglas() {
-        JavaClasses fixture = new ClassFileImporter().importClasses(SondasElusion.ControladorCorrecto.class);
+        JavaClasses fixture = new ClassFileImporter().importClasses(SondasElusion.ControladorCorrecto.class,
+                SondasElusion.ConGetExchangeYRol.class); // un @GetExchange con rol explícito también es válido
         reglas().forEach((nombre, regla) ->
                 assertThat(regla.evaluate(fixture).hasViolation()).as("regla %s", nombre).isFalse());
     }

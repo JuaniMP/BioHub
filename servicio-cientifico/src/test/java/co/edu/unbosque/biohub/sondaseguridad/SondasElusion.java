@@ -16,6 +16,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.service.annotation.GetExchange;
+import org.springframework.web.service.annotation.HttpExchange;
 import org.springframework.web.servlet.function.RouterFunction;
 import org.springframework.web.servlet.function.RouterFunctions;
 import org.springframework.web.servlet.function.ServerResponse;
@@ -235,6 +237,104 @@ public final class SondasElusion {
         @GetMapping("/politica")
         @PreAuthorize("@politicaUbicacion.esCualquiera(authentication)")
         public String politica() {
+            return "x";
+        }
+    }
+
+    // ---- SEC-J-22: vías que Spring registra como endpoint y no pasan por el proxy de @PreAuthorize ----
+
+    /** {@code @GetExchange} en un {@code @RestController} (Spring 6.1+): endpoint sin {@code @RequestMapping}. */
+    @RestController
+    public static class ConGetExchange {
+        @GetExchange("/api/cientifico/sonda/exchange")
+        public String exchange() {
+            return "x";
+        }
+    }
+
+    /** Lo mismo con rol: la anotación de exchange no debe saltarse la regla de rol explícito (R4). */
+    @RestController
+    public static class ConGetExchangeYRol {
+        @GetExchange("/api/cientifico/sonda/exchange-con-rol")
+        @PreAuthorize("hasRole('administrador')")
+        public String exchange() {
+            return "x";
+        }
+    }
+
+    /** {@code @HttpExchange} directo en el método. */
+    @RestController
+    public static class ConHttpExchange {
+        @HttpExchange(method = "GET", url = "/api/cientifico/sonda/http-exchange")
+        public String exchange() {
+            return "x";
+        }
+    }
+
+    public interface ApiExchange {
+        @GetExchange("/api/cientifico/sonda/interfaz-exchange")
+        String interfazExchange();
+    }
+
+    /** Implementa una interfaz con {@code @GetExchange}: el endpoint se hereda sin {@code @PreAuthorize}. */
+    @RestController
+    public static class ImplementaInterfazHttpExchange implements ApiExchange {
+        @Override
+        public String interfazExchange() {
+            return "x";
+        }
+    }
+
+    /** {@code final}: CGLIB no puede sobrescribirlo y el proxy no lo intercepta, aunque lleve un rol válido. */
+    @RestController
+    @RequestMapping("/api/cientifico/sonda")
+    public static class MetodoFinal {
+        @GetMapping("/final")
+        @PreAuthorize("hasRole('administrador')")
+        public final String metodoFinal() {
+            return "x";
+        }
+    }
+
+    /** {@code static}: tampoco pasa por el proxy. */
+    @RestController
+    @RequestMapping("/api/cientifico/sonda")
+    public static class MetodoStatic {
+        @GetMapping("/static")
+        @PreAuthorize("hasRole('administrador')")
+        public static String metodoStatic() {
+            return "x";
+        }
+    }
+
+    /** Método de endpoint que no es público. */
+    @RestController
+    @RequestMapping("/api/cientifico/sonda")
+    public static class MetodoNoPublico {
+        @GetMapping("/no-publico")
+        @PreAuthorize("hasRole('administrador')")
+        String noPublico() {
+            return "x";
+        }
+    }
+
+    /** Clase {@code final}: no se puede proxiar. */
+    @RestController
+    @RequestMapping("/api/cientifico/sonda")
+    public static final class ClaseFinal {
+        @GetMapping("/clase-final")
+        @PreAuthorize("hasRole('administrador')")
+        public String claseFinal() {
+            return "x";
+        }
+    }
+
+    /** Control de la prueba de comportamiento: un endpoint sin ningún control de rol. */
+    @RestController
+    @RequestMapping("/api/cientifico/sonda")
+    public static class SinControl {
+        @GetMapping("/sin-control")
+        public String sinControl() {
             return "x";
         }
     }
