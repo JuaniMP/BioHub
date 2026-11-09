@@ -186,11 +186,21 @@ Despliegue de bases, Redis y RabbitMQ en VMs locales con una VPN de malla, y su 
 | 17b | Merge de `develop` (da4152a); D45/D46 de ubicación renumeradas a D53/D54 (7e4a52f) | Tech Lead | opus/medium | Hecho |
 | 17c | `KEYCLOAK_GATEWAY_CLIENT_SECRET` en `.env` raíz; reimportar Keycloak; verificar `sinrol1`, bloqueo a 3 intentos y client del gateway | Tech Lead | opus/medium | Hecho |
 | 17d | `denyAll`, `@PreAuthorize` en cada endpoint y pruebas 401/403/2xx (cientifico-ubicacion y consulta-publica) | backend-senior | sonnet/high | Hecho (d0be1be, a0e0d32; D55) |
-| 17e | CI: zona horaria de `ValidadorDatosHallazgoTest` y causa raíz de `RecifradoServiceTest` | backend-senior | opus/high | En curso |
-| 17f | E2E por el gateway (perfil local): 2xx / 403 con `sinrol1` / 401 sin token; API Keys y límites | qa-tester | sonnet/medium | Pendiente |
-| 17g | Auditoría: denyAll, `@PreAuthorize`, secretos en la rama, arreglo del recifrado | ciberseguridad | opus/high | Pendiente |
+| 17e | CI: zona horaria de `ValidadorDatosHallazgoTest` y causa raíz de `RecifradoServiceTest` | backend-senior | opus/high | Hecho (b4053c3, d9a9031, y el resto de pruebas con 0xFF) |
+| 17f | E2E por el gateway (perfil local): 2xx / 403 con `sinrol1` / 401 sin token; API Keys y límites | qa-tester | sonnet/medium | Hecho: APROBADO (f695c8a). cientifico 322/0, consulta-publica 239/0, gateway 168/0 en TZ UTC y Bogotá; E2E por gateway local 50/50 |
+| 17g | Auditoría: denyAll, `@PreAuthorize`, secretos en la rama, arreglo del recifrado | ciberseguridad | opus/high | Hecho: APROBADO CON OBSERVACIONES (45ce862). D55 aceptada con condiciones; SEC-J-19/20/21 Bajos; sin secretos en árbol ni historial |
 
 **Modelos y consumo (iteración 17):**
 | Fase | USD | Agente que más consumió | Cambios de modelo (motivo) |
 |---|---:|---|---|
 | 17a–17c (Aiven, merge, Keycloak) | 2.27 en esta sesión | sesión principal (opus) | — |
+| 17d–17g (denyAll, CI, QA, seguridad) | 8.95 en esta sesión | sesión principal (opus, 3.98); backend-senior 17e (opus, 2.12) | backend-senior 17e en **opus**/high (matriz: sonnet/high): causa raíz de una prueba inestable que toca cifrado |
+
+**Pendientes tras la iteración 17 (de Juanita):**
+- SEC-J-19 (endurecer `ArquitecturaSeguridadTest`) y SEC-J-20 (403 problem+json fuera de `ubicacion`): condición de D55 antes de que `registro` integre controladores. OBS-J17-1 (403/401 vacío en `/api/publica/eventos/recibidos`) se resuelve con el mismo handler.
+- Confirmar con el grupo las 4 rutas fuera de la matriz §2: `GET /api/cientifico/ping`, `POST /api/cientifico/eventos/prueba`, `GET /api/publica/ping`, `GET /api/publica/eventos/recibidos`; y D55.
+- §3 de `11`: confirmar que `/api/publica/fichas` y `/fichas/{id}` no cambian; si 120/min por IP alcanza; aviso de 429 con `Retry-After` en `web-publica`.
+- SEC-04: migrar `servicio-cientifico/.env` y `servicio-consulta-publica/.env` a `cientifico_mq`/`consulta_mq`.
+- Aiven: acordar con el grupo quitar `0.0.0.0/0` y `::/0` de escritura; pedir al dueño de lectura que agregue las IP.
+- Propuesta: una entrada del CI con `TZ: America/Bogota`.
+
