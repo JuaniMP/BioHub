@@ -30,10 +30,13 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                         // Verificación de eventos: JWT con rol administrador, validado aquí (el gateway no exige JWT en GET /api/publica/**)
-                        .requestMatchers("/api/publica/eventos/**").hasRole("administrador")
+                        .requestMatchers(HttpMethod.GET, "/api/publica/eventos/recibidos").hasRole("administrador")
                         // Consulta pública: sin login. API Keys y rate limiting se aplican en el gateway.
-                        .requestMatchers(HttpMethod.GET, "/api/publica/**").permitAll()
-                        .anyRequest().authenticated())
+                        .requestMatchers(HttpMethod.GET, "/api/publica/ping", "/api/publica/fichas",
+                                "/api/publica/fichas/*").permitAll()
+                        // Todo lo demás se deniega (11-seguridad-y-acceso.md §3). Un endpoint nuevo exige su matcher
+                        // aquí y su @PreAuthorize en el controlador (lo verifica ArquitecturaConsultaPublicaTest).
+                        .anyRequest().denyAll())
                 .oauth2ResourceServer(oauth -> oauth
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(new KeycloakJwtAuthenticationConverter())));
         return http.build();
