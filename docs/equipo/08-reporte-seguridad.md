@@ -1596,3 +1596,179 @@ D55 no exige el rol en la URL (`.authenticated()`), sino en el `@PreAuthorize` d
 - **Cifrado:** sin cambios en producción. La detección de manipulación sigue probada.
 - **Secretos:** ninguno en el árbol ni en el historial (SEC-J-I7 sigue como informativo).
 - **SEC-04:** migrar los `.env` de servicio-cientifico y consulta-pública a `cientifico_mq` y `consulta_mq`.
+
+---
+
+# Iteración 18 – re-verificación de SEC-J-19 y SEC-J-20 (2026-11-09)
+
+**Revisor:** ciberseguridad · **Rama:** `feature/ubicacion-consulta-publica` (HEAD `913aece`) · **Alcance:** `git show d718be5` (SEC-J-19) y `git show e49373a` (SEC-J-20), condiciones de D55 antes de que `registro` integre controladores, y lectura de los 3 controladores de `origin/feature/registro-cientifico` (`0137053`). Antes del push y del PR a `develop`.
+
+## Resumen
+
+| Severidad | Cantidad (nuevos) |
+|---|---|
+| Crítico | 0 |
+| Alto | 0 |
+| Medio | 1 (SEC-J-23, en la rama de Hernando, no en este diff) |
+| Bajo | 1 (SEC-J-22) |
+| Informativo | 3 (SEC-J-I20 a SEC-J-I22) |
+
+| ID | Estado |
+|---|---|
+| **SEC-J-19** | **Parcial.** Las 6 vías de la tabla de la iteración 17, y las que se añadieron (estereotipos propios, rutas funcionales, handlers alternativos, `isAuthenticated()`, `true`, vacío, `rol or permitAll()`, `rol or 1 == 1`), quedan detectadas. Siguen pasando 3 vías nuevas, todas comprobadas: `@GetExchange`/`@HttpExchange` y los métodos `final` o `static` (SEC-J-22) |
+| **SEC-J-20** | **Cerrado.** 403 problem+json `ROL_INSUFICIENTE` con `no-store` en todo servicio-cientifico y consulta-pública. El 401 va sin cuerpo y sin la descripción interna. La auditoría de `ubicacion` no cambia |
+| SEC-J-21 | Abierto (Hernando). Sin cambios en este diff |
+
+**Veredicto: APROBADO CON OBSERVACIONES** (detalle al final).
+
+## Cómo se revisó
+- **Documentación:** D55 (`03-arquitectura.md:106`), contrato §2, §5.1 y la tabla de códigos (`04-contrato-api.md:131,252-330`), matriz §2 de `11-seguridad-y-acceso.md` y la sección "Iteración 17" de este reporte.
+- **Código (estático):** los dos `ArquitecturaSeguridadTest`, las dos `SondasElusion`, los dos `ProblemaSeguridadHandler`, los dos `SecurityConfig`, `ConsultaPublicaExceptionHandler`, `UbicacionExceptionHandler` y `EventosExceptionHandler`. En la rama de Hernando: `HallazgoController`, `FichaPlantillaController`, `HistorialController`, `RegistroExceptionHandler` y los `import` de `ubicacion` dentro de `registro`.
+- **Pruebas:** en una copia de `HEAD` (`git archive`) en el scratchpad, para no chocar con la suite de QA, con `mvn -o`:
+  - servicio-cientifico: `ArquitecturaSeguridadTest` (69) y `SeguridadEndpointsTest` (101), **0 fallos**;
+  - servicio-consulta-publica: `ArquitecturaSeguridadTest` (66) y `SeguridadEndpointsTest` (76), **0 fallos**.
+- **Sondas (solo en la copia, nunca en el repositorio):**
+  - `Sonda18ReglaTest`: aplica `ArquitecturaSeguridadTest.reglas()` (R1 a R6) a 4 controladores nuevos;
+  - `Sonda18HttpTest`: `@WebMvcTest` con el `SecurityConfig` real; llama a esos 4 controladores con un JWT **sin roles**;
+  - `Sonda18ExprTest`: pasa las 8 expresiones `@PreAuthorize` de la rama de Hernando por `expresionAceptada`.
+- **Artefacto:** `mvn -o package -DskipTests` en la copia. El jar de servicio-cientifico **no contiene** `sondaseguridad` ni ninguna clase `*Test`, y sí contiene `ProblemaSeguridadHandler`.
+
+## 1. SEC-J-19: vías de elusión, una por una
+
+| Vía | ¿Cubierta? | Evidencia |
+|---|---|---|
+| `@Controller` + `@ResponseBody` / `ResponseEntity` | Sí (R1, R2, R4) | Sondas propias del commit |
+| Estereotipo propio meta-anotado con `@RestController` | Sí (R1: exige `@RestController` **directo**) | `ConEstereotipoPropio` |
+| `@Component` + `@RequestMapping` de tipo | Sí (R2) | `ComponenteConRequestMapping` |
+| Mapping heredado de clase base (con o sin rol) o de una interfaz, aunque el padre esté fuera del escaneo | Sí (R3; R2 si el padre está en el escaneo) | `HeredaMapping*`, `ImplementaInterfazConMapping`, `laClaseBaseConMappingEsDetectadaPorR2` |
+| `@PreAuthorize` **solo en la clase** | Sí. R4 lo exige en cada método (más estricto, a propósito) | Lectura de R4 (`tryGetAnnotationOfType` del método) |
+| `@PreAuthorize` vía **meta-anotación** propia (`@SoloAdmin`) | Sí. No cuenta como anotación directa, así que R4 falla (más estricto). Si un método lleva a la vez una directa y una meta-anotada, Spring Security 6 rechaza la duplicidad al invocar (falla cerrado; no se comprobó con sonda) | Lectura de R4 |
+| `@Secured` / `@RolesAllowed` en lugar de `@PreAuthorize` | Sí. No están habilitados (`@EnableMethodSecurity` por defecto) y R4 exige `@PreAuthorize`, así que el método falla la regla | `SecurityConfig.java:20` |
+| SpEL con `or` y algo siempre verdadero (`permitAll()`, `isAuthenticated()`, `true`, `1 == 1`, `!hasRole`, paréntesis, `;`) | Sí. La lista blanca exige que **toda** la expresión sean términos de rol con roles del realm; no hay ninguna combinación de términos aceptados que sea siempre verdadera | 30 casos rechazados en `laListaBlancaRechazaExpresionesSinRolExplicito` |
+| `@politicaUbicacion` con otro método u otro bean | Sí (lista `METODOS_POLITICA_UBICACION`) | `PoliticaNoListada` |
+| `RouterFunction`, también oculto tras `Object` | Sí (R5, por dependencia de paquete) | `RutasFuncionales*` |
+| `HttpRequestHandler`, `mvc.Controller`, `Servlet`, `ServletRegistrationBean` | Sí (R6) | `ManejadorHttpRequestHandler`, `ServletPropio` |
+| Controladores fuera del paquete escaneado | Sí en la práctica. Spring escanea desde `ServicioCientificoApplication` (`...biohub.cientifico`), el mismo paquete que importa la regla. Un `@ComponentScan`/`@Import` de otro paquete, o un controlador que venga en una dependencia, no los ve la regla; queda el `denyAll` fuera de `/api/cientifico/**` | Ver SEC-J-I22 |
+| **`@GetExchange` / `@HttpExchange` en un `@RestController` (Spring 6.1+)** | **No** | SEC-J-22 |
+| **Método de endpoint `final`** (con `@PreAuthorize` válido) | **No** | SEC-J-22 |
+| **Método de endpoint `static`** (con `@PreAuthorize` válido) | **No** | SEC-J-22 |
+
+- **Sondas fuera de producción:** cumplido. Las dos `SondasElusion` están en `src/test/java/co/edu/unbosque/biohub/sondaseguridad/`, fuera del paquete base de cada servicio. Por eso no las ve el escaneo de componentes ni de `@SpringBootApplication` ni de `@WebMvcTest`, y la regla las excluye con `DO_NOT_INCLUDE_TESTS`. Ningún `pom.xml` usa `test-jar`, `build-helper` ni `testSourceDirectory`. El `Dockerfile` copia solo el jar empaquetado, y se comprobó que el jar no las incluye.
+- **Prueba de control positiva:** `unControladorCorrectoPasaTodasLasReglas` evita que las reglas rechacen todo, y `elEscaneoNoEstaVacio` evita que el escaneo quede vacío sin que nadie lo note. Bien.
+- **Controladores de registro (Hernando):** los 3 controladores (8 métodos) son `@RestController` directos, con métodos `public` no `final` y sin herencia. Sus 8 expresiones `hasAnyRole(...)` son **aceptadas** por la lista blanca (`Sonda18ExprTest`: 8 de 8 `true`), así que la regla los deja pasar sin cambios. Pero la regla solo valida la **forma** de la expresión, no la matriz §2 (ver SEC-J-23).
+
+## 2. SEC-J-20: `ProblemaSeguridadHandler`
+
+- **Sin filtración de información:**
+  - el cuerpo del 403 es fijo (`ProblemaSeguridadHandler.java:49-53,70-84`): no incluye el mensaje de la excepción, el rol exigido, el usuario ni una traza;
+  - `instance` es `getRequestURI()`, serializado por Jackson como `application/problem+json`: no hay XSS reflejado, y `StrictHttpFirewall` ya rechaza `;`, `%2F` y `%25`;
+  - la prueba `elCuerpoDel403NoFiltraTrazasNiDetallesInternos` lo cubre.
+- **Cabeceras:**
+  - el 401 (`:56-68`) solo emite `Bearer` y, si aplica, `error="<código RFC 6750>"`, filtrado por la lista `invalid_request|invalid_token|insufficient_scope`. Se elimina el `error_description`, que antes reflejaba el mensaje del decodificador JWT. Probado con `BadJwtException("... interno-7")`;
+  - el 403 ya no envía el `WWW-Authenticate` con descripción que ponía `BearerTokenAccessDeniedHandler`.
+- **`no-store`:** se pone en el 401 y en el 403 (`:67,80`), y lo comprueba `esRolInsuficiente`/`esNoAutenticado` en todos los endpoints, en el `denyAll` y en el JWT inválido.
+- **Registro en la cadena:** el handler se registra en `exceptionHandling` **y** en `oauth2ResourceServer` (`SecurityConfig.java:42-45`). Esto cubre el JWT inválido o vencido (que no pasa por `ExceptionTranslationFilter`) y el `denyAll` (`AuthorizationFilter`). Un anónimo que llega a `denyAll` recibe 401, no 403 (`ExceptionTranslationFilter`).
+- **Auditoría de `ubicacion` intacta:**
+  - `UbicacionExceptionHandler` no cambió (`git show --stat e49373a`). Sigue con `@Order(HIGHEST_PRECEDENCE)` y `basePackages = ...ubicacion.controller`, y resuelve y audita la `AccessDeniedException` **antes** de que llegue a Spring Security;
+  - como `/api/cientifico/**` es `authenticated()`, un usuario autenticado nunca recibe un 403 de la cadena de filtros en `ubicacion`: todo 403 de `ubicacion` pasa por el método y queda auditado;
+  - en las pruebas, `ProblemaSeguridadHandler` produce el mismo cuerpo, así que el contrato es uniforme.
+- **`ConsultaPublicaExceptionHandler.seguridad`** (`:61`): relanzar la misma excepción hace que `ExceptionHandlerExceptionResolver` devuelva `null` sin registrar un aviso. La excepción llega a `ExceptionTranslationFilter`, en vez de acabar como 500 en el `@ExceptionHandler(Exception.class)` genérico. Correcto.
+- **Registro (Hernando):** `RegistroExceptionHandler` no captura `AccessDeniedException` ni `Exception`, así que sus 403 saldrán por `ProblemaSeguridadHandler` con el formato del contrato. Riesgo futuro en SEC-J-I20.
+
+**Estado: Cerrado.**
+
+## 3. Condiciones de D55 antes de integrar `registro`
+
+| Condición (iteración 17) | Estado |
+|---|---|
+| SEC-J-19: endurecer `ArquitecturaSeguridadTest` | **Parcial**: falta SEC-J-22 (S, dos reglas más) |
+| SEC-J-20: 403 uniforme | **Cumplida** |
+| SEC-J-I19: red interna sin puertos publicados (Santiago) | Sin cambios; sigue pendiente para el compose del backend |
+| Nueva: los endpoints de registro se añaden a `ENDPOINTS` de `SeguridadEndpointsTest` con su matriz | **Pendiente (Hernando)**. Es la única prueba que compara el rol con la matriz §2; la regla ArchUnit no lo hace (SEC-J-23) |
+
+Los 3 controladores actuales de Hernando **no** usan ninguna de las vías de SEC-J-22, así que hoy no hay ningún endpoint expuesto por ellas. Por eso no exijo pasar a `hasAnyRole` en la URL. La condición queda así: **SEC-J-22 corregido antes de que `registro` se fusione en `develop`** (si se puede, en este mismo PR; el esfuerzo es S). Si `registro` entra antes, la alternativa de D55 (`hasAnyRole` de los 5 roles en la URL) pasa a ser obligatoria hasta corregirlo.
+
+Sobre D53 (`registro` importa `ubicacion.service.EstadoConservacion`, `UbicacionInvalidaException` y `UbicacionNoEncontradaException`): son tipos de la capa de servicio. No hay `import` de `ubicacion.domain` ni de `ubicacion.infrastructure` (texto cifrado, llaves), así que **no afecta a la seguridad** de las coordenadas. Es un tema de arquitectura.
+
+## Hallazgos nuevos
+
+### SEC-J-22 · Bajo · A01 (quedan tres vías que pasan `ArquitecturaSeguridadTest` y dejan el endpoint sin control de rol)
+- **Archivos:** `servicio-cientifico/src/test/java/co/edu/unbosque/biohub/cientifico/ArquitecturaSeguridadTest.java:107-109` (`ES_ENDPOINT`) y `:161-178` (R4), y lo mismo en `servicio-consulta-publica/.../ArquitecturaSeguridadTest.java:104-106,158-175`.
+- **Problema (comprobado en la copia):** las 4 sondas pasan **las seis reglas** (R1 a R6) y responden **200 con el dato** a un JWT **sin roles**, con el `SecurityConfig` real:
+
+  | Sonda | Reglas | `GET` con JWT sin roles |
+  |---|---|---|
+  | `@RestController` con `@GetExchange("/api/cientifico/...")` y sin `@PreAuthorize` | todas pasan | **200** |
+  | `@RestController` que implementa una interfaz `@HttpExchange` con `@GetExchange` | todas pasan | **200** |
+  | `@GetMapping` + `@PreAuthorize("hasRole('administrador')")` en un método **`final`** que llama a un método auxiliar del propio controlador | todas pasan | **200** |
+  | `@GetMapping` + `@PreAuthorize("hasRole('administrador')")` en un método **`static`** | todas pasan | **200** |
+
+  - **`@HttpExchange`:** desde Spring Framework 6.1 (el proyecto usa 6.2.x, Boot 3.5.16), `RequestMappingHandlerMapping` también registra como endpoints de servidor los métodos con `@HttpExchange`/`@GetExchange`/`@PostExchange`. Esas anotaciones **no** llevan `@RequestMapping` como meta-anotación, así que `ES_ENDPOINT` no las ve: R2, R3 y R4 no se aplican.
+  - **`final` / `static`:** `@PreAuthorize` se aplica con un proxy CGLIB, y CGLIB no puede sobrescribir métodos `final` ni `static`. Spring MVC invoca el método sin pasar por el interceptor. En el caso `final`, el cuerpo corre sobre la instancia del proxy, y cualquier llamada a otro método no `final` se delega al bean real, con sus dependencias. Así, el endpoint devuelve datos reales. El `@PreAuthorize` **está escrito y la regla lo acepta**, pero no se ejecuta, lo que lo hace más difícil de detectar en una revisión.
+- **Por qué importa:** con D55, el `@PreAuthorize` es la única barrera de rol dentro del servicio, y esta prueba es su red de seguridad. Cualquiera de las 3 vías dejaría un endpoint restringido (por ejemplo, el historial o la reclasificación) abierto a **cualquiera de los 5 roles** que dejó pasar el gateway, sin que falle ninguna prueba. Hoy no hay ningún endpoint afectado (tampoco en la rama de Hernando).
+- **Corrección:** ampliar `ES_ENDPOINT` y añadir una regla sobre los modificadores, más una sonda por vía:
+  ```java
+  private static final DescribedPredicate<CanBeAnnotated> ES_ENDPOINT =
+          CanBeAnnotated.Predicates.metaAnnotatedWith(RequestMapping.class)
+                  .or(CanBeAnnotated.Predicates.annotatedWith(RequestMapping.class))
+                  .or(CanBeAnnotated.Predicates.metaAnnotatedWith(HttpExchange.class))
+                  .or(CanBeAnnotated.Predicates.annotatedWith(HttpExchange.class));
+
+  // R7: el proxy de @PreAuthorize solo intercepta métodos de instancia no final; la clase tampoco puede ser final
+  static ArchRule r7EndpointsInterceptables() {
+      return methods().that(ES_ENDPOINT)
+              .should().bePublic()
+              .andShould().notHaveModifier(JavaModifier.FINAL)
+              .andShould().notHaveModifier(JavaModifier.STATIC)
+              .andShould().beDeclaredInClassesThat().doNotHaveModifier(JavaModifier.FINAL)
+              .because("un método final o static no pasa por el interceptor de @PreAuthorize (SEC-J-22)")
+              .allowEmptyShould(true);
+  }
+  ```
+  Y en R3 (herencia), el mismo `ES_ENDPOINT` ampliado cubre la interfaz `@HttpExchange`. Para cerrar a la vez esta clase de errores, se puede añadir en `SeguridadEndpointsTest` un caso que recorra **todos** los `RequestMappingInfo` de `RequestMappingHandlerMapping` y compruebe que cada ruta de `/api/cientifico/**` responde 403 con un JWT sin roles. Así se prueba el comportamiento real, no la forma del código, y aparecería cualquier vía que la regla aún no conozca.
+- **Responsable sugerido:** ubicación (Juanita); avisar a Hernando. **Condición de D55** antes de fusionar `registro` en `develop`. **Esfuerzo:** S.
+
+### SEC-J-23 · Medio · A01 (rama de Hernando: los `@PreAuthorize` de `registro` no siguen la matriz §2; la regla los acepta)
+- **Archivos** (en `origin/feature/registro-cientifico`, `0137053`), en `servicio-cientifico/.../registro/controller/`:
+  - `HallazgoController.java:48` (`POST /hallazgos`: `investigador_campo, cientifico_alto_rango, administrador`) y `:66` (`PUT /hallazgos/{id}`: `cientifico_alto_rango, administrador`);
+  - `FichaPlantillaController.java:37` (`PUT /fichas/{n}/atributos`: `cientifico_alto_rango, administrador`);
+  - `HistorialController.java:34,41,53` (`versiones`, `auditoria`, `comparar`: `auditor_cientifico, cientifico_alto_rango, administrador`).
+- **Problema:** la matriz §2 de `11-seguridad-y-acceso.md` dice:
+  - registrar hallazgo y ficha: investigador y alto rango;
+  - reclasificar: investigador, auditor y alto rango;
+  - ver historial: auditor y alto rango;
+  - y "`administrador` nunca recibe coordenadas (RF12) **ni edita datos científicos**".
+
+  En la rama, `administrador` puede **registrar, reclasificar y editar fichas**, y ver el historial. Además, `investigador_campo` y `auditor_cientifico` no pueden reclasificar, aunque la matriz se lo permite (esto es funcional, no de seguridad). `ArquitecturaSeguridadTest` acepta todas estas expresiones porque solo valida que nombren roles del realm. Las rutas de registro están marcadas como propuestas (`*`) en la matriz, pero la regla del administrador no lo está.
+- **Por qué importa:** con D55, ese `@PreAuthorize` es el **único** control de rol. Un administrador (cuenta técnica de gestión) podría crear o modificar datos científicos y su historial inmutable, lo que rompe la separación de funciones que fija la matriz. No es un fallo de este diff, pero es justo el caso que la red de D55 no detecta.
+- **Corrección:** ajustar las expresiones a la matriz, o actualizar la matriz con el Tech Lead si el cambio es intencional, y añadir los 8 endpoints a `ENDPOINTS` de `SeguridadEndpointsTest` con sus roles permitidos, para que la matriz quede probada:
+  ```java
+  // HallazgoController
+  @PostMapping
+  @PreAuthorize("hasAnyRole('investigador_campo', 'cientifico_alto_rango')")
+  // HistorialController
+  @GetMapping("/versiones")
+  @PreAuthorize("hasAnyRole('auditor_cientifico', 'cientifico_alto_rango')")
+  // SeguridadEndpointsTest.ENDPOINTS
+  new Endpoint(HttpMethod.POST, "/api/cientifico/hallazgos", Set.of(INVESTIGADOR, ALTO_RANGO)),
+  ```
+- **Responsable sugerido:** Hernando (registro), con validación del Tech Lead sobre la matriz. **No bloquea** el PR de esta rama. **Bloquea** la integración de `registro` hasta que se corrija o se documente. **Esfuerzo:** S.
+
+### Informativos
+- **SEC-J-I20 (manejadores genéricos y 403 futuros):** si un `@RestControllerAdvice` de `registro` (u otro módulo) añade `@ExceptionHandler(Exception.class)` o `RuntimeException.class` sin excluir `AccessDeniedException`, sus 403 se convertirían en 500. Es lo que ya pasó en consulta-pública y se corrigió en `e49373a`. Recomendación para Hernando: copiar el patrón `seguridad(RuntimeException e) { throw e; }` de `ConsultaPublicaExceptionHandler.java:60-63`, o tratar `AccessDeniedException` antes del genérico. `todoEndpointDa403ProblemJsonConRolNoPermitido` lo detecta si los endpoints de registro se añaden a `ENDPOINTS`.
+- **SEC-J-I21 (`PUBLICOS_PERMIT_ALL` por nombre simple):** `servicio-consulta-publica/.../ArquitecturaSeguridadTest.java:90,165` identifica los públicos como `ClaseSimple.metodo`. Otra clase llamada `PingController` en otro paquete, con un método `ping`, podría usar `permitAll()`. El riesgo es nulo mientras exista el `denyAll` con matchers exactos en la URL. Para mayor precisión, usar `metodo.getFullName()`.
+- **SEC-J-I22 (fuera del alcance de la regla):** la regla no ve controladores que vengan en dependencias ni paquetes añadidos con `@ComponentScan`/`@Import`, y tampoco comprueba que `@EnableMethodSecurity` siga con `prePostEnabled` activo. Ambos casos quedan cubiertos por el `denyAll` fuera del prefijo y por `SeguridadEndpointsTest`, que fallaría si se desactivara la seguridad por método. La prueba de comportamiento que se propone en SEC-J-22 cerraría también este hueco.
+
+## Bien hecho (esta iteración)
+- La lista blanca de expresiones es la solución correcta: exige que **toda** la expresión sean términos de rol del realm, en vez de buscar palabras prohibidas. Rechaza las 30 variantes probadas, incluidas `!rol`, paréntesis, `;`, comillas dobles y roles con otra capitalización.
+- Las sondas viven en `src/test`, fuera del paquete escaneado. Hay una por vía, con control positivo y comprobación de que el escaneo no está vacío. No llegan al jar.
+- `ProblemaSeguridadHandler` registrado en los dos puntos de la cadena (resource server y `exceptionHandling`), con el cuerpo fijo del contrato y `no-store`. Además, quita del `WWW-Authenticate` la descripción interna del decodificador, una filtración que no estaba en el alcance de SEC-J-20.
+- La corrección de consulta-pública (`AccessDeniedException` como 500) se detectó y se arregló en el mismo commit.
+- Pruebas parametrizadas de 401 y 403 sobre todos los endpoints y sobre el `denyAll`.
+
+## Veredicto (iteración 18)
+**APROBADO CON OBSERVACIONES.** No hay Críticos ni Altos en este diff.
+- **SEC-J-20: Cerrado.**
+- **SEC-J-19: Parcial.** Lo que quedó abierto se sigue como **SEC-J-22** (Bajo, S). Debe corregirse antes de que `registro` se fusione en `develop`; si no, `hasAnyRole` en la URL pasa a ser obligatorio (alternativa de D55).
+- **SEC-J-23** (Medio, rama de Hernando): no bloquea este PR, pero sí la integración de `registro`. Hay que alinear los `@PreAuthorize` con la matriz §2 (el administrador no edita datos científicos) y añadir los endpoints a `SeguridadEndpointsTest`.
+- **D55** sigue aceptada con las condiciones de la sección 3.
