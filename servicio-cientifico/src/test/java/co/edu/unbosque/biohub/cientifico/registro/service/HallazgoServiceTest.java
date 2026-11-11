@@ -31,7 +31,7 @@ import co.edu.unbosque.biohub.cientifico.registro.domain.Hallazgo;
 import co.edu.unbosque.biohub.cientifico.registro.domain.HallazgoRepository;
 import co.edu.unbosque.biohub.cientifico.registro.domain.VersionHallazgo;
 import co.edu.unbosque.biohub.cientifico.registro.domain.VersionHallazgoRepository;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
+import co.edu.unbosque.biohub.cientifico.registro.domain.EstadoConservacion;
 import org.mockito.Mockito;
 
 /** HU-01 y HU-03: qué se guarda, qué se publica y, sobre todo, qué nunca debe salir del módulo. */

@@ -15,16 +15,15 @@ import co.edu.unbosque.biohub.cientifico.registro.domain.VersionIncompletaExcept
 import co.edu.unbosque.biohub.cientifico.registro.service.DatosHallazgoInvalidosException;
 import co.edu.unbosque.biohub.cientifico.registro.service.HallazgoNoEncontradoException;
 import co.edu.unbosque.biohub.cientifico.registro.service.PlantillaNoEncontradaException;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.UbicacionInvalidaException;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.UbicacionNoEncontradaException;
+import co.edu.unbosque.biohub.cientifico.registro.service.UbicacionDelHallazgoNoRegistradaException;
 
 /**
  * Traduce las excepciones del módulo registro a {@code application/problem+json}.
  *
- * <p>Incluye las que llegan desde ubicación: cuando ubicación rechaza los datos, la excepción viaja
- * por el evento de dominio síncrono, revierte la transacción y llega hasta aquí. Para quien llama, un
- * dato de ubicación inválido es un 400 igual que cualquier otro campo del formulario, con el nombre
- * del campo que falló (04-contrato-api §6, obligación 1).
+ * <p>Incluye los errores que nacen en el módulo de ubicación: cuando rechaza los datos, su excepción
+ * viaja por el evento de dominio síncrono, revierte la transacción y el servicio la traduce a un error
+ * propio (ver {@code TraductorErroresDeUbicacion}). Para quien llama, un dato de ubicación inválido es
+ * un 400 igual que cualquier campo del formulario, con el nombre del que falló (contrato §6).
  *
  * <p>Los mensajes de estas excepciones están pensados para mostrarse: ninguno incluye coordenadas.
  */
@@ -49,13 +48,6 @@ public class RegistroExceptionHandler {
         return validacion(e.campo(), e.getMessage(), "VERSION_INCOMPLETA", peticion);
     }
 
-    /** Ubicación rechazó los datos del hallazgo; la transacción ya se revirtió por completo. */
-    @ExceptionHandler(UbicacionInvalidaException.class)
-    public ResponseEntity<ProblemaRegistroResponse> ubicacionInvalida(UbicacionInvalidaException e,
-                                                                      WebRequest peticion) {
-        return validacion(e.campo(), e.getMessage(), "UBICACION_INVALIDA", peticion);
-    }
-
     @ExceptionHandler(HallazgoNoEncontradoException.class)
     public ResponseEntity<ProblemaRegistroResponse> hallazgoNoEncontrado(HallazgoNoEncontradoException e,
                                                                          WebRequest peticion) {
@@ -72,10 +64,10 @@ public class RegistroExceptionHandler {
      * El hallazgo no tenía ubicación registrada antes. Es una inconsistencia entre módulos, no un error
      * del usuario: se responde 409 y queda en el log para revisarlo.
      */
-    @ExceptionHandler(UbicacionNoEncontradaException.class)
-    public ResponseEntity<ProblemaRegistroResponse> ubicacionNoEncontrada(UbicacionNoEncontradaException e,
-                                                                          WebRequest peticion) {
-        log.warn("El hallazgo {} no tiene ubicacion registrada", e.hallazgoId());
+    @ExceptionHandler(UbicacionDelHallazgoNoRegistradaException.class)
+    public ResponseEntity<ProblemaRegistroResponse> ubicacionNoRegistrada(
+            UbicacionDelHallazgoNoRegistradaException e, WebRequest peticion) {
+        log.warn("Se intento actualizar la ubicacion de un hallazgo que no la tenia registrada");
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .contentType(MediaType.APPLICATION_PROBLEM_JSON)
                 .body(new ProblemaRegistroResponse(TIPO_NO_ENCONTRADO, "Conflicto", HttpStatus.CONFLICT.value(),

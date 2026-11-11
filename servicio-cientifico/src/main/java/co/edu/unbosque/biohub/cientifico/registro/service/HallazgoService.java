@@ -22,7 +22,7 @@ import co.edu.unbosque.biohub.cientifico.registro.domain.Hallazgo;
 import co.edu.unbosque.biohub.cientifico.registro.domain.HallazgoRepository;
 import co.edu.unbosque.biohub.cientifico.registro.domain.VersionHallazgo;
 import co.edu.unbosque.biohub.cientifico.registro.domain.VersionHallazgoRepository;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
+import co.edu.unbosque.biohub.cientifico.registro.domain.EstadoConservacion;
 
 /**
  * Registro y reclasificación de hallazgos (HU-01, HU-03) con su historial inmutable (HU-05).
@@ -101,11 +101,16 @@ public class HallazgoService {
                 .autor(investigador.strip())
                 .build());
 
-        // 3. Ubicación cifra las coordenadas dentro de esta misma transacción.
-        publicador.publishEvent(new HallazgoRegistrado(hallazgo.getId(), hallazgo.getVersion(),
-                hallazgo.getNombreCientifico(), hallazgo.getFechaRecoleccion(), hallazgo.getInvestigador(),
-                hallazgo.getDepartamento(), estado.name(), comando.latitud(), comando.longitud(),
-                Instant.now(reloj)));
+        // 3. Ubicación cifra las coordenadas dentro de esta misma transacción. Si rechaza los datos,
+        //    su excepción revierte todo; se traduce a un error de registro para responder 400 con el campo.
+        try {
+            publicador.publishEvent(new HallazgoRegistrado(hallazgo.getId(), hallazgo.getVersion(),
+                    hallazgo.getNombreCientifico(), hallazgo.getFechaRecoleccion(), hallazgo.getInvestigador(),
+                    hallazgo.getDepartamento(), estado.name(), comando.latitud(), comando.longitud(),
+                    Instant.now(reloj)));
+        } catch (RuntimeException e) {
+            throw TraductorErroresDeUbicacion.traducir(e);
+        }
 
         // 4. El resto del mundo se entera solo si el commit funciona.
         publicador.publishEvent(new CambioHallazgoConfirmado(
@@ -169,9 +174,13 @@ public class HallazgoService {
 
         auditoria.saveAll(diferencias(previo, hallazgo, versionNueva, justificacion, autor.strip()));
 
-        publicador.publishEvent(new HallazgoReclasificado(hallazgo.getId(), versionNueva,
-                hallazgo.getNombreCientifico(), hallazgo.getFechaRecoleccion(), hallazgo.getDepartamento(),
-                hallazgo.getEstadoConservacion().name(), Instant.now(reloj)));
+        try {
+            publicador.publishEvent(new HallazgoReclasificado(hallazgo.getId(), versionNueva,
+                    hallazgo.getNombreCientifico(), hallazgo.getFechaRecoleccion(), hallazgo.getDepartamento(),
+                    hallazgo.getEstadoConservacion().name(), Instant.now(reloj)));
+        } catch (RuntimeException e) {
+            throw TraductorErroresDeUbicacion.traducir(e);
+        }
 
         publicador.publishEvent(new CambioHallazgoConfirmado(
                 CambioHallazgoConfirmado.TIPO_RECLASIFICADO, autor.strip(), datos));

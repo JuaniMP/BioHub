@@ -1,6 +1,5 @@
 package co.edu.unbosque.biohub.cientifico.registro.domain;
 
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
 
 /**
  * Categoría de la Lista Roja de la UICN que informa el investigador, y su equivalencia con el

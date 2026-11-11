@@ -16,7 +16,6 @@ import co.edu.unbosque.biohub.cientifico.registro.service.HallazgoService;
 import co.edu.unbosque.biohub.cientifico.registro.service.ReclasificarHallazgoComando;
 import co.edu.unbosque.biohub.cientifico.registro.service.RegistrarHallazgoComando;
 import co.edu.unbosque.biohub.cientifico.registro.service.ResultadoRegistro;
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.UbicacionInvalidaException;
 
 /**
  * Prueba la colaboración real entre registro y ubicación (04-contrato-api §6): el hallazgo se inserta,
@@ -61,10 +60,13 @@ class RegistroConUbicacionTest extends BaseRegistroMySqlTest {
     }
 
     @Test
-    @DisplayName("si ubicacion rechaza el departamento, no queda ni el hallazgo ni su historial")
+    @DisplayName("si ubicacion rechaza el departamento, se traduce a un error de registro y no queda nada")
     void siUbicacionFallaSeRevierteTodo() {
+        // La excepcion nace en ubicacion y el servicio la traduce, porque D53 impide importarla.
         assertThatThrownBy(() -> hallazgos.registrar(comando("Narnia", LATITUD, LONGITUD), "investigador1"))
-                .isInstanceOfAny(UbicacionInvalidaException.class, DatosHallazgoInvalidosException.class);
+                .isInstanceOf(DatosHallazgoInvalidosException.class)
+                .extracting(e -> ((DatosHallazgoInvalidosException) e).campo())
+                .isEqualTo("departamento");
 
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM hallazgo", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM hallazgo_version", Integer.class)).isZero();

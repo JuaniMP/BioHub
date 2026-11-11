@@ -6,7 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
-import co.edu.unbosque.biohub.cientifico.ubicacion.service.EstadoConservacion;
+import co.edu.unbosque.biohub.cientifico.registro.domain.EstadoConservacion;
 
 /**
  * Equivalencia UICN acordada en 04-contrato-api §6 (obligación 5 de registro). Si alguien la cambia,
