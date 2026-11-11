@@ -1,0 +1,28 @@
+meta {
+  name: listar-usuarios
+  type: http
+  seq: 21
+}
+
+get {
+  url: {{baseGateway}}/api/gateway/usuarios?busqueda=investigador1
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_admin}}
+}
+
+tests {
+  test("lista usuarios", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("trae el rol del usuario", function () {
+    expect(res.getBody().content[0].roles).to.deep.equal(["investigador_campo"]);
+  });
+}
+
+docs {
+  Requisito: RF17.
+}

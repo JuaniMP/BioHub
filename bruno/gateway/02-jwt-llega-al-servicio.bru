@@ -1,0 +1,25 @@
+meta {
+  name: jwt-llega-al-servicio
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseGateway}}/api/cientifico/ubicacion/hallazgos
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_campo}}
+}
+
+tests {
+  test("un rol interno pasa por el gateway hasta el servicio", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+}
+
+docs {
+  Requisito: RF18, SEC-02.
+}

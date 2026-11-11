@@ -1,0 +1,35 @@
+meta {
+  name: externa-con-key-200
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{baseGateway}}/api/v1/externa/fichas?q=atelopus
+  body: none
+  auth: none
+}
+
+headers {
+  X-API-Key: {{apiKey}}
+}
+
+tests {
+  test("la API externa responde", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("mismo formato que el portal", function () {
+    expect(res.getBody()).to.have.property("content");
+    expect(res.getBody()).to.have.property("total");
+  });
+  test("informa el limite", function () {
+    expect(res.getHeader("x-ratelimit-limit")).to.equal("60");
+  });
+  test("no queda en caches compartidas", function () {
+    expect(res.getHeader("cache-control")).to.contain("private");
+  });
+}
+
+docs {
+  Requisito: HU-08 c.1, RF14, RNF12.
+}

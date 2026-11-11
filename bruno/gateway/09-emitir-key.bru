@@ -1,0 +1,36 @@
+meta {
+  name: emitir-key
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseGateway}}/api/gateway/consumidores/{{consumidorId}}/keys
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_admin}}
+}
+
+script:post-response {
+  bru.setVar("apiKey", res.getBody().apiKey);
+  bru.setVar("apiKeyId", res.getBody().id);
+}
+
+tests {
+  test("key emitida", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+  test("la key tiene el formato esperado", function () {
+    expect(res.getBody().apiKey).to.match(/^bh_pub_[a-z0-9]{8}_[A-Za-z0-9_-]{43}$/);
+  });
+  test("no queda en caches", function () {
+    expect(res.getHeader("cache-control")).to.contain("no-store");
+  });
+}
+
+docs {
+  Requisito: HU-12 c.1.
+}

@@ -1,0 +1,25 @@
+meta {
+  name: externa-no-expone-eventos
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{baseGateway}}/api/v1/externa/eventos/recibidos
+  body: none
+  auth: none
+}
+
+headers {
+  X-API-Key: {{apiKey}}
+}
+
+tests {
+  test("solo se exponen las fichas", function () {
+    expect(res.getStatus()).to.equal(401);
+  });
+}
+
+docs {
+  Requisito: D16.
+}

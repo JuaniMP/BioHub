@@ -1,0 +1,32 @@
+meta {
+  name: cambiar-rol
+  type: http
+  seq: 25
+}
+
+put {
+  url: {{baseGateway}}/api/gateway/usuarios/{{usuarioNuevoId}}/rol
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_admin}}
+}
+
+body:json {
+  { "rol": "analista_ambiental" }
+}
+
+tests {
+  test("rol cambiado", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("queda con exactamente un rol", function () {
+    expect(res.getBody().roles).to.deep.equal(["analista_ambiental"]);
+  });
+}
+
+docs {
+  Requisito: HU-10 c.3, RF19.
+}

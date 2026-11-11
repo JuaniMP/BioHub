@@ -1,0 +1,28 @@
+meta {
+  name: externa-key-revocada-401
+  type: http
+  seq: 20
+}
+
+get {
+  url: {{baseGateway}}/api/v1/externa/fichas
+  body: none
+  auth: none
+}
+
+headers {
+  X-API-Key: {{apiKey}}
+}
+
+tests {
+  test("revocada: rechazada de inmediato", function () {
+    expect(res.getStatus()).to.equal(401);
+  });
+  test("codigo API_KEY_INVALIDA", function () {
+    expect(res.getBody().codigo).to.equal("API_KEY_INVALIDA");
+  });
+}
+
+docs {
+  Requisito: HU-12 c.2.
+}

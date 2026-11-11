@@ -679,3 +679,18 @@ Con eso la sesión queda en UTC y los `DEFAULT CURRENT_TIMESTAMP(3)` de la base 
 - Contraseñas de `avnadmin` y de los usuarios `*_app`/`*_migr`: solo en el `.env` de cada servicio (ignorado por git) o en un gestor de secretos; nunca en el repo ni en la copia del script (`deploy/aiven/.gitignore`). Se generan con `openssl rand -hex 24`.
 - Aiven cifra el disco y los respaldos del servicio en reposo; las coordenadas siguen protegidas además con AES-256-GCM en la aplicación (sección 10), así que un respaldo o una lectura directa de la tabla no las revela. Las llaves `UBICACION_CLAVES` **no** se guardan en Aiven.
 - `avnadmin` no se usa en las aplicaciones.
+
+## 17. Base `gateway` (parte de Santiago)
+
+Migración: `api-gateway/src/main/resources/db/migration/V20261105_1200__consumidores_y_api_keys.sql`. Decisiones: D45 a D47.
+
+| Tabla | Para qué | Columnas clave |
+|---|---|---|
+| `consumidor_externo` | Universidad u ONG autorizada | `nombre` único; `limite_por_minuto`: `NULL` usa el valor por defecto (RNF11) |
+| `api_key` | Credenciales de cada consumidor | `prefijo` único y no secreto; `hash_sha256`; `estado` (`ACTIVA`, `REVOCADA`); `expira_en`; `ultimo_uso_en` |
+
+- Un consumidor tiene varias keys para poder rotarlas sin cortar el servicio. El límite es por consumidor.
+- La key en claro nunca se guarda. Sin BD no se valida ninguna key: la API externa responde 503.
+- Los contadores no están en esta base: viven en Redis y duran 60 segundos.
+- Claves en Redis (todas vencen): `biohub:gateway:rl:*` (contadores), `biohub:gateway:key:<prefijo>` (caché de 60 s) y `biohub:gateway:revocado:<sub>` (6 minutos).
+- Fechas en UTC (D36). La URL del perfil `local` del gateway ahora fija la zona de la sesión.

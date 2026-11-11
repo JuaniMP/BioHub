@@ -26,6 +26,7 @@ import org.springframework.util.unit.DataSize;
 import org.springframework.web.client.RestClient;
 
 import co.edu.unbosque.biohub.gateway.config.GatewayProperties;
+import co.edu.unbosque.biohub.gateway.config.PropiedadesCircuito;
 
 class ProxyServiceTest {
 
@@ -39,7 +40,8 @@ class ProxyServiceTest {
         GatewayProperties props = new GatewayProperties(
                 Map.of("cientifico", "http://cientifico:8081", "publica", "http://publica:8083"),
                 List.of("publica"), List.of(), Duration.ofSeconds(1), Duration.ofSeconds(1), DataSize.ofBytes(10));
-        proxy = new ProxyService(builder.build(), props);
+        proxy = new ProxyService(builder.build(), props,
+                new CircuitoServicios(new PropiedadesCircuito(3, Duration.ofSeconds(10))));
     }
 
     @Test
@@ -150,6 +152,96 @@ class ProxyServiceTest {
         req.addHeader("X-API-Key", "secreta");
 
         proxy.reenviar(req);
+        servidor.verify();
+    }
+
+    @Test
+    void laApiExternaTraduceLaUrlPublicaALaInterna() {
+        servidor.expect(requestTo("http://publica:8083/api/publica/fichas?q=rana&page=0"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(headerDoesNotExist("X-API-Key"))
+                .andExpect(headerDoesNotExist("Authorization"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/externa/fichas");
+        req.setQueryString("q=rana&page=0");
+        req.addHeader("X-API-Key", "secreta");
+        req.addHeader("Authorization", "Bearer ajeno");
+
+        assertThat(proxy.reenviarApiExterna(req).getStatusCode()).isEqualTo(HttpStatus.OK);
+        servidor.verify();
+    }
+
+    @Test
+    void laApiExternaConservaElIdentificadorDeLaFicha() {
+        servidor.expect(requestTo("http://publica:8083/api/publica/fichas/abc"))
+                .andRespond(withSuccess());
+
+        proxy.reenviarApiExterna(new MockHttpServletRequest("GET", "/api/v1/externa/fichas/abc"));
+        servidor.verify();
+    }
+
+    @Test
+    void laRespuestaExternaNoQuedaEnCachesCompartidas() {
+        servidor.expect(requestTo("http://publica:8083/api/publica/fichas"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON).header("Cache-Control", "public, max-age=30"));
+
+        ResponseEntity<byte[]> respuesta = proxy.reenviarApiExterna(
+                new MockHttpServletRequest("GET", "/api/v1/externa/fichas"));
+
+        assertThat(respuesta.getHeaders().getCacheControl()).contains("private").doesNotContain("public");
+    }
+
+    @Test
+    void laApiExternaPropagaLosErroresDelServicio() {
+        servidor.expect(requestTo("http://publica:8083/api/publica/fichas/x"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertThat(proxy.reenviarApiExterna(new MockHttpServletRequest("GET", "/api/v1/externa/fichas/x"))
+                .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void laApiExternaSoloAtiendeFichas() {
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/externa/eventos/recibidos");
+
+        assertThatThrownBy(() -> proxy.reenviarApiExterna(req)).isInstanceOf(IllegalArgumentException.class);
+        servidor.verify();
+    }
+
+    @Test
+    void laApiExternaRechazaRutasNoNormalizadas() {
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/externa/fichas/%2e%2e/eventos");
+
+        assertThatThrownBy(() -> proxy.reenviarApiExterna(req)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void trasVariosFallosDeConexionRespondeSinIntentarlo() {
+        for (int i = 0; i < 3; i++) {
+            servidor.expect(requestTo("http://cientifico:8081/api/cientifico/ping"))
+                    .andRespond(request -> { throw new java.net.ConnectException("rechazada"); });
+        }
+        for (int i = 0; i < 3; i++) {
+            assertThatThrownBy(() -> proxy.reenviar(new MockHttpServletRequest("GET", "/api/cientifico/ping")))
+                    .isInstanceOf(org.springframework.web.client.ResourceAccessException.class);
+        }
+
+        assertThatThrownBy(() -> proxy.reenviar(new MockHttpServletRequest("GET", "/api/cientifico/ping")))
+                .isInstanceOf(CircuitoAbiertoException.class);
+        servidor.verify();
+    }
+
+    @Test
+    void unErrorDelServicioNoAbreElCircuito() {
+        for (int i = 0; i < 4; i++) {
+            servidor.expect(requestTo("http://publica:8083/api/publica/fichas"))
+                    .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+        }
+        for (int i = 0; i < 4; i++) {
+            assertThat(proxy.reenviar(new MockHttpServletRequest("GET", "/api/publica/fichas")).getStatusCode())
+                    .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        }
         servidor.verify();
     }
 

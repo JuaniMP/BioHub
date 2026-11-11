@@ -1,0 +1,28 @@
+meta {
+  name: consumidores-rol-sin-permiso-403
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseGateway}}/api/gateway/consumidores
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token_campo}}
+}
+
+tests {
+  test("solo administrador", function () {
+    expect(res.getStatus()).to.equal(403);
+  });
+  test("codigo ROL_INSUFICIENTE", function () {
+    expect(res.getBody().codigo).to.equal("ROL_INSUFICIENTE");
+  });
+}
+
+docs {
+  Requisito: HU-12.
+}
