@@ -1,0 +1,45 @@
+-- =============================================================================
+-- PROPUESTA (no aplicada todavia): hacer append-only el historial de registro
+-- =============================================================================
+-- HU-05, criterio 2, pide "bloquear fisicamente cualquier instruccion de
+-- actualizacion o eliminacion directa sobre las tablas de auditoria" (ASR7).
+--
+-- La via habitual, triggers BEFORE UPDATE/DELETE que lanzan SIGNAL, NO sirve aqui:
+-- MySQL con binary logging activo exige SUPER para crearlos (ERROR 1419) y ningun
+-- usuario del proyecto tiene SUPER ni TRIGGER (01-escritura..., doc 05 seccion 11).
+-- Se comprobo contra MySQL 8.4 real: la migracion fallaba y el servicio no arrancaba.
+--
+-- Queda la via de permisos. El problema es que hoy cientifico_app tiene
+-- SELECT, INSERT, UPDATE, DELETE sobre `cientifico`.* y en MySQL los privilegios se
+-- SUMAN: no existe forma de "restar" UPDATE a dos tablas concretas. Hay que bajar el
+-- permiso de base y volver a darlo tabla por tabla, salvo en las dos del historial.
+--
+-- EFECTO SECUNDARIO QUE EL EQUIPO DEBE DECIDIR: a partir de aqui, cada tabla nueva
+-- con escritura necesita su linea en este script. Hoy el aprovisionamiento es por
+-- base justamente para no tener que tocarlo (doc 05 seccion 11).
+--
+-- Mientras no se aplique, la inmutabilidad se sostiene en el codigo (los repositorios
+-- no exponen modificacion ni borrado) y en los CHECK de la migracion. Es suficiente
+-- contra un error de programacion, pero no contra alguien con la credencial de la app.
+--
+-- Ejecutar como avnadmin, DESPUES de que Flyway haya creado las tablas de registro.
+-- -----------------------------------------------------------------------------
+
+-- 1. Bajar el permiso de base a solo lectura y escritura de altas
+REVOKE IF EXISTS UPDATE, DELETE ON `cientifico`.* FROM 'cientifico_app'@'%' IGNORE UNKNOWN USER;
+
+-- 2. Devolver UPDATE y DELETE tabla por tabla, EXCEPTO hallazgo_version y hallazgo_auditoria
+GRANT UPDATE, DELETE ON `cientifico`.`hallazgo`            TO 'cientifico_app'@'%';
+GRANT UPDATE, DELETE ON `cientifico`.`hallazgo_evidencia`  TO 'cientifico_app'@'%';
+GRANT UPDATE, DELETE ON `cientifico`.`ficha_plantilla`     TO 'cientifico_app'@'%';
+GRANT UPDATE, DELETE ON `cientifico`.`ubicacion_hallazgo`  TO 'cientifico_app'@'%';
+-- (ubicacion_departamento y ubicacion_region son catalogo: solo las toca Flyway)
+
+-- 3. El historial queda en solo INSERT y SELECT
+--    No hace falta GRANT: ya los tiene por la linea de base del script 01.
+
+FLUSH PRIVILEGES;
+
+-- Verificacion: estas dos deben fallar con ERROR 1142 conectado como cientifico_app
+--   UPDATE hallazgo_version   SET autor = 'otro' LIMIT 1;
+--   DELETE FROM hallazgo_auditoria LIMIT 1;

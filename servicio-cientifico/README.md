@@ -154,12 +154,13 @@ permite (lo verifica `ModuloRegistroNoDependeDeUbicacionInternaTest`).
 
 ### Inmutabilidad del historial (ASR7)
 
-Tres barreras: el código no expone operaciones de modificación, los triggers de
-`V20261104_1010__registro_historial_inmutable.sql` rechazan `UPDATE` y `DELETE`, y el usuario de
-aplicación solo debería tener `INSERT` y `SELECT` sobre esas tablas.
+Hoy la sostienen el código (los repositorios no exponen modificación ni borrado) y los `CHECK` de la
+migración. El bloqueo *físico* que pide HU-05 necesita permisos: la vía de los triggers se probó y no
+funciona, porque MySQL con binary logging exige `SUPER` para crearlos (ERROR 1419).
 
-> Crear triggers exige el privilegio `TRIGGER` del usuario de migración. **Falta verificar que Aiven lo
-> permita**; si no, se omite esa migración y la inmutabilidad queda en los `GRANT`.
+La propuesta de permisos está en `deploy/aiven/03-registro-historial-append-only.sql.example` y
+`MigracionesRegistroTest` la verifica contra MySQL real. Aplicarla es una decisión del equipo: ver
+§15 del contrato de API.
 
 ### Pruebas
 

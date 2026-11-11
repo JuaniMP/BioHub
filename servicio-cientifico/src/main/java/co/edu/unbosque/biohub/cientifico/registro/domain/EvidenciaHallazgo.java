@@ -49,7 +49,9 @@ public class EvidenciaHallazgo {
     @Column(name = "ruta", nullable = false, length = 500)
     private String ruta;
 
-    @Column(name = "sha256", nullable = false, length = 64)
+    // CHAR(64) y no VARCHAR: el hash hexadecimal siempre mide lo mismo. Se declara el tipo para que
+    // la validacion de esquema de Hibernate coincida con la migracion.
+    @Column(name = "sha256", nullable = false, length = 64, columnDefinition = "char(64)")
     private String sha256;
 
     @Column(name = "creado_en", insertable = false, updatable = false)

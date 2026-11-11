@@ -794,12 +794,29 @@ parámetros no importa. `400` si ambos son iguales; `404` si alguna versión no 
    (§7.5, obligación 1). *Pendiente*: outbox transaccional; hoy, si el broker falla tras el commit,
    queda un log de error para republicar.
 
-## 15. Historial inmutable (ASR7)
+## 15. Historial inmutable (ASR7) — qué está garantizado hoy
 
-`hallazgo_version` y `hallazgo_auditoria` son append-only y así se defiende en tres capas:
-el código no expone operaciones de modificación, la migración añade triggers que rechazan `UPDATE` y
-`DELETE`, y el usuario de aplicación solo debería tener `INSERT` y `SELECT` sobre ellas (doc 05 §11).
+`hallazgo_version` y `hallazgo_auditoria` son append-only **por código y por esquema**:
 
-> **Para devops:** crear triggers exige el privilegio `TRIGGER` del usuario de migración. Si el MySQL
-> administrado no lo concede, se omite `V20261104_1010__registro_historial_inmutable.sql` y la
-> inmutabilidad queda sostenida por los `GRANT`. **Pendiente de verificar en Aiven.**
+1. Los repositorios no exponen ninguna operación de modificación ni de borrado.
+2. Un `CHECK` impide guardar una versión ≥ 2 sin justificación, y un `UNIQUE` impide repetir una versión.
+
+**Lo que todavía NO está garantizado:** el criterio 2 de HU-05 pide bloquear *físicamente* `UPDATE` y
+`DELETE`. La vía habitual —triggers— se probó y **no es viable**: MySQL con binary logging exige
+`SUPER` para crearlos (ERROR 1419) y ningún usuario del proyecto tiene `SUPER` ni `TRIGGER` (doc 05
+§11). Se comprobó contra MySQL 8.4 real: la migración fallaba y el servicio no arrancaba, así que se
+retiró.
+
+Queda la vía de permisos, pero choca con el aprovisionamiento actual: `cientifico_app` tiene
+`UPDATE, DELETE` sobre `cientifico`.*, y en MySQL los privilegios **se suman**, de modo que no se
+puede restar el permiso a dos tablas concretas. Hay que bajar el permiso de base y devolverlo tabla
+por tabla.
+
+La propuesta está escrita y **probada** en `deploy/aiven/03-registro-historial-append-only.sql.example`;
+`MigracionesRegistroTest` crea un usuario con ese reparto y verifica que `UPDATE` y `DELETE` sobre el
+historial fallan mientras el resto sigue funcionando.
+
+> **Decisión pendiente del equipo:** aplicarlo tiene un costo, cada tabla nueva con escritura necesitará
+> su línea en ese script, mientras que hoy el aprovisionamiento es por base para no tener que tocarlo.
+> Mientras no se aplique, la inmutabilidad protege contra un error de programación, pero no contra
+> alguien que use la credencial de la aplicación.

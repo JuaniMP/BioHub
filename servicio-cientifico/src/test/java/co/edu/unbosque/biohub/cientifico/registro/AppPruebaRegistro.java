@@ -1,9 +1,12 @@
 package co.edu.unbosque.biohub.cientifico.registro;
 
+import java.time.Clock;
+
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
@@ -28,4 +31,10 @@ import co.edu.unbosque.biohub.cientifico.config.SecurityConfig;
         "co.edu.unbosque.biohub.cientifico.ubicacion.domain"})
 @Import(SecurityConfig.class)
 public class AppPruebaRegistro {
+
+    /** En produccion lo aporta RabbitConfig, que aqui no se carga porque RabbitMQ queda fuera. */
+    @Bean
+    Clock reloj() {
+        return Clock.systemUTC();
+    }
 }
